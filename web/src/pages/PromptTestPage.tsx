@@ -186,10 +186,8 @@ export function PromptTestPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden">
-      <DeepVoidBackground />
-
-      <div className="relative z-10 max-w-7xl mx-auto px-4 py-8">
+    <DeepVoidBackground>
+      <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-nofx-text mb-2">{t('title')}</h1>
@@ -411,6 +409,6 @@ export function PromptTestPage() {
           </div>
         )}
       </div>
-    </div>
+    </DeepVoidBackground>
   )
 }
