@@ -971,12 +971,14 @@ export function StrategyStudioPage() {
 
         {/* Right Column - Prompt Preview & AI Test */}
         <div className={`
-          fixed md:relative inset-y-0 right-0 z-50
+          fixed inset-y-0 right-0 z-50
+          md:relative md:inset-y-auto md:right-auto md:z-auto
           w-[90vw] md:w-[420px]
           flex-shrink-0 flex flex-col overflow-hidden
           bg-nofx-bg border-l border-nofx-gold/20
           transition-transform duration-300 ease-in-out
-          ${mobileRightOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}
+          md:translate-x-0
+          ${mobileRightOpen ? 'translate-x-0' : 'translate-x-full'}
         `}>
           {/* Mobile close button */}
           <button
