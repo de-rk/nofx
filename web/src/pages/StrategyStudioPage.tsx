@@ -964,26 +964,16 @@ export function StrategyStudioPage() {
         {/* Mobile drawer overlay */}
         {mobileRightOpen && (
           <div
-            className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
             onClick={() => setMobileRightOpen(false)}
           />
         )}
 
-        {/* Right Column - Prompt Preview & AI Test */}
-        <div className={`
-          fixed inset-y-0 right-0 z-50
-          md:relative md:inset-y-auto md:right-auto md:z-auto
-          w-[90vw] md:w-[420px]
-          flex-shrink-0 flex flex-col overflow-hidden
-          bg-nofx-bg border-l border-nofx-gold/20
-          transition-transform duration-300 ease-in-out
-          md:translate-x-0
-          ${mobileRightOpen ? 'translate-x-0' : 'translate-x-full'}
-        `}>
-          {/* Mobile close button */}
+        {/* Mobile drawer - completely independent fixed element */}
+        <div className={`fixed inset-y-0 right-0 z-50 w-[90vw] flex flex-col overflow-hidden bg-nofx-bg border-l border-nofx-gold/20 transition-transform duration-300 ease-in-out md:hidden ${mobileRightOpen ? 'translate-x-0' : 'translate-x-full'}`}>
           <button
             onClick={() => setMobileRightOpen(false)}
-            className="md:hidden absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-nofx-bg-lighter text-nofx-text-muted hover:text-white"
+            className="absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-nofx-bg-lighter text-nofx-text-muted hover:text-white"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1214,6 +1204,112 @@ export function StrategyStudioPage() {
                             >
                               {aiTestResult.ai_response}
                             </pre>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
+                    <Play className="w-10 h-10 mb-2 opacity-30" />
+                    <p className="text-sm">{language === 'zh' ? '点击运行 AI 测试' : 'Click to run AI test'}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Desktop Right Column - Prompt Preview & AI Test */}
+        <div className="hidden md:flex w-[420px] flex-shrink-0 flex-col overflow-hidden border-l border-nofx-gold/20">
+          {/* Tabs */}
+          <div className="flex-shrink-0 flex border-b border-nofx-gold/20">
+            <button
+              onClick={() => setActiveRightTab('prompt')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'prompt' ? 'border-b-2 border-purple-500 text-purple-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'}`}
+            >
+              <Eye className="w-4 h-4" />
+              {t('promptPreview')}
+            </button>
+            <button
+              onClick={() => setActiveRightTab('test')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'test' ? 'border-b-2 border-green-500 text-green-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'}`}
+            >
+              <Play className="w-4 h-4" />
+              {t('aiTestRun')}
+            </button>
+          </div>
+          {/* Tab Content - reuse same state */}
+          <div className="flex-1 overflow-y-auto">
+            {activeRightTab === 'prompt' ? (
+              <div className="p-3 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select value={selectedVariant} onChange={(e) => setSelectedVariant(e.target.value)} className="px-2 py-1.5 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold">
+                    <option value="balanced">{t('balanced')}</option>
+                    <option value="aggressive">{t('aggressive')}</option>
+                    <option value="conservative">{t('conservative')}</option>
+                  </select>
+                  <button onClick={fetchPromptPreview} disabled={isLoadingPrompt || !editingConfig} className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-purple-600 hover:bg-purple-700 text-white">
+                    {isLoadingPrompt ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    {promptPreview ? t('refreshPrompt') : t('loadPrompt')}
+                  </button>
+                </div>
+                {promptPreview ? (
+                  <>
+                    <div className="p-2 rounded-lg bg-nofx-bg border border-nofx-gold/20">
+                      <div className="flex items-center gap-1.5 mb-2"><Code className="w-3 h-3 text-purple-500" /><span className="text-xs font-medium text-purple-500">Config</span></div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        {Object.entries(promptPreview.config_summary || {}).map(([key, value]) => (
+                          <div key={key}><div className="text-nofx-text-muted">{key.replace(/_/g, ' ')}</div><div className="text-nofx-text">{String(value)}</div></div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5"><FileText className="w-3 h-3 text-purple-500" /><span className="text-xs font-medium text-nofx-text">{t('systemPrompt')}</span></div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-nofx-bg-lighter text-nofx-text-muted">{promptPreview.system_prompt.length.toLocaleString()} chars</span>
+                      </div>
+                      <pre className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text" style={{ maxHeight: '400px' }}>{promptPreview.system_prompt}</pre>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
+                    <Eye className="w-10 h-10 mb-2 opacity-30" />
+                    <p className="text-sm">{language === 'zh' ? '点击生成 Prompt 预览' : 'Click to generate prompt preview'}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-3 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select value={selectedModelId} onChange={(e) => setSelectedModelId(e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold">
+                    <option value="">{language === 'zh' ? '选择模型...' : 'Select model...'}</option>
+                    {aiModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                  <button onClick={runAiTest} disabled={isRunningAiTest || !editingConfig || !selectedModelId} className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-green-600 hover:bg-green-700 text-white">
+                    {isRunningAiTest ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                    {t('runTest')}
+                  </button>
+                </div>
+                {aiTestResult ? (
+                  <div className="space-y-3">
+                    {aiTestResult.error ? (
+                      <div className="p-3 rounded-lg bg-nofx-danger/10 border border-nofx-danger/30 text-xs text-nofx-danger">{aiTestResult.error}</div>
+                    ) : (
+                      <>
+                        {aiTestResult.duration_ms && (
+                          <div className="flex items-center gap-2"><Clock className="w-3 h-3 text-nofx-text-muted" /><span className="text-xs text-nofx-text-muted">{t('duration')}: {(aiTestResult.duration_ms / 1000).toFixed(2)}s</span></div>
+                        )}
+                        {aiTestResult.decisions && aiTestResult.decisions.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1.5"><Activity className="w-3 h-3 text-green-500" /><span className="text-xs font-medium text-nofx-text">{t('decisions')}</span></div>
+                            <pre className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text" style={{ maxHeight: '200px' }}>{JSON.stringify(aiTestResult.decisions, null, 2)}</pre>
+                          </div>
+                        )}
+                        {aiTestResult.ai_response && (
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1.5"><FileText className="w-3 h-3 text-nofx-text-muted" /><span className="text-xs font-medium text-nofx-text">{t('aiOutput')} (Raw)</span></div>
+                            <pre className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/20 text-nofx-text" style={{ maxHeight: '300px' }}>{aiTestResult.ai_response}</pre>
                           </div>
                         )}
                       </>
