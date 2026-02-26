@@ -29,6 +29,8 @@ import {
   Download,
   Upload,
   Globe,
+  PanelRight,
+  X,
 } from 'lucide-react'
 import type { Strategy, StrategyConfig, AIModel } from '../types'
 import { confirmToast, notify } from '../lib/notify'
@@ -68,6 +70,9 @@ export function StrategyStudioPage() {
     customPrompt: false,
     publishSettings: false,
   })
+
+  // Mobile right panel drawer
+  const [mobileRightOpen, setMobileRightOpen] = useState(false)
 
   // Right panel states
   const [activeRightTab, setActiveRightTab] = useState<'prompt' | 'test'>('prompt')
@@ -947,8 +952,39 @@ export function StrategyStudioPage() {
           )}
         </div>
 
+        {/* Mobile toggle button */}
+        <button
+          onClick={() => setMobileRightOpen(true)}
+          className="md:hidden fixed bottom-6 right-4 z-30 flex items-center gap-2 px-3 py-2 rounded-full bg-nofx-gold text-black text-xs font-medium shadow-lg"
+        >
+          <PanelRight className="w-4 h-4" />
+          {t('promptPreview')}
+        </button>
+
+        {/* Mobile drawer overlay */}
+        {mobileRightOpen && (
+          <div
+            className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+            onClick={() => setMobileRightOpen(false)}
+          />
+        )}
+
         {/* Right Column - Prompt Preview & AI Test */}
-        <div className="w-[420px] flex-shrink-0 flex flex-col overflow-hidden">
+        <div className={`
+          fixed md:relative inset-y-0 right-0 z-50
+          w-[90vw] md:w-[420px]
+          flex-shrink-0 flex flex-col overflow-hidden
+          bg-nofx-bg border-l border-nofx-gold/20
+          transition-transform duration-300 ease-in-out
+          ${mobileRightOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}
+        `}>
+          {/* Mobile close button */}
+          <button
+            onClick={() => setMobileRightOpen(false)}
+            className="md:hidden absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-nofx-bg-lighter text-nofx-text-muted hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
           {/* Tabs */}
           <div className="flex-shrink-0 flex border-b border-nofx-gold/20">
             <button
