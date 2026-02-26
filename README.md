@@ -153,7 +153,7 @@ To use NOFX, you'll need:
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 That's it! Open **http://127.0.0.1:3000** in your browser.
@@ -170,7 +170,7 @@ After deployment, Railway will provide a public URL to access your NOFX instance
 
 ```bash
 # Download and start
-curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/de-rk/nofx/dev/docker-compose.prod.yml
 docker compose -f docker-compose.prod.yml up -d
 ```
 
@@ -189,7 +189,7 @@ docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compo
 > **💡 Updates are frequent.** Run this command daily to stay current with the latest features and fixes:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 This one-liner pulls the latest official images and restarts services automatically.
