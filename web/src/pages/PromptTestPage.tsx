@@ -88,9 +88,10 @@ export function PromptTestPage() {
         })
         if (!response.ok) throw new Error('Failed to fetch strategies')
         const data = await response.json()
-        setStrategies(data)
-        if (data.length > 0) {
-          setSelectedStrategy(data[0])
+        const list = data.strategies || []
+        setStrategies(list)
+        if (list.length > 0) {
+          setSelectedStrategy(list[0])
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error')
@@ -106,7 +107,7 @@ export function PromptTestPage() {
     if (!token) return
     const fetchModels = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/ai-models`, {
+        const response = await fetch(`${API_BASE}/api/models`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!response.ok) throw new Error('Failed to fetch AI models')
