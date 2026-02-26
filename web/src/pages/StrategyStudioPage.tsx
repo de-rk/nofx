@@ -22,7 +22,7 @@ import {
   FileText,
   Bot,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, AIModel } from '../types'
+import type { Strategy, StrategyConfig } from '../types'
 import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
 import { IndicatorEditor } from '../components/strategy/IndicatorEditor'
@@ -46,10 +46,6 @@ export function StrategyStudioPage() {
   const [error, setError] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
 
-  // AI Models for test run
-  const [aiModels, setAiModels] = useState<AIModel[]>([])
-  const [selectedModelId, setSelectedModelId] = useState<string>('')
-
   // Accordion states for left panel
   const [expandedSections, setExpandedSections] = useState({
     gridConfig: true,
@@ -67,28 +63,6 @@ export function StrategyStudioPage() {
       [section]: !prev[section],
     }))
   }
-
-  // Fetch AI Models
-  const fetchAiModels = useCallback(async () => {
-    if (!token) return
-    try {
-      const response = await fetch(`${API_BASE}/api/models`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (response.ok) {
-        const data = await response.json()
-        // 后端返回的是数组，不是 { models: [] }
-        const allModels = Array.isArray(data) ? data : (data.models || [])
-        const enabledModels = allModels.filter((m: AIModel) => m.enabled)
-        setAiModels(enabledModels)
-        if (enabledModels.length > 0 && !selectedModelId) {
-          setSelectedModelId(enabledModels[0].id)
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch AI models:', err)
-    }
-  }, [token, selectedModelId])
 
   // Fetch strategies
   const fetchStrategies = useCallback(async () => {
@@ -119,8 +93,7 @@ export function StrategyStudioPage() {
 
   useEffect(() => {
     fetchStrategies()
-    fetchAiModels()
-  }, [fetchStrategies, fetchAiModels])
+  }, [fetchStrategies])
 
   // Track previous language to detect actual changes
   const prevLanguageRef = useRef(language)
@@ -625,8 +598,6 @@ export function StrategyStudioPage() {
                     setSelectedStrategy(strategy)
                     setEditingConfig(strategy.config)
                     setHasChanges(false)
-                    setPromptPreview(null)
-                    setAiTestResult(null)
                   }}
                   className={`group px-2 py-2 rounded-lg cursor-pointer transition-all ${selectedStrategy?.id === strategy.id
                     ? 'ring-1 ring-nofx-gold/50 bg-nofx-gold/10 shadow-[0_0_15px_rgba(240,185,11,0.1)]'

@@ -10,7 +10,7 @@ import {
   Clock,
   Sparkles,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, AIModel } from '../types'
+import type { Strategy, AIModel } from '../types'
 import { notify } from '../lib/notify'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
 
@@ -23,7 +23,7 @@ export function PromptTestPage() {
   const [strategies, setStrategies] = useState<Strategy[]>([])
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [, setError] = useState<string | null>(null)
 
   // Prompt Preview states
   const [activeTab, setActiveTab] = useState<'prompt' | 'test'>('prompt')

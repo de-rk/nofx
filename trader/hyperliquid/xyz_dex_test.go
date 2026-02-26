@@ -508,7 +508,7 @@ func TestXyzDexLiveOrder(t *testing.T) {
 	t.Logf("Wallet: %s", walletAddr)
 
 	// Create trader instance
-	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false)
+	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false, false)
 	if err != nil {
 		t.Fatalf("Failed to create trader: %v", err)
 	}
@@ -587,7 +587,7 @@ func TestXyzDexClosePosition(t *testing.T) {
 	t.Logf("Wallet: %s", walletAddr)
 
 	// Create trader instance
-	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false)
+	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false, false)
 	if err != nil {
 		t.Fatalf("Failed to create trader: %v", err)
 	}

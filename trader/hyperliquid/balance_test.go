@@ -22,7 +22,7 @@ func TestHyperliquidBalanceCalculation(t *testing.T) {
 	t.Logf("Wallet: %s", walletAddr)
 
 	// Create trader instance
-	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false)
+	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false, false)
 	if err != nil {
 		t.Fatalf("Failed to create trader: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestXyzDexBalanceDirectQuery(t *testing.T) {
 		t.Skip("TEST_PRIVATE_KEY and TEST_WALLET_ADDR env vars required")
 	}
 
-	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false)
+	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false, false)
 	if err != nil {
 		t.Fatalf("Failed to create trader: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestEquityAfterOpeningPosition(t *testing.T) {
 		t.Skip("Set XYZ_DEX_LIVE_TEST=1 to run live position test")
 	}
 
-	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false)
+	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false, false)
 	if err != nil {
 		t.Fatalf("Failed to create trader: %v", err)
 	}

@@ -42,7 +42,7 @@ func main() {
 	// 如果指定了 traderID，获取该 trader 的订单
 	if traderID == "" {
 		fmt.Println("\n⚠️  未指定 trader_id，使用: --trader <trader_id>")
-		fmt.Println("   获取所有 trader 的统计信息...\n")
+		fmt.Println("   获取所有 trader 的统计信息...")
 	}
 
 	// 获取订单列表
