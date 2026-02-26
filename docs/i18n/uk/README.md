@@ -95,7 +95,7 @@
 ### Варіант 1: Docker розгортання (рекомендовано)
 
 ```bash
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 chmod +x ./start.sh
 ./start.sh start --build
@@ -108,7 +108,7 @@ chmod +x ./start.sh
 > **💡 Оновлення виходять часто.** Запускайте цю команду щодня для отримання останніх функцій та виправлень:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 Ця команда завантажує останні офіційні образи та автоматично перезапускає сервіси.
@@ -122,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
 brew install ta-lib
 
 # Клонування та налаштування
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 go mod download
 cd web && npm install && cd ..

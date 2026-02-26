@@ -4,7 +4,7 @@ import { Terminal, Copy, Check, ChevronRight, Server, Command, Shield } from 'lu
 
 export default function DeploymentHub() {
     const [copied, setCopied] = useState(false)
-    const installCmd = "curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash"
+    const installCmd = "curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash"
 
     const handleCopy = () => {
         navigator.clipboard.writeText(installCmd)

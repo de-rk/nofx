@@ -95,7 +95,7 @@ Tham gia cộng đồng Telegram: **[NOFX Developer Community](https://t.me/nofx
 ### Tùy chọn 1: Triển khai Docker (Khuyến nghị)
 
 ```bash
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 chmod +x ./start.sh
 ./start.sh start --build
@@ -108,7 +108,7 @@ Truy cập giao diện Web: **http://localhost:3000**
 > **💡 Cập nhật thường xuyên.** Chạy lệnh này hàng ngày để nhận các tính năng và bản sửa lỗi mới nhất:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 Lệnh này tải về image chính thức mới nhất và tự động khởi động lại dịch vụ.
@@ -122,7 +122,7 @@ Lệnh này tải về image chính thức mới nhất và tự động khởi 
 brew install ta-lib
 
 # Clone và thiết lập
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 go mod download
 cd web && npm install && cd ..

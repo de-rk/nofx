@@ -95,7 +95,7 @@ NOFXを使用するには以下が必要です:
 ### オプション 1: Docker デプロイ（推奨）
 
 ```bash
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 chmod +x ./start.sh
 ./start.sh start --build
@@ -108,7 +108,7 @@ Web インターフェースにアクセス: **http://localhost:3000**
 > **💡 更新は頻繁です。** 最新の機能と修正を取得するために、毎日このコマンドを実行してください：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 このコマンドは最新の公式イメージを取得し、サービスを自動的に再起動します。
@@ -122,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
 brew install ta-lib
 
 # クローンとセットアップ
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 go mod download
 cd web && npm install && cd ..
@@ -162,7 +162,7 @@ cd web && npm run dev
 
 ```bash
 # サーバーにデプロイ
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 `http://YOUR_SERVER_IP:3000` 経由でアクセス - すぐに動作します。

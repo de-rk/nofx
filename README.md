@@ -215,7 +215,7 @@ sudo apt-get install libta-lib0-dev
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 
 # 2. Install backend dependencies
@@ -295,7 +295,7 @@ Access Web Interface: **http://127.0.0.1:3000**
 
 4. **Clone and Run NOFX**
    ```bash
-   git clone https://github.com/NoFxAiOS/nofx.git
+   git clone https://github.com/de-rk/nofx.git
    cd nofx
 
    # Build and run backend
@@ -315,7 +315,7 @@ Access Web Interface: **http://127.0.0.1:3000**
 
 2. **Run from WSL2 terminal**
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
    ```
 
 ---
@@ -328,7 +328,7 @@ By default, transport encryption is **disabled**, allowing you to access NOFX vi
 
 ```bash
 # Deploy to your server
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 Access via `http://YOUR_SERVER_IP:3000` - works immediately.

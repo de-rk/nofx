@@ -389,7 +389,7 @@ sudo apt-get install libta-lib0-dev
 ### 2. プロジェクトをクローン
 
 ```bash
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 ```
 

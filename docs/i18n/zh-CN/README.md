@@ -124,7 +124,7 @@
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 完成！打开浏览器访问 **http://127.0.0.1:3000**
@@ -160,7 +160,7 @@ docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compo
 > **💡 更新频繁。** 每天运行以下命令以获取最新功能和修复：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 此命令会拉取最新官方镜像并自动重启服务。
@@ -186,7 +186,7 @@ sudo apt-get install libta-lib0-dev
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 
 # 2. 安装后端依赖
@@ -266,7 +266,7 @@ npm run dev
 
 4. **克隆并运行 NOFX**
    ```bash
-   git clone https://github.com/NoFxAiOS/nofx.git
+   git clone https://github.com/de-rk/nofx.git
    cd nofx
 
    # 构建并运行后端
@@ -286,7 +286,7 @@ npm run dev
 
 2. **在 WSL2 终端运行**
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
    ```
 
 ---
@@ -299,7 +299,7 @@ npm run dev
 
 ```bash
 # 部署到你的服务器
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 通过 `http://你的服务器IP:3000` 访问 - 立即可用。

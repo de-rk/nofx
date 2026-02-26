@@ -95,7 +95,7 @@
 ### Вариант 1: Docker развёртывание (рекомендуется)
 
 ```bash
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 chmod +x ./start.sh
 ./start.sh start --build
@@ -108,7 +108,7 @@ chmod +x ./start.sh
 > **💡 Обновления выходят часто.** Запускайте эту команду ежедневно для получения последних функций и исправлений:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 Эта команда загружает последние официальные образы и автоматически перезапускает сервисы.
@@ -122,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
 brew install ta-lib
 
 # Клонирование и настройка
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 go mod download
 cd web && npm install && cd ..

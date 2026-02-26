@@ -95,7 +95,7 @@ NOFX를 사용하려면 다음이 필요합니다:
 ### 옵션 1: Docker 배포 (권장)
 
 ```bash
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 chmod +x ./start.sh
 ./start.sh start --build
@@ -108,7 +108,7 @@ chmod +x ./start.sh
 > **💡 업데이트가 빈번합니다.** 최신 기능과 수정 사항을 받으려면 매일 이 명령을 실행하세요:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 이 명령은 최신 공식 이미지를 가져오고 서비스를 자동으로 다시 시작합니다.
@@ -122,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
 brew install ta-lib
 
 # 클론 및 설정
-git clone https://github.com/NoFxAiOS/nofx.git
+git clone https://github.com/de-rk/nofx.git
 cd nofx
 go mod download
 cd web && npm install && cd ..
@@ -162,7 +162,7 @@ cd web && npm run dev
 
 ```bash
 # 서버에 배포
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/de-rk/nofx/dev/install.sh | bash
 ```
 
 `http://YOUR_SERVER_IP:3000`을 통해 액세스 - 즉시 작동합니다.
