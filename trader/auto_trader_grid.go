@@ -511,6 +511,26 @@ func (at *AutoTrader) InitializeGrid() error {
 	}
 
 	gridConfig := at.config.StrategyConfig.GridConfig
+
+	// Use actual account equity as total investment
+	balance, err := at.trader.GetBalance()
+	if err != nil {
+		logger.Warnf("[Grid] Failed to get balance for total investment, using config value: %v", err)
+	} else {
+		equity := 0.0
+		if e, ok := balance["total_equity"].(float64); ok {
+			equity = e
+		} else if total, ok := balance["totalWalletBalance"].(float64); ok {
+			if unrealized, ok := balance["totalUnrealizedProfit"].(float64); ok {
+				equity = total + unrealized
+			}
+		}
+		if equity > 0 {
+			logger.Infof("[Grid] Using actual account equity as total investment: %.2f USDT (config was: %.2f)", equity, gridConfig.TotalInvestment)
+			gridConfig.TotalInvestment = equity
+		}
+	}
+
 	at.gridState = NewGridState(gridConfig)
 
 	// Get current market price

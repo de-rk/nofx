@@ -47,7 +47,7 @@ export function GridConfigEditor({
 
       // Investment
       totalInvestment: { zh: '投资金额 (USDT)', en: 'Investment (USDT)' },
-      totalInvestmentDesc: { zh: '网格策略的总投资金额', en: 'Total investment for grid strategy' },
+      totalInvestmentDesc: { zh: '跟随实际账户余额，运行时自动获取', en: 'Follows actual account balance at runtime' },
       leverage: { zh: '杠杆倍数', en: 'Leverage' },
       leverageDesc: { zh: '交易使用的杠杆倍数 (1-5)', en: 'Leverage for trading (1-5)' },
 
@@ -154,7 +154,7 @@ export function GridConfigEditor({
             </select>
           </div>
 
-          {/* Investment */}
+          {/* Investment - read-only, follows account balance */}
           <div className="p-4 rounded-lg" style={sectionStyle}>
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {t('totalInvestment')}
@@ -162,16 +162,12 @@ export function GridConfigEditor({
             <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
               {t('totalInvestmentDesc')}
             </p>
-            <input
-              type="number"
-              value={config.total_investment}
-              onChange={(e) => updateField('total_investment', parseFloat(e.target.value) || 1000)}
-              disabled={disabled}
-              min={100}
-              step={100}
-              className="w-full px-3 py-2 rounded"
-              style={inputStyle}
-            />
+            <div
+              className="w-full px-3 py-2 rounded text-sm"
+              style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#848E9C' }}
+            >
+              {language === 'zh' ? '自动 (账户余额)' : 'Auto (Account Balance)'}
+            </div>
           </div>
 
           {/* Leverage */}
