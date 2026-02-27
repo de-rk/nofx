@@ -144,7 +144,7 @@ func (at *AutoTrader) checkMaxDrawdown() (bool, float64) {
 	}
 
 	currentEquity := 0.0
-	if equity, ok := balance["total_equity"].(float64); ok {
+	if equity, ok := balance["totalEquity"].(float64); ok {
 		currentEquity = equity
 	} else if total, ok := balance["totalWalletBalance"].(float64); ok {
 		if unrealized, ok := balance["totalUnrealizedProfit"].(float64); ok {
@@ -518,7 +518,7 @@ func (at *AutoTrader) InitializeGrid() error {
 		logger.Warnf("[Grid] Failed to get balance for total investment, using config value: %v", err)
 	} else {
 		equity := 0.0
-		if e, ok := balance["total_equity"].(float64); ok {
+		if e, ok := balance["totalEquity"].(float64); ok {
 			equity = e
 		} else if total, ok := balance["totalWalletBalance"].(float64); ok {
 			if unrealized, ok := balance["totalUnrealizedProfit"].(float64); ok {
@@ -926,7 +926,7 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	// Get account info
 	balance, err := at.trader.GetBalance()
 	if err == nil {
-		if equity, ok := balance["total_equity"].(float64); ok {
+		if equity, ok := balance["totalEquity"].(float64); ok {
 			ctx.TotalEquity = equity
 		}
 		if available, ok := balance["availableBalance"].(float64); ok {
@@ -1703,14 +1703,8 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 	leverage := gridConfig.Leverage
 	totalInvestment := gridConfig.TotalInvestment
 	if bal, err := at.trader.GetBalance(); err == nil {
-		if e, ok := bal["total_equity"].(float64); ok && e > 0 {
+		if e, ok := bal["totalEquity"].(float64); ok && e > 0 {
 			totalInvestment = e
-		} else if total, ok := bal["totalWalletBalance"].(float64); ok {
-			if unrealized, ok := bal["totalUnrealizedProfit"].(float64); ok {
-				if total+unrealized > 0 {
-					totalInvestment = total + unrealized
-				}
-			}
 		}
 	}
 
