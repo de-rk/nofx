@@ -1699,9 +1699,20 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 	// Get current price
 	currentPrice, _ := at.trader.GetMarketPrice(gridConfig.Symbol)
 
-	// Calculate effective leverage
-	totalInvestment := gridConfig.TotalInvestment
+	// Use actual account equity as total investment
 	leverage := gridConfig.Leverage
+	totalInvestment := gridConfig.TotalInvestment
+	if bal, err := at.trader.GetBalance(); err == nil {
+		if e, ok := bal["total_equity"].(float64); ok && e > 0 {
+			totalInvestment = e
+		} else if total, ok := bal["totalWalletBalance"].(float64); ok {
+			if unrealized, ok := bal["totalUnrealizedProfit"].(float64); ok {
+				if total+unrealized > 0 {
+					totalInvestment = total + unrealized
+				}
+			}
+		}
+	}
 
 	// Get current position value
 	positions, _ := at.trader.GetPositions()
