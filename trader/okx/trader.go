@@ -303,11 +303,12 @@ func (t *OKXTrader) GetBalance() (map[string]interface{}, error) {
 	balance := balances[0]
 
 	// Find USDT balance
-	var usdtAvail, usdtUPL float64
+	var usdtAvail, usdtUPL, usdtCashBal float64
 	for _, detail := range balance.Details {
 		if detail.Ccy == "USDT" {
 			usdtAvail, _ = strconv.ParseFloat(detail.AvailBal, 64)
 			usdtUPL, _ = strconv.ParseFloat(detail.UPL, 64)
+			usdtCashBal, _ = strconv.ParseFloat(detail.CashBal, 64)
 			break
 		}
 	}
@@ -315,12 +316,13 @@ func (t *OKXTrader) GetBalance() (map[string]interface{}, error) {
 	totalEq, _ := strconv.ParseFloat(balance.TotalEq, 64)
 
 	result := map[string]interface{}{
-		"totalWalletBalance":    totalEq,
+		"totalEquity":           totalEq,        // 总权益（已包含未实现盈亏）
+		"totalWalletBalance":    usdtCashBal,    // 钱包余额（不含未实现盈亏）
 		"availableBalance":      usdtAvail,
 		"totalUnrealizedProfit": usdtUPL,
 	}
 
-	logger.Infof("✓ OKX balance: Total equity=%.2f, Available=%.2f, Unrealized PnL=%.2f", totalEq, usdtAvail, usdtUPL)
+	logger.Infof("✓ OKX balance: Total equity=%.2f, Wallet=%.2f, Available=%.2f, Unrealized PnL=%.2f", totalEq, usdtCashBal, usdtAvail, usdtUPL)
 
 	// Update cache
 	t.balanceCacheMutex.Lock()
