@@ -151,6 +151,7 @@ export function GridConfigEditor({
               <option value="BNBUSDT">BNB/USDT</option>
               <option value="XRPUSDT">XRP/USDT</option>
               <option value="DOGEUSDT">DOGE/USDT</option>
+              <option value="HYPEUSDT">HYPE/USDT</option>
             </select>
           </div>
 

@@ -975,13 +975,34 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 	// Support standard actions for closing positions
 	case "close_long":
 		_, err := at.trader.CloseLong(d.Symbol, d.Quantity)
+		if err == nil {
+			at.refreshTotalInvestment()
+		}
 		return err
 	case "close_short":
 		_, err := at.trader.CloseShort(d.Symbol, d.Quantity)
+		if err == nil {
+			at.refreshTotalInvestment()
+		}
 		return err
 	default:
 		logger.Warnf("[Grid] Unknown action: %s", d.Action)
 		return nil
+	}
+}
+
+// refreshTotalInvestment updates TotalInvestment from actual account equity after a position is closed
+func (at *AutoTrader) refreshTotalInvestment() {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	bal, err := at.trader.GetBalance()
+	if err != nil {
+		logger.Warnf("[Grid] Failed to refresh total investment: %v", err)
+		return
+	}
+	if equity, ok := bal["totalEquity"].(float64); ok && equity > 0 {
+		old := gridConfig.TotalInvestment
+		gridConfig.TotalInvestment = equity
+		logger.Infof("[Grid] Refreshed total investment after close: %.2f -> %.2f USDT", old, equity)
 	}
 }
 
@@ -1869,6 +1890,7 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 				at.gridState.TotalProfit += realizedLoss
 				logger.Infof("[Grid] Stop loss executed: Level %d closed at $%.2f (loss %.2f%%)",
 					i, currentPrice, lossPct)
+				at.refreshTotalInvestment()
 			}
 		}
 	}
