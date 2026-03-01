@@ -155,7 +155,7 @@ export function PromptTestPage() {
     setIsRunningTest(true)
     setAiTestResult(null)
     try {
-      const response = await fetch(`${API_BASE}/api/strategies/test-ai`, {
+      const response = await fetch(`${API_BASE}/api/strategies/test-run`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
