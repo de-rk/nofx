@@ -165,6 +165,7 @@ export function PromptTestPage() {
           config: selectedStrategy.config,
           ai_model_id: selectedModelId,
           prompt_variant: selectedVariant,
+          run_real_ai: true,
         }),
       })
       if (!response.ok) throw new Error('Failed to run AI test')
