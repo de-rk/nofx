@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { mutate } from 'swr'
+import useSWR from 'swr'
 import { api } from '../lib/api'
 import { ChartTabs } from '../components/ChartTabs'
 import { DecisionCard } from '../components/DecisionCard'
@@ -135,6 +136,31 @@ export function TraderDashboardPage({
     const chartSectionRef = useRef<HTMLDivElement>(null)
     const [showWalletAddress, setShowWalletAddress] = useState<boolean>(false)
     const [copiedAddress, setCopiedAddress] = useState<boolean>(false)
+
+    // Fetch equity history for today's P&L calculation
+    const { data: equityHistory } = useSWR<Array<{ timestamp: string; total_equity: number }>>(
+        selectedTraderId ? `equity-history-${selectedTraderId}` : null,
+        () => api.getEquityHistory(selectedTraderId),
+        { refreshInterval: 30000, revalidateOnFocus: false }
+    )
+
+    // Calculate today's P&L
+    const todayPnl = (() => {
+        if (!equityHistory || equityHistory.length === 0) return 0
+        const validHistory = equityHistory.filter(p => p.total_equity > 1)
+        if (validHistory.length === 0) return 0
+
+        const todayStart = new Date()
+        todayStart.setHours(0, 0, 0, 0)
+        const todayHistory = validHistory.filter(p => new Date(p.timestamp) >= todayStart)
+
+        const todayStartEquity = todayHistory.length > 0
+            ? todayHistory[0].total_equity
+            : validHistory[validHistory.length - 1]?.total_equity || 0
+        const currentEquity = account?.total_equity || validHistory[validHistory.length - 1]?.total_equity || 0
+
+        return currentEquity - todayStartEquity
+    })()
 
     // Current positions pagination
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
@@ -519,9 +545,9 @@ export function TraderDashboardPage({
                     />
                     <StatCard
                         title={language === 'zh' ? '今日盈亏' : "Today's PnL"}
-                        value={`${(account?.daily_pnl ?? 0) >= 0 ? '+' : ''}${account?.daily_pnl?.toFixed(2) || '0.00'}`}
+                        value={`${todayPnl >= 0 ? '+' : ''}${todayPnl.toFixed(2)}`}
                         unit="USDT"
-                        positive={(account?.daily_pnl ?? 0) >= 0}
+                        positive={todayPnl >= 0}
                         icon="📅"
                     />
                     <StatCard
