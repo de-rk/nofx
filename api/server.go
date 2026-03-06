@@ -2643,13 +2643,7 @@ func (s *Server) getKlinesFromBinanceDirect(symbol, interval string, limit int) 
 
 	resp, err := http.Get(url)
 	if err != nil {
-		// Try spot API as second fallback
-		url = fmt.Sprintf("https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d",
-			symbol, interval, limit)
-		resp, err = http.Get(url)
-		if err != nil {
-			return nil, fmt.Errorf("binance direct API error: %w", err)
-		}
+		return nil, fmt.Errorf("binance futures API error: %w", err)
 	}
 	defer resp.Body.Close()
 
