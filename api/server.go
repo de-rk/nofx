@@ -2611,17 +2611,9 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 	// Use "To" side to search backward from current time (get historical klines)
 	coinankKlines, err := coinank_api.Kline(ctx, symbol, coinankExchange, ts, coinank_enum.To, limit, coinankInterval)
 	if err != nil {
-		// Free API doesn't support all exchanges (e.g., OKX, Bitget)
-		// Fallback to Binance data as reference
-		if coinankExchange != coinank_enum.Binance {
-			logger.Warnf("⚠️ CoinAnk free API doesn't support %s, falling back to Binance data", coinankExchange)
-			coinankKlines, err = coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, limit, coinankInterval)
-			if err != nil {
-				return nil, fmt.Errorf("coinank API error (fallback): %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("coinank API error: %w", err)
-		}
+		// CoinAnk may be unreachable on this server – fall back to Binance direct REST API
+		logger.Warnf("⚠️ CoinAnk API failed (%v), falling back to Binance direct API", err)
+		return s.getKlinesFromBinanceDirect(symbol, interval, limit)
 	}
 
 	// Convert coinank kline format to market.Kline format
@@ -2640,6 +2632,62 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 		}
 	}
 
+	return klines, nil
+}
+
+// getKlinesFromBinanceDirect fetches kline data directly from Binance public REST API
+// Used as fallback when CoinAnk is unreachable
+func (s *Server) getKlinesFromBinanceDirect(symbol, interval string, limit int) ([]market.Kline, error) {
+	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/klines?symbol=%s&interval=%s&limit=%d",
+		symbol, interval, limit)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		// Try spot API as second fallback
+		url = fmt.Sprintf("https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d",
+			symbol, interval, limit)
+		resp, err = http.Get(url)
+		if err != nil {
+			return nil, fmt.Errorf("binance direct API error: %w", err)
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("binance direct API HTTP %d", resp.StatusCode)
+	}
+
+	// Binance returns array of arrays:
+	// [openTime, open, high, low, close, volume, closeTime, quoteVolume, ...]
+	var raw [][]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("binance direct API decode error: %w", err)
+	}
+
+	klines := make([]market.Kline, 0, len(raw))
+	for _, row := range raw {
+		if len(row) < 8 {
+			continue
+		}
+		openTime := int64(row[0].(float64))
+		closeTime := int64(row[6].(float64))
+		open, _ := strconv.ParseFloat(row[1].(string), 64)
+		high, _ := strconv.ParseFloat(row[2].(string), 64)
+		low, _ := strconv.ParseFloat(row[3].(string), 64)
+		close, _ := strconv.ParseFloat(row[4].(string), 64)
+		volume, _ := strconv.ParseFloat(row[5].(string), 64)
+		quoteVolume, _ := strconv.ParseFloat(row[7].(string), 64)
+		klines = append(klines, market.Kline{
+			OpenTime:    openTime,
+			Open:        open,
+			High:        high,
+			Low:         low,
+			Close:       close,
+			Volume:      volume,
+			QuoteVolume: quoteVolume,
+			CloseTime:   closeTime,
+		})
+	}
 	return klines, nil
 }
 
