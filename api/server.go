@@ -2538,7 +2538,8 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 	case "bybit":
 		coinankExchange = coinank_enum.Bybit
 	case "okx":
-		coinankExchange = coinank_enum.Okex
+		// CoinAnk free API doesn't reliably support OKX; use Binance data as reference
+		coinankExchange = coinank_enum.Binance
 	case "bitget":
 		coinankExchange = coinank_enum.Bitget
 	case "gate":
@@ -2604,22 +2605,11 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 		return nil, fmt.Errorf("unsupported interval for coinank: %s", interval)
 	}
 
-	// Convert symbol format for different exchanges
-	// OKX uses "BTC-USDT-SWAP" format instead of "BTCUSDT"
-	apiSymbol := symbol
-	if coinankExchange == coinank_enum.Okex {
-		// Convert BTCUSDT -> BTC-USDT-SWAP
-		if strings.HasSuffix(symbol, "USDT") {
-			base := strings.TrimSuffix(symbol, "USDT")
-			apiSymbol = fmt.Sprintf("%s-USDT-SWAP", base)
-		}
-	}
-
 	// Call coinank free/open API (no authentication required)
 	ctx := context.Background()
 	ts := time.Now().UnixMilli()
 	// Use "To" side to search backward from current time (get historical klines)
-	coinankKlines, err := coinank_api.Kline(ctx, apiSymbol, coinankExchange, ts, coinank_enum.To, limit, coinankInterval)
+	coinankKlines, err := coinank_api.Kline(ctx, symbol, coinankExchange, ts, coinank_enum.To, limit, coinankInterval)
 	if err != nil {
 		// Free API doesn't support all exchanges (e.g., OKX, Bitget)
 		// Fallback to Binance data as reference
