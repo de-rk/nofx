@@ -125,14 +125,6 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
     )
   }
 
-  // 限制显示最近的数据点（性能优化）
-  // 如果数据超过2000个点，只显示最近2000个
-  const MAX_DISPLAY_POINTS = 2000
-  const displayHistory =
-    validHistory.length > MAX_DISPLAY_POINTS
-      ? validHistory.slice(-MAX_DISPLAY_POINTS)
-      : validHistory
-
   // 计算初始余额（优先从 account 获取配置的初始余额，备选从历史数据反推）
   const initialBalance =
     account?.initial_balance || // 从交易员配置读取真实初始余额
@@ -140,6 +132,28 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
       ? validHistory[0].total_equity - validHistory[0].pnl
       : undefined) || // 备选：淨值 - 盈亏
     1000 // 默认值（与创建交易员时的默认配置一致）
+
+  // 只显示最近24小时的数据
+  const now = new Date()
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  const last24h = validHistory.filter((point) => new Date(point.timestamp) >= oneDayAgo)
+  const displayHistory = last24h.length > 0 ? last24h : validHistory.slice(-200)
+
+  // 计算今日盈亏（从今天0点到现在）
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayHistory = validHistory.filter(
+    (point) => new Date(point.timestamp) >= todayStart
+  )
+  const todayStartEquity =
+    todayHistory.length > 0
+      ? todayHistory[0].total_equity
+      : validHistory[validHistory.length - 1]?.total_equity || initialBalance
+  const todayCurrentEquity =
+    account?.total_equity || validHistory[validHistory.length - 1]?.total_equity || initialBalance
+  const todayPnl = todayCurrentEquity - todayStartEquity
+  const todayPnlPct = todayStartEquity > 0 ? (todayPnl / todayStartEquity) * 100 : 0
+  const isTodayProfit = todayPnl >= 0
 
   // 转换数据格式
   const chartData = displayHistory.map((point) => {
@@ -224,7 +238,8 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
               {t('accountEquityCurve', language)}
             </h3>
           )}
-          <div className="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4 flex-wrap">
+            {/* 总净值 */}
             <span
               className="text-2xl sm:text-3xl font-bold mono"
               style={{ color: '#EAECEF' }}
@@ -237,6 +252,7 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
                 USDT
               </span>
             </span>
+            {/* 总盈亏% */}
             <div className="flex items-center gap-2 flex-wrap">
               <span
                 className="text-sm sm:text-lg font-bold mono px-2 sm:px-3 py-1 rounded flex items-center gap-1"
@@ -266,6 +282,36 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
               >
                 ({isProfit ? '+' : ''}
                 {currentValue.raw_pnl.toFixed(2)} USDT)
+              </span>
+            </div>
+            {/* 今日盈亏 */}
+            <div
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded text-sm sm:text-base font-bold mono"
+              style={{
+                color: isTodayProfit ? '#0ECB81' : '#F6465D',
+                background: isTodayProfit
+                  ? 'rgba(14, 203, 129, 0.08)'
+                  : 'rgba(246, 70, 93, 0.08)',
+                border: `1px solid ${
+                  isTodayProfit
+                    ? 'rgba(14, 203, 129, 0.25)'
+                    : 'rgba(246, 70, 93, 0.25)'
+                }`,
+              }}
+            >
+              <span style={{ color: '#848E9C', fontSize: '10px', fontWeight: 500 }}>
+                今日
+              </span>
+              {isTodayProfit ? '+' : ''}
+              {todayPnl.toFixed(2)}
+              <span style={{ color: '#848E9C', fontSize: '10px' }}>USDT</span>
+              <span
+                style={{
+                  color: isTodayProfit ? '#0ECB81' : '#F6465D',
+                  fontSize: '11px',
+                }}
+              >
+                ({isTodayProfit ? '+' : ''}{todayPnlPct.toFixed(2)}%)
               </span>
             </div>
           </div>
@@ -461,15 +507,13 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
             className="text-xs mb-1 uppercase tracking-wider"
             style={{ color: '#848E9C' }}
           >
-            {t('displayRange', language)}
+            显示范围
           </div>
           <div
             className="text-xs sm:text-sm font-bold mono"
             style={{ color: '#EAECEF' }}
           >
-            {validHistory.length > MAX_DISPLAY_POINTS
-              ? `${t('recent', language)} ${MAX_DISPLAY_POINTS}`
-              : t('allData', language)}
+            最近 24H
           </div>
         </div>
       </div>

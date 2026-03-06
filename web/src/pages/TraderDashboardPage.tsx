@@ -518,19 +518,18 @@ export function TraderDashboardPage({
                         icon="💰"
                     />
                     <StatCard
+                        title={language === 'zh' ? '今日盈亏' : "Today's PnL"}
+                        value={`${(account?.daily_pnl ?? 0) >= 0 ? '+' : ''}${account?.daily_pnl?.toFixed(2) || '0.00'}`}
+                        unit="USDT"
+                        positive={(account?.daily_pnl ?? 0) >= 0}
+                        icon="📅"
+                    />
+                    <StatCard
                         title={t('availableBalance', language)}
                         value={`${account?.available_balance?.toFixed(2) || '0.00'}`}
                         unit="USDT"
                         subtitle={`${account?.available_balance && account?.total_equity ? ((account.available_balance / account.total_equity) * 100).toFixed(1) : '0.0'}% ${t('free', language)}`}
                         icon="💳"
-                    />
-                    <StatCard
-                        title={t('totalPnL', language)}
-                        value={`${account?.total_pnl !== undefined && account.total_pnl >= 0 ? '+' : ''}${account?.total_pnl?.toFixed(2) || '0.00'}`}
-                        unit="USDT"
-                        change={account?.total_pnl_pct || 0}
-                        positive={(account?.total_pnl ?? 0) >= 0}
-                        icon="📈"
                     />
                     <StatCard
                         title={t('positions', language)}
@@ -842,18 +841,18 @@ function StatCard({
     icon?: string
 }) {
     return (
-        <div className="group nofx-glass p-5 rounded-lg transition-all duration-300 hover:bg-white/5 hover:translate-y-[-2px] border border-white/5 hover:border-nofx-gold/20 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity text-4xl grayscale group-hover:grayscale-0">
+        <div className="group nofx-glass p-5 rounded-lg transition-all duration-300 hover:bg-white/5 hover:translate-y-[-2px] border border-white/10 hover:border-nofx-gold/30 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity text-4xl grayscale group-hover:grayscale-0">
                 {icon}
             </div>
-            <div className="text-xs mb-2 font-mono uppercase tracking-wider text-nofx-text-muted flex items-center gap-2">
+            <div className="text-xs mb-2 font-mono uppercase tracking-wider text-nofx-text-muted/80 flex items-center gap-2">
                 {title}
             </div>
             <div className="flex items-baseline gap-1 mb-1">
-                <div className="text-2xl font-bold font-mono text-nofx-text-main tracking-tight group-hover:text-white transition-colors">
+                <div className="text-2xl font-bold font-mono text-white tracking-tight">
                     {value}
                 </div>
-                {unit && <span className="text-xs font-mono text-nofx-text-muted opacity-60">{unit}</span>}
+                {unit && <span className="text-xs font-mono text-nofx-text-muted/70">{unit}</span>}
             </div>
 
             {change !== undefined && (
@@ -867,7 +866,7 @@ function StatCard({
                 </div>
             )}
             {subtitle && (
-                <div className="text-xs mt-2 mono text-nofx-text-muted opacity-80">
+                <div className="text-xs mt-2 mono text-nofx-text-muted/70">
                     {subtitle}
                 </div>
             )}
