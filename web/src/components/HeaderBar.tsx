@@ -13,8 +13,6 @@ type Page =
   | 'backtest'
   | 'strategy'
   | 'strategy-market'
-  | 'data'
-  | 'debate'
   | 'prompt-test'
   | 'faq'
   | 'login'
@@ -100,14 +98,12 @@ export default function HeaderBar({
             {(() => {
               // Define all navigation tabs
               const navTabs: { page: Page; path: string; label: string; requiresAuth: boolean }[] = [
-                { page: 'data', path: '/data', label: language === 'zh' ? '数据' : 'Data', requiresAuth: false },
                 { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '策略市场' : 'Market', requiresAuth: true },
                 { page: 'traders', path: '/traders', label: t('configNav', language), requiresAuth: true },
                 { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'prompt-test', path: '/prompt-test', label: language === 'zh' ? 'Prompt测试' : 'Prompt Test', requiresAuth: true },
                 { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
-                { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                 { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
                 { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
               ]
@@ -331,13 +327,11 @@ export default function HeaderBar({
               <div className="flex flex-col gap-6 mb-12">
                 {(() => {
                   const navTabs: { page: Page; path: string; label: string; requiresAuth: boolean }[] = [
-                    { page: 'data', path: '/data', label: language === 'zh' ? '数据' : 'Data', requiresAuth: false },
                     { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '策略市场' : 'Market', requiresAuth: true },
                     { page: 'traders', path: '/traders', label: t('configNav', language), requiresAuth: true },
                     { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                     { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                     { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
-                    { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                     { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
                     { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
                   ]
