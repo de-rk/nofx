@@ -1675,7 +1675,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		todayStart := now.Truncate(24 * time.Hour).UnixMilli()
 
 		// Query recent closed positions and filter by today
-		closedPositions, err := at.store.Position.GetClosedPositions(at.id, 1000)
+		closedPositions, err := at.store.Position().GetClosedPositions(at.id, 1000)
 		if err == nil {
 			for _, pos := range closedPositions {
 				if pos.ExitTime >= todayStart {
