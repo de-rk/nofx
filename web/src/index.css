@@ -13,41 +13,40 @@ html {
 :root {
   /* NoFX Neo-Gold Design System */
   --nofx-gold: #F0B90B;
-  --nofx-bg: #05070A;
+  --nofx-bg: #0A0E14;
   --nofx-accent: #00F0FF;
-  --nofx-glass: rgba(5, 7, 10, 0.7);
-  --nofx-border: rgba(240, 185, 11, 0.2);
+  --nofx-glass: rgba(10, 14, 20, 0.7);
+  --nofx-border: rgba(240, 185, 11, 0.3);
 
   /* Cinematic Glows */
   --glow-primary: 0 0 20px rgba(240, 185, 11, 0.3);
   --glow-accent: 0 0 20px rgba(0, 240, 255, 0.3);
   --glow-text: 0 0 10px rgba(240, 185, 11, 0.5);
 
-  --background: #05070A;
-  --header-bg: rgba(2, 3, 4, 0.85);
-  /* Deep Abyssal */
+  --background: #0A0E14;
+  --header-bg: rgba(10, 14, 20, 0.85);
 
-  --glass-bg: rgba(5, 7, 10, 0.4);
-  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-bg: rgba(10, 14, 20, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.12);
 
-  --panel-bg: rgba(14, 18, 23, 0.6);
-  --panel-bg-hover: rgba(20, 24, 29, 0.8);
-  --panel-border: rgba(255, 255, 255, 0.1);
-  --panel-border-hover: rgba(240, 185, 11, 0.5);
+  --panel-bg: rgba(20, 25, 32, 0.7);
+  --panel-bg-hover: rgba(28, 34, 42, 0.9);
+  --panel-border: rgba(255, 255, 255, 0.15);
+  --panel-border-hover: rgba(240, 185, 11, 0.6);
 
-  --foreground: #EAECEF;
-  --text-primary: #EAECEF;
-  --text-secondary: #848E9C;
-  --text-tertiary: #5E6673;
-  --text-disabled: #474D57;
+  --foreground: #F5F7FA;
+  --text-primary: #F5F7FA;
+  --text-secondary: #9BA3B0;
+  --text-tertiary: #6E7681;
+  --text-disabled: #4F5661;
 
-  /* Trading Colors */
-  --binance-green: #0ECB81;
-  --binance-green-bg: rgba(14, 203, 129, 0.12);
-  --binance-green-border: rgba(14, 203, 129, 0.3);
-  --binance-red: #F6465D;
-  --binance-red-bg: rgba(246, 70, 93, 0.12);
-  --binance-red-border: rgba(246, 70, 93, 0.3);
+  /* Trading Colors - More vibrant */
+  --binance-green: #0FD186;
+  --binance-green-bg: rgba(15, 209, 134, 0.15);
+  --binance-green-border: rgba(15, 209, 134, 0.4);
+  --binance-red: #F84960;
+  --binance-red-bg: rgba(248, 73, 96, 0.15);
+  --binance-red-border: rgba(248, 73, 96, 0.4);
   --binance-yellow: #F0B90B;
 
   /* Shadows */
@@ -136,7 +135,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background-color: var(--background);
-  background-image: radial-gradient(circle at 50% 0%, #151921 0%, #05070a 60%);
+  background-image: radial-gradient(circle at 50% 0%, #1A2028 0%, #0A0E14 60%);
   background-attachment: fixed;
 }
 
@@ -495,17 +494,14 @@ textarea::placeholder {
 
 /* Binance Card - Premium Polish */
 .binance-card {
-  background: rgba(30, 35, 41, 0.4);
-  /* More transparent for glass feel */
+  background: rgba(35, 42, 52, 0.5);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--panel-border);
   border-radius: 12px;
-  /* More modern radius */
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   overflow: hidden;
-  /* Ensure rounded corners contain content */
 }
 
 .dev-toast-controller {
@@ -650,24 +646,30 @@ textarea::placeholder {
 /* Status colors */
 .text-profit {
   color: var(--binance-green);
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 1.1em;
+  text-shadow: 0 0 8px rgba(15, 209, 134, 0.3);
 }
 
 .text-loss {
   color: var(--binance-red);
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 1.1em;
+  text-shadow: 0 0 8px rgba(248, 73, 96, 0.3);
 }
 
 .bg-profit {
   background-color: var(--binance-green-bg);
   color: var(--binance-green);
   border: 1px solid var(--binance-green-border);
+  font-weight: 700;
 }
 
 .bg-loss {
   background-color: var(--binance-red-bg);
   color: var(--binance-red);
   border: 1px solid var(--binance-red-border);
+  font-weight: 700;
 }
 
 /* Skeleton loading */
