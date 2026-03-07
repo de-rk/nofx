@@ -127,7 +127,6 @@ type AutoTrader struct {
 	cycleNumber           int                      // Current cycle number
 	initialBalance        float64
 	dailyPnL              float64
-	dailyStartEquity      float64   // Today's starting equity (for daily P&L calculation)
 	customPrompt          string // Custom trading strategy prompt
 	overrideBasePrompt    bool   // Whether to override base prompt
 	lastResetTime         time.Time
@@ -137,7 +136,7 @@ type AutoTrader struct {
 	startTime             time.Time          // System start time
 	callCount             int                // AI call count
 	positionFirstSeenTime map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
-	stopMonitorCh         chan struct{}      // Used to stop monitoring goroutine
+	stopMonitorCh         chan struct      // Used to stop monitoring goroutine
 	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
 	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
 	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
@@ -354,7 +353,6 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		strategyEngine:        strategyEngine,
 		cycleNumber:           cycleNumber,
 		initialBalance:        config.InitialBalance,
-		dailyStartEquity:      config.InitialBalance,
 		lastResetTime:         time.Now(),
 		startTime:             time.Now(),
 		callCount:             0,
@@ -563,11 +561,6 @@ func (at *AutoTrader) runCycle() error {
 
 	// 2. Reset daily P&L (reset every day)
 	if time.Since(at.lastResetTime) > 24*time.Hour {
-		// Get current account info to set today's starting equity
-		account, err := at.trader.GetAccount()
-		if err == nil {
-			at.dailyStartEquity = account.TotalEquity
-		}
 		at.dailyPnL = 0
 		at.lastResetTime = time.Now()
 		logger.Info("📅 Daily P&L reset")
@@ -1674,10 +1667,21 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		marginUsedPct = (totalMarginUsed / totalEquity) * 100
 	}
 
-	// Calculate daily P&L
+	// Calculate daily P&L from today's closed positions
 	dailyPnL := 0.0
-	if at.dailyStartEquity > 0 {
-		dailyPnL = totalEquity - at.dailyStartEquity
+	if at.store != nil {
+		// Get today's 0:00 timestamp in milliseconds
+		todayStart := time.Now().Truncate(24 * time.Hour).UnixMilli()
+
+		// Query recent closed positions and filter by today
+		closedPositions, err := at.store.Position.GetClosedPositions(at.id, 1000)
+		if err == nil {
+			for _, pos := range closedPositions {
+				if pos.ExitTime >= todayStart {
+					dailyPnL += pos.RealizedPnL
+				}
+			}
+		}
 	}
 
 	return map[string]interface{}{
