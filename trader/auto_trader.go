@@ -1670,8 +1670,8 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	// Calculate daily P&L from today's closed positions
 	dailyPnL := 0.0
 	if at.store != nil {
-		// Get today's 0:00 timestamp in milliseconds
-		todayStart := time.Now().Truncate(24 * time.Hour).UnixMilli()
+		// Get today's 0:00 timestamp in milliseconds (UTC)
+		todayStart := time.Now().UTC().Truncate(24 * time.Hour).UnixMilli()
 
 		// Query recent closed positions and filter by today
 		closedPositions, err := at.store.Position.GetClosedPositions(at.id, 1000)

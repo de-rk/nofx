@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { mutate } from 'swr'
+import useSWR, { mutate } from 'swr'
 import { api } from '../lib/api'
 import { ChartTabs } from '../components/ChartTabs'
 import { DecisionCard } from '../components/DecisionCard'
@@ -135,6 +135,18 @@ export function TraderDashboardPage({
     const chartSectionRef = useRef<HTMLDivElement>(null)
     const [showWalletAddress, setShowWalletAddress] = useState<boolean>(false)
     const [copiedAddress, setCopiedAddress] = useState<boolean>(false)
+
+    // Fetch equity history to calculate days since first trade
+    const { data: equityHistory } = useSWR(
+        selectedTraderId ? `equity-history-${selectedTraderId}` : null,
+        () => api.getEquityHistory(selectedTraderId),
+        { revalidateOnFocus: false }
+    )
+
+    // Calculate days since first trade record
+    const daysSinceFirstTrade = equityHistory && equityHistory.length > 0
+        ? Math.ceil((Date.now() - new Date(equityHistory[0].timestamp).getTime()) / (1000 * 60 * 60 * 24))
+        : 0
 
     // Current positions pagination
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
@@ -487,7 +499,7 @@ export function TraderDashboardPage({
                         {status && (
                             <div className="hidden md:contents">
                                 <span className="w-px h-3 bg-white/10" />
-                                <span>Days: <span className="text-nofx-text-main">{selectedTrader?.created_at ? Math.ceil((Date.now() - new Date(selectedTrader.created_at).getTime()) / (1000 * 60 * 60 * 24)) : 0}</span></span>
+                                <span>Days: <span className="text-nofx-text-main">{daysSinceFirstTrade}</span></span>
                                 <span className="w-px h-3 bg-white/10" />
                                 <span>Cycles: <span className="text-nofx-text-main">{status.call_count}</span></span>
                                 <span className="w-px h-3 bg-white/10" />
