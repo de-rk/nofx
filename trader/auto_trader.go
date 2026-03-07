@@ -1671,7 +1671,8 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	dailyPnL := 0.0
 	if at.store != nil {
 		// Get today's 0:00 timestamp in milliseconds (UTC)
-		todayStart := time.Now().UTC().Truncate(24 * time.Hour).UnixMilli()
+		now := time.Now().UTC()
+		todayStart := now.Truncate(24 * time.Hour).UnixMilli()
 
 		// Query recent closed positions and filter by today
 		closedPositions, err := at.store.Position.GetClosedPositions(at.id, 1000)
