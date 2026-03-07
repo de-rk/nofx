@@ -487,6 +487,8 @@ export function TraderDashboardPage({
                         {status && (
                             <div className="hidden md:contents">
                                 <span className="w-px h-3 bg-white/10" />
+                                <span>Days: <span className="text-nofx-text-main">{selectedTrader?.created_at ? Math.ceil((Date.now() - new Date(selectedTrader.created_at).getTime()) / (1000 * 60 * 60 * 24)) : 0}</span></span>
+                                <span className="w-px h-3 bg-white/10" />
                                 <span>Cycles: <span className="text-nofx-text-main">{status.call_count}</span></span>
                                 <span className="w-px h-3 bg-white/10" />
                                 <span>Runtime: <span className="text-nofx-text-main">{status.runtime_minutes} min</span></span>
