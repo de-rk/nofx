@@ -514,6 +514,10 @@ export function AdvancedChart({
         // 1. 获取K线数据
         const klineData = await fetchKlineData(symbol, interval)
         console.log('[AdvancedChart] Loaded', klineData.length, 'klines')
+
+        // Check if chart is still mounted before updating
+        if (!candlestickSeriesRef.current || !chartRef.current) return
+
         candlestickSeriesRef.current.setData(klineData)
 
         // 存储 volume/quoteVolume 数据供 tooltip 使用
@@ -577,6 +581,9 @@ export function AdvancedChart({
           console.log('[AdvancedChart] Starting to fetch orders...')
           const orders = await fetchOrders(traderID, symbol)
           console.log('[AdvancedChart] Received orders:', orders)
+
+          // Check if chart is still mounted after async operation
+          if (!candlestickSeriesRef.current || !chartRef.current) return
 
           if (orders.length > 0) {
             // 提取 K 线时间数组（已排序）
