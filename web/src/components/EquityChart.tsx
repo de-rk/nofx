@@ -203,12 +203,12 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
       return (
         <div
           className="rounded p-3 shadow-xl"
-          style={{ background: '#1E2329', border: '1px solid #2B3139' }}
+          style={{ background: '#FFFFFF', border: '1px solid rgba(0, 0, 0, 0.1)' }}
         >
-          <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
+          <div className="text-xs mb-1" style={{ color: '#5E6673' }}>
             Cycle #{data.cycle}
           </div>
-          <div className="font-bold mono" style={{ color: '#EAECEF' }}>
+          <div className="font-bold mono" style={{ color: '#1A1D23' }}>
             {data.raw_equity.toFixed(2)} USDT
           </div>
           <div

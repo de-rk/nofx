@@ -337,18 +337,18 @@ export function AdvancedChart({
       width: chartContainerRef.current.clientWidth || 800,
       height: chartContainerRef.current.clientHeight || height,
       layout: {
-        background: { color: '#0B0E11' },
-        textColor: '#B7BDC6',
+        background: { color: '#FFFFFF' },
+        textColor: '#1A1D23',
         fontSize: 12,
       },
       grid: {
         vertLines: {
-          color: 'rgba(43, 49, 57, 0.2)',
+          color: 'rgba(0, 0, 0, 0.06)',
           style: 1,
           visible: true,
         },
         horzLines: {
-          color: 'rgba(43, 49, 57, 0.2)',
+          color: 'rgba(0, 0, 0, 0.06)',
           style: 1,
           visible: true,
         },
@@ -369,7 +369,7 @@ export function AdvancedChart({
         },
       },
       rightPriceScale: {
-        borderColor: '#2B3139',
+        borderColor: 'rgba(0, 0, 0, 0.1)',
         scaleMargins: {
           top: 0.1,
           bottom: 0.25,

@@ -11,42 +11,42 @@ html {
 }
 
 :root {
-  /* NoFX Neo-Gold Design System */
+  /* NoFX Neo-Gold Design System - Light Theme */
   --nofx-gold: #F0B90B;
-  --nofx-bg: #0A0E14;
-  --nofx-accent: #00F0FF;
-  --nofx-glass: rgba(10, 14, 20, 0.7);
+  --nofx-bg: #F5F7FA;
+  --nofx-accent: #00A8CC;
+  --nofx-glass: rgba(255, 255, 255, 0.8);
   --nofx-border: rgba(240, 185, 11, 0.3);
 
   /* Cinematic Glows */
-  --glow-primary: 0 0 20px rgba(240, 185, 11, 0.3);
-  --glow-accent: 0 0 20px rgba(0, 240, 255, 0.3);
-  --glow-text: 0 0 10px rgba(240, 185, 11, 0.5);
+  --glow-primary: 0 0 20px rgba(240, 185, 11, 0.2);
+  --glow-accent: 0 0 20px rgba(0, 168, 204, 0.2);
+  --glow-text: 0 0 10px rgba(240, 185, 11, 0.3);
 
-  --background: #0A0E14;
-  --header-bg: rgba(10, 14, 20, 0.85);
+  --background: #F5F7FA;
+  --header-bg: rgba(255, 255, 255, 0.95);
 
-  --glass-bg: rgba(10, 14, 20, 0.4);
-  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(0, 0, 0, 0.08);
 
-  --panel-bg: rgba(20, 25, 32, 0.7);
-  --panel-bg-hover: rgba(28, 34, 42, 0.9);
-  --panel-border: rgba(255, 255, 255, 0.15);
-  --panel-border-hover: rgba(240, 185, 11, 0.6);
+  --panel-bg: rgba(255, 255, 255, 0.9);
+  --panel-bg-hover: rgba(255, 255, 255, 1);
+  --panel-border: rgba(0, 0, 0, 0.1);
+  --panel-border-hover: rgba(240, 185, 11, 0.5);
 
-  --foreground: #F5F7FA;
-  --text-primary: #F5F7FA;
-  --text-secondary: #9BA3B0;
-  --text-tertiary: #6E7681;
-  --text-disabled: #4F5661;
+  --foreground: #1A1D23;
+  --text-primary: #1A1D23;
+  --text-secondary: #5E6673;
+  --text-tertiary: #848E9C;
+  --text-disabled: #B7BDC6;
 
-  /* Trading Colors - More vibrant */
-  --binance-green: #0FD186;
-  --binance-green-bg: rgba(15, 209, 134, 0.15);
-  --binance-green-border: rgba(15, 209, 134, 0.4);
-  --binance-red: #F84960;
-  --binance-red-bg: rgba(248, 73, 96, 0.15);
-  --binance-red-border: rgba(248, 73, 96, 0.4);
+  /* Trading Colors - Adjusted for light theme */
+  --binance-green: #0ECB81;
+  --binance-green-bg: rgba(14, 203, 129, 0.1);
+  --binance-green-border: rgba(14, 203, 129, 0.3);
+  --binance-red: #F6465D;
+  --binance-red-bg: rgba(246, 70, 93, 0.1);
+  --binance-red-border: rgba(246, 70, 93, 0.3);
   --binance-yellow: #F0B90B;
 
   /* Shadows */
@@ -135,7 +135,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background-color: var(--background);
-  background-image: radial-gradient(circle at 50% 0%, #1A2028 0%, #0A0E14 60%);
+  background-image: radial-gradient(circle at 50% 0%, #FFFFFF 0%, #F5F7FA 60%);
   background-attachment: fixed;
 }
 
@@ -157,11 +157,11 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: #F5F7FA;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--panel-border);
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 4px;
   transition: background 0.2s;
 }
@@ -494,13 +494,13 @@ textarea::placeholder {
 
 /* Binance Card - Premium Polish */
 .binance-card {
-  background: rgba(35, 42, 52, 0.5);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--panel-border);
   border-radius: 12px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   overflow: hidden;
 }
 
