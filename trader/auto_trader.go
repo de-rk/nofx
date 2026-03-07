@@ -127,6 +127,7 @@ type AutoTrader struct {
 	cycleNumber           int                      // Current cycle number
 	initialBalance        float64
 	dailyPnL              float64
+	dailyStartEquity      float64   // Today's starting equity (for daily P&L calculation)
 	customPrompt          string // Custom trading strategy prompt
 	overrideBasePrompt    bool   // Whether to override base prompt
 	lastResetTime         time.Time
@@ -353,6 +354,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		strategyEngine:        strategyEngine,
 		cycleNumber:           cycleNumber,
 		initialBalance:        config.InitialBalance,
+		dailyStartEquity:      config.InitialBalance,
 		lastResetTime:         time.Now(),
 		startTime:             time.Now(),
 		callCount:             0,
@@ -561,6 +563,11 @@ func (at *AutoTrader) runCycle() error {
 
 	// 2. Reset daily P&L (reset every day)
 	if time.Since(at.lastResetTime) > 24*time.Hour {
+		// Get current account info to set today's starting equity
+		account, err := at.trader.GetAccount()
+		if err == nil {
+			at.dailyStartEquity = account.TotalEquity
+		}
 		at.dailyPnL = 0
 		at.lastResetTime = time.Now()
 		logger.Info("📅 Daily P&L reset")
@@ -1667,6 +1674,12 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		marginUsedPct = (totalMarginUsed / totalEquity) * 100
 	}
 
+	// Calculate daily P&L
+	dailyPnL := 0.0
+	if at.dailyStartEquity > 0 {
+		dailyPnL = totalEquity - at.dailyStartEquity
+	}
+
 	return map[string]interface{}{
 		// Core fields
 		"total_equity":      totalEquity,           // Account equity = wallet + unrealized
@@ -1678,7 +1691,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		"total_pnl":       totalPnL,          // Total P&L = equity - initial
 		"total_pnl_pct":   totalPnLPct,       // Total P&L percentage
 		"initial_balance": at.initialBalance, // Initial balance
-		"daily_pnl":       at.dailyPnL,       // Daily P&L
+		"daily_pnl":       dailyPnL,          // Daily P&L
 
 		// Position information
 		"position_count":  len(positions),  // Position count
