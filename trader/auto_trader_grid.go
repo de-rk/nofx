@@ -1736,8 +1736,12 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 	for _, pos := range positions {
 		if sym, _ := pos["symbol"].(string); sym == gridConfig.Symbol {
 			size, _ := pos["positionAmt"].(float64)
-			entry, _ := pos["entryPrice"].(float64)
-			currentPositionValue = math.Abs(size * entry)
+			// Use mark price for current market value, fallback to entry price
+			markPrice, hasMarkPrice := pos["markPrice"].(float64)
+			if !hasMarkPrice || markPrice == 0 {
+				markPrice, _ = pos["entryPrice"].(float64)
+			}
+			currentPositionValue = math.Abs(size * markPrice)
 			currentPositionSize = size
 			break
 		}
