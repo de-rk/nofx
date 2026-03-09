@@ -511,6 +511,8 @@ export interface GridStrategyConfig {
   enable_direction_adjust?: boolean;
   // Direction bias ratio for long_bias/short_bias modes (default 0.7 = 70%/30%)
   direction_bias_ratio?: number;
+  // Profit drawdown threshold for auto close (default 50%)
+  profit_drawdown_threshold?: number;
 }
 
 export interface CoinSourceConfig {

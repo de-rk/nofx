@@ -1877,10 +1877,18 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			drawdownPct = ((peakPnLPct - currentPnLPct) / peakPnLPct) * 100
 		}
 
-		// Check close position condition: profit > 5% and drawdown >= 50%
-		if currentPnLPct > 5.0 && drawdownPct >= 50.0 {
-			logger.Infof("🚨 Drawdown close position condition triggered: %s %s | Current profit: %.2f%% | Peak profit: %.2f%% | Drawdown: %.2f%%",
-				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
+		// Get drawdown threshold from config (default 50%)
+		drawdownThreshold := 50.0
+		if at.config.StrategyConfig != nil && at.config.StrategyConfig.GridConfig != nil {
+			if threshold := at.config.StrategyConfig.GridConfig.ProfitDrawdownThreshold; threshold > 0 {
+				drawdownThreshold = threshold
+			}
+		}
+
+		// Check close position condition: profit > 5% and drawdown >= threshold
+		if currentPnLPct > 5.0 && drawdownPct >= drawdownThreshold {
+			logger.Infof("🚨 Drawdown close position condition triggered: %s %s | Current profit: %.2f%% | Peak profit: %.2f%% | Drawdown: %.2f%% (threshold: %.0f%%)",
+				symbol, side, currentPnLPct, peakPnLPct, drawdownPct, drawdownThreshold)
 
 			// Execute close position
 			if err := at.emergencyClosePosition(symbol, side); err != nil {

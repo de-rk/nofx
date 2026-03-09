@@ -85,6 +85,8 @@ type GridStrategyConfig struct {
 	EnableDirectionAdjust bool `json:"enable_direction_adjust"`
 	// Direction bias ratio for long_bias/short_bias modes (default 0.7 = 70%/30%)
 	DirectionBiasRatio float64 `json:"direction_bias_ratio"`
+	// Profit drawdown threshold for auto close (default 50%)
+	ProfitDrawdownThreshold float64 `json:"profit_drawdown_threshold"`
 }
 
 // PromptSectionsConfig editable sections of System Prompt

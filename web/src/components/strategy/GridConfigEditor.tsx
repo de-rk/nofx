@@ -25,6 +25,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   use_maker_only: true,
   enable_direction_adjust: false,
   direction_bias_ratio: 0.7,
+  profit_drawdown_threshold: 50,
 }
 
 export function GridConfigEditor({
@@ -77,6 +78,8 @@ export function GridConfigEditor({
       stopLossDesc: { zh: '单仓位止损百分比', en: 'Stop loss per position' },
       dailyLossLimit: { zh: '日损失限制 (%)', en: 'Daily Loss Limit (%)' },
       dailyLossLimitDesc: { zh: '每日最大亏损百分比', en: 'Maximum daily loss percentage' },
+      profitDrawdown: { zh: '利润回撤阈值 (%)', en: 'Profit Drawdown (%)' },
+      profitDrawdownDesc: { zh: '盈利回撤超过此值时自动平仓 (当利润>5%时)', en: 'Auto close when profit drawdown exceeds this (when profit>5%)' },
       useMakerOnly: { zh: '仅使用 Maker 订单', en: 'Maker Only Orders' },
       useMakerOnlyDesc: { zh: '使用限价单以降低手续费', en: 'Use limit orders for lower fees' },
 
@@ -350,7 +353,7 @@ export function GridConfigEditor({
           </h3>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div className="p-4 rounded-lg" style={sectionStyle}>
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {t('maxDrawdown')}
@@ -403,6 +406,25 @@ export function GridConfigEditor({
               disabled={disabled}
               min={1}
               max={30}
+              className="w-full px-3 py-2 rounded"
+              style={inputStyle}
+            />
+          </div>
+
+          <div className="p-4 rounded-lg" style={sectionStyle}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('profitDrawdown')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('profitDrawdownDesc')}
+            </p>
+            <input
+              type="number"
+              value={config.profit_drawdown_threshold ?? 50}
+              onChange={(e) => updateField('profit_drawdown_threshold', parseFloat(e.target.value) || 50)}
+              disabled={disabled}
+              min={20}
+              max={80}
               className="w-full px-3 py-2 rounded"
               style={inputStyle}
             />
