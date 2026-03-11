@@ -240,6 +240,11 @@ func (s *GridStore) InitTables() error {
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_events_instance_id ON grid_events(instance_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_events_level_id ON grid_events(level_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_regime_assessments_instance_id ON grid_regime_assessments(instance_id)`)
+			// Add missing columns for new features (idempotent)
+			s.db.Exec(`ALTER TABLE grid_configs ADD COLUMN IF NOT EXISTS enable_trapped_reduce boolean DEFAULT false`)
+			s.db.Exec(`ALTER TABLE grid_configs ADD COLUMN IF NOT EXISTS trapped_reduce_threshold_pct numeric DEFAULT 3.0`)
+			s.db.Exec(`ALTER TABLE grid_configs ADD COLUMN IF NOT EXISTS trapped_reduce_batch_pct numeric DEFAULT 25.0`)
+			s.db.Exec(`ALTER TABLE grid_configs ADD COLUMN IF NOT EXISTS trapped_reduce_interval_min integer DEFAULT 30`)
 			return nil
 		}
 	}
