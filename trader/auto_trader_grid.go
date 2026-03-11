@@ -1009,6 +1009,7 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 		return err
 	case "reduce_position":
 		// AI-triggered batch reduction for trapped positions (分批减仓)
+		gridConfig := at.config.StrategyConfig.GridConfig
 		// SAFETY GUARD: if a T-trade buy order is still PENDING (not yet filled),
 		// defer the reduce — do NOT sell before buy confirms, or we deepen the loss.
 		at.gridState.mu.Lock()
@@ -2008,8 +2009,12 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 	if !placedAt.IsZero() && time.Since(placedAt) > maxWait {
 		logger.Warnf("[Grid] ⚠️ T-trade buy order %s timed out after %.0f min (price=%.2f qty=%.4f). Cancelling and clearing.",
 			pendingOrderID, time.Since(placedAt).Minutes(), buyPrice, buyQty)
-		// Try to cancel the stale order
-		at.trader.CancelOrder(gridConfig.Symbol, pendingOrderID)
+		// Try to cancel the stale order (if trader supports it)
+		if canceler, ok := at.trader.(interface {
+			CancelOrder(symbol, orderID string) error
+		}); ok {
+			canceler.CancelOrder(gridConfig.Symbol, pendingOrderID)
+		}
 		at.gridState.mu.Lock()
 		at.gridState.TTradeBuyOrderID = ""
 		at.gridState.TTradeBuyPrice = 0
@@ -2031,12 +2036,7 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 	// Check if the order is still open
 	stillOpen := false
 	for _, o := range orders {
-		if oid, ok := o["orderId"].(string); ok && oid == pendingOrderID {
-			stillOpen = true
-			break
-		}
-		// Also check numeric order ID
-		if oid, ok := o["orderId"].(float64); ok && fmt.Sprintf("%.0f", oid) == pendingOrderID {
+		if o.OrderID == pendingOrderID {
 			stillOpen = true
 			break
 		}
