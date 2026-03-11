@@ -67,6 +67,12 @@ type GridConfigModel struct {
 	// Direction adjustment settings
 	EnableDirectionAdjust bool    `json:"enable_direction_adjust" gorm:"default:false"`
 	DirectionBiasRatio    float64 `json:"direction_bias_ratio" gorm:"default:0.7"`
+
+	// Trapped position batch reduction settings (被套分批减仓)
+	EnableTrappedReduce       bool    `json:"enable_trapped_reduce" gorm:"default:false"`
+	TrappedReduceThresholdPct float64 `json:"trapped_reduce_threshold_pct" gorm:"default:3.0"`
+	TrappedReduceBatchPct     float64 `json:"trapped_reduce_batch_pct" gorm:"default:25.0"`
+	TrappedReduceIntervalMin  int     `json:"trapped_reduce_interval_min" gorm:"default:30"`
 }
 
 func (GridConfigModel) TableName() string {

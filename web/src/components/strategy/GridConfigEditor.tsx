@@ -26,6 +26,10 @@ export const defaultGridConfig: GridStrategyConfig = {
   enable_direction_adjust: false,
   direction_bias_ratio: 0.7,
   profit_drawdown_threshold: 50,
+  enable_trapped_reduce: false,
+  trapped_reduce_threshold_pct: 3.0,
+  trapped_reduce_batch_pct: 25,
+  trapped_reduce_interval_min: 30,
 }
 
 export function GridConfigEditor({
@@ -97,6 +101,18 @@ export function GridConfigEditor({
       modeLong: { zh: '全多：100%买 + 0%卖', en: 'Long: 100% buy + 0% sell' },
       modeShortBias: { zh: '偏空：(100-X)%买 + X%卖', en: 'Short Bias: (100-X)% buy + X% sell' },
       modeShort: { zh: '全空：0%买 + 100%卖', en: 'Short: 0% buy + 100% sell' },
+
+      // Trapped reduce
+      trappedReduce: { zh: 'AI分批减仓 (被套T字操作)', en: 'AI Batch Reduce (T-Trade for Trapped)' },
+      enableTrappedReduce: { zh: '启用分批减仓', en: 'Enable Batch Reduction' },
+      enableTrappedReduceDesc: { zh: '被套时AI自动分批减仓，降低持仓成本，防止长期亏损', en: 'AI auto batch-reduces when trapped to lower cost and prevent long-term loss' },
+      trappedReduceThreshold: { zh: '触发阈值 (%)', en: 'Trigger Threshold (%)' },
+      trappedReduceThresholdDesc: { zh: '未实现亏损占总投资的百分比超过此值时触发', en: 'Trigger when unrealized loss exceeds this % of total investment' },
+      trappedReduceBatch: { zh: '每批减仓比例 (%)', en: 'Batch Reduce Percent (%)' },
+      trappedReduceBatchDesc: { zh: '每次减仓的仓位比例（25%=每次平掉1/4被套仓位）', en: 'Position percent to reduce per batch (25% = close 1/4 each time)' },
+      trappedReduceInterval: { zh: '减仓间隔 (分钟)', en: 'Reduce Interval (min)' },
+      trappedReduceIntervalDesc: { zh: '两次减仓操作之间的最短间隔时间', en: 'Minimum minutes between two reductions' },
+      trappedReduceExplain: { zh: '💡 T字操作原理：被套时分批卖出降低成本，再在低位重新买入摊薄，逐步扭亏为盈，不需要等价格回到原开仓价', en: '💡 T-Trade principle: reduce partial position when trapped, re-enter at lower price to average down, gradually turn losses to profit without waiting for price to return to entry' },
     }
     return translations[key]?.[language] || key
   }
@@ -547,6 +563,111 @@ export function GridConfigEditor({
               </div>
             </div>
           </>
+        )}
+      </div>
+
+      {/* ===== Trapped Reduce Section ===== */}
+      <div className="p-4 rounded-lg" style={{ background: '#1A1D23', border: '1px solid #2B3139' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <Shield className="w-5 h-5" style={{ color: '#F6465D' }} />
+          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+            {t('trappedReduce')}
+          </h3>
+        </div>
+
+        {/* Explain box */}
+        <div className="p-3 rounded-lg mb-4 text-xs" style={{ background: '#F6465D10', border: '1px solid #F6465D30', color: '#EAECEF' }}>
+          {t('trappedReduceExplain')}
+        </div>
+
+        {/* Enable Toggle */}
+        <div className="p-4 rounded-lg mb-4" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="block text-sm" style={{ color: '#EAECEF' }}>
+                {t('enableTrappedReduce')}
+              </label>
+              <p className="text-xs" style={{ color: '#848E9C' }}>
+                {t('enableTrappedReduceDesc')}
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.enable_trapped_reduce ?? false}
+                onChange={(e) => updateField('enable_trapped_reduce', e.target.checked)}
+                disabled={disabled}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F6465D]"></div>
+            </label>
+          </div>
+        </div>
+
+        {config.enable_trapped_reduce && (
+          <div className="space-y-3">
+            {/* Threshold */}
+            <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+                {t('trappedReduceThreshold')}
+              </label>
+              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('trappedReduceThresholdDesc')}</p>
+              <input
+                type="number"
+                value={config.trapped_reduce_threshold_pct ?? 3.0}
+                onChange={(e) => updateField('trapped_reduce_threshold_pct', parseFloat(e.target.value))}
+                disabled={disabled}
+                min={1}
+                max={20}
+                step={0.5}
+                className="w-full px-3 py-2 rounded text-sm"
+                style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+              />
+            </div>
+
+            {/* Batch percent */}
+            <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+                {t('trappedReduceBatch')}
+              </label>
+              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('trappedReduceBatchDesc')}</p>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  value={config.trapped_reduce_batch_pct ?? 25}
+                  onChange={(e) => updateField('trapped_reduce_batch_pct', parseInt(e.target.value))}
+                  disabled={disabled}
+                  min={10}
+                  max={50}
+                  step={5}
+                  className="flex-1"
+                  style={{ background: '#2B3139' }}
+                />
+                <span className="text-sm font-mono w-16 text-right" style={{ color: '#F6465D' }}>
+                  {config.trapped_reduce_batch_pct ?? 25}%
+                </span>
+              </div>
+            </div>
+
+            {/* Interval */}
+            <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+                {t('trappedReduceInterval')}
+              </label>
+              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('trappedReduceIntervalDesc')}</p>
+              <input
+                type="number"
+                value={config.trapped_reduce_interval_min ?? 30}
+                onChange={(e) => updateField('trapped_reduce_interval_min', parseInt(e.target.value))}
+                disabled={disabled}
+                min={5}
+                max={240}
+                step={5}
+                className="w-full px-3 py-2 rounded text-sm"
+                style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>

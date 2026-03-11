@@ -513,6 +513,14 @@ export interface GridStrategyConfig {
   direction_bias_ratio?: number;
   // Profit drawdown threshold for auto close (default 50%)
   profit_drawdown_threshold?: number;
+  // Enable AI batch position reduction when trapped (被套时分批减仓)
+  enable_trapped_reduce?: boolean;
+  // Unrealized loss % to trigger batch reduction (default 3.0%)
+  trapped_reduce_threshold_pct?: number;
+  // Percentage of trapped position to reduce per batch (default 25%)
+  trapped_reduce_batch_pct?: number;
+  // Minimum interval between trapped reductions in minutes (default 30)
+  trapped_reduce_interval_min?: number;
 }
 
 export interface CoinSourceConfig {

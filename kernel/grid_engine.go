@@ -87,6 +87,27 @@ type GridContext struct {
 
 	// Grid direction (neutral, long, short, long_bias, short_bias)
 	CurrentDirection string `json:"current_direction,omitempty"`
+
+	// Trapped position info (被套信息) - populated when positions are in significant loss
+	TrappedInfo *TrappedPositionInfo `json:"trapped_info,omitempty"`
+}
+
+// TrappedPositionInfo contains information about trapped (losing) positions
+type TrappedPositionInfo struct {
+	IsTrapped           bool    `json:"is_trapped"`             // whether currently trapped
+	TotalUnrealizedLoss float64 `json:"total_unrealized_loss"`  // total USD loss
+	LossPct             float64 `json:"loss_pct"`               // loss as % of total investment
+	TrappedLevelCount   int     `json:"trapped_level_count"`    // number of losing levels
+	AvgEntryPrice       float64 `json:"avg_entry_price"`        // weighted average entry price
+	CurrentPrice        float64 `json:"current_price"`          // current market price
+	PriceDiffPct        float64 `json:"price_diff_pct"`         // (avgEntry - current) / avgEntry * 100
+	SuggestReducePct    float64 `json:"suggest_reduce_pct"`     // suggested reduction percentage
+	LastReduceMinutes   int     `json:"last_reduce_minutes"`    // minutes since last reduction (-1 = never)
+	// T-trade state (T字状态)
+	TTradePhase         string  `json:"t_trade_phase"`          // "idle" | "waiting_buy_fill" | "ready_to_reduce"
+	TTradeBuyOrderID    string  `json:"t_trade_buy_order_id"`   // pending T-trade buy order ID (if waiting)
+	TTradeBuyPrice      float64 `json:"t_trade_buy_price"`      // price of pending T-trade buy
+	TTradePendingReduce float64 `json:"t_trade_pending_reduce"` // qty waiting to be reduced after buy fills
 }
 
 // ============================================================================
@@ -109,6 +130,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 1. 判断当前市场状态（震荡/趋势/高波动）
 2. 决定是否需要调整网格或暂停交易
 3. 管理每个网格层级的订单
+4. 当仓位被套时，通过分批减仓（T字操作）降低成本，防止长期被套
 
 ## 网格配置
 - 交易对: %s
@@ -124,6 +146,31 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - **趋势市场** (暂停网格): 布林带宽度 > 4%%, EMA20/50 距离 > 2%%, 价格持续突破布林带
 - **高波动市场** (谨慎): ATR异常放大, 价格剧烈波动
 
+### 被套时的T字操作规则（分批减仓）
+当 trapped_info.is_trapped = true 时，你需要评估是否执行T字操作：
+
+**T字操作的正确顺序**（关键！先买后卖）：
+1. **先挂低位买单** - 在当前价格下方挂好买入限价单（为摊薄成本做准备）
+2. **再减仓卖出** - 在买单已挂好后，再执行 reduce_position 减少被套仓位
+3. 这样减仓后立即有低位买单等待成交，价格继续下跌时可以摊薄成本
+
+**何时执行T字**（必须满足至少一个条件）：
+- 损失超过总投资的 3%% 且价格仍在下跌趋势（MACD红柱扩大，RSI < 40）
+- 损失超过总投资的 5%% 无论趋势如何
+- 箱体破位确认，价格远离网格下轨
+
+**T字操作策略**：
+1. 先用 place_buy_limit 在当前价格下方1-2个ATR处挂买单（低位接货）
+2. 再用 reduce_position 卖出部分被套仓位（每次25%%，不要全部卖掉）
+3. 等待低位买单成交，降低平均持仓成本
+4. 重复操作，逐步扭亏为盈，不需要等价格回到原始开仓价
+5. 减仓时优先卖出亏损最大的层级
+
+**何时不需要T字**：
+- 损失 < 3%% 且市场仍在震荡区间
+- RSI < 30 超卖区域，价格即将反弹，等反弹后再操作
+- 价格刚触及布林下轨，有支撑
+
 ### 可执行的操作
 - place_buy_limit: 在指定价格下买入限价单
 - place_sell_limit: 在指定价格下卖出限价单
@@ -132,6 +179,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - pause_grid: 暂停网格交易（趋势市场时）
 - resume_grid: 恢复网格交易（震荡市场时）
 - adjust_grid: 调整网格边界
+- reduce_position: 分批减仓（被套时使用），quantity字段指定减仓数量
 - hold: 保持当前状态不操作
 
 ## 输出格式
@@ -139,16 +187,16 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - symbol: 交易对
 - action: 操作类型
 - price: 价格（限价单用）
-- quantity: 数量
+- quantity: 数量（reduce_position时为减仓合约数量）
 - level_index: 网格层级索引
 - order_id: 订单ID（取消订单用）
 - confidence: 置信度 0-100
 - reasoning: 决策理由
 
-示例:
+示例（被套时T字操作，先买后卖）:
 [
-  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 94000, "quantity": 0.01, "level_index": 2, "confidence": 85, "reasoning": "第2层价格接近，下买单"},
-  {"symbol": "BTCUSDT", "action": "hold", "confidence": 90, "reasoning": "市场震荡，保持当前网格"}
+  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 93000, "quantity": 0.003, "level_index": 1, "confidence": 75, "reasoning": "被套损失5%%，先在低位93000挂买单，为T字操作做准备"},
+  {"symbol": "BTCUSDT", "action": "reduce_position", "quantity": 0.005, "confidence": 75, "reasoning": "低位买单已挂好，再减仓25%%，降低平均成本，逐步扭亏为盈"}
 ]
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution)
 }
@@ -161,6 +209,7 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 1. Assess current market regime (ranging/trending/volatile)
 2. Decide whether to adjust grid or pause trading
 3. Manage orders at each grid level
+4. When positions are trapped in loss, use batch position reduction (T-trade technique) to lower average cost
 
 ## Grid Configuration
 - Symbol: %s
@@ -176,6 +225,31 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 - **Trending Market** (pause grid): Bollinger width > 4%%, EMA20/50 distance > 2%%, price breaking bands
 - **High Volatility** (caution): ATR spike, erratic price movement
 
+### Trapped Position T-Trade Rules (Batch Reduction)
+When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
+
+**CRITICAL: Correct T-Trade Order (buy first, then sell)**:
+1. **First: place low buy orders** - place buy limit orders below current price (prepare for cost averaging)
+2. **Then: reduce position** - AFTER buy orders are placed, execute reduce_position to close part of the trapped position
+3. This ensures that after reducing, there are already low buy orders waiting, averaging down the cost
+
+**When to execute T-trade** (at least one condition must be met):
+- Loss > 3%% of total investment AND price still declining (MACD histogram expanding red, RSI < 40)
+- Loss > 5%% of total investment regardless of trend
+- Box breakout confirmed, price far below grid lower bound
+
+**T-Trade Strategy**:
+1. First use place_buy_limit to place buy orders 1-2 ATR below current price (ready to buy low)
+2. Then use reduce_position to close part of trapped position (~25%% each time, NOT all at once)
+3. Wait for low buy orders to fill, lowering the average holding cost
+4. Repeat the process to gradually turn losses into profits without needing price to return to original entry
+5. Prioritize closing levels with the largest losses first
+
+**When NOT to T-trade**:
+- Loss < 3%% and market still within ranging range
+- RSI < 30 (oversold), price about to rebound, wait for rebound first
+- Price just touched Bollinger lower band with support
+
 ### Available Actions
 - place_buy_limit: Place buy limit order at specified price
 - place_sell_limit: Place sell limit order at specified price
@@ -184,6 +258,7 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 - pause_grid: Pause grid trading (in trending market)
 - resume_grid: Resume grid trading (in ranging market)
 - adjust_grid: Adjust grid boundaries
+- reduce_position: Batch reduce trapped position, quantity field specifies contracts to close
 - hold: Maintain current state
 
 ## Output Format
@@ -191,16 +266,16 @@ Output JSON array, each decision contains:
 - symbol: Trading pair
 - action: Action type
 - price: Price (for limit orders)
-- quantity: Quantity
+- quantity: Quantity (for reduce_position: contracts to close)
 - level_index: Grid level index
 - order_id: Order ID (for cancel)
 - confidence: Confidence 0-100
 - reasoning: Decision reason
 
-Example:
+Example (T-Trade for trapped position - buy first, then sell):
 [
-  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 94000, "quantity": 0.01, "level_index": 2, "confidence": 85, "reasoning": "Level 2 price approaching, place buy order"},
-  {"symbol": "BTCUSDT", "action": "hold", "confidence": 90, "reasoning": "Market ranging, maintain current grid"}
+  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 93000, "quantity": 0.003, "level_index": 1, "confidence": 75, "reasoning": "Loss 5%%, place low buy order at 93000 first to prepare for T-trade cost averaging"},
+  {"symbol": "BTCUSDT", "action": "reduce_position", "quantity": 0.005, "confidence": 75, "reasoning": "Low buy order placed, now reduce 25%% of trapped position to lower average cost and turn losses to profit"}
 ]
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution)
 }
@@ -318,6 +393,36 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	sb.WriteString(fmt.Sprintf("- 今日盈亏: $%.2f\n", ctx.DailyPnL))
 	sb.WriteString("\n")
 
+	// Trapped position info
+	if ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped {
+		t := ctx.TrappedInfo
+		sb.WriteString("## ⚠️ 被套警告\n")
+		sb.WriteString(fmt.Sprintf("- 被套状态: 是\n"))
+		sb.WriteString(fmt.Sprintf("- 未实现亏损: $%.2f\n", t.TotalUnrealizedLoss))
+		sb.WriteString(fmt.Sprintf("- 亏损占比: %.2f%%\n", t.LossPct))
+		sb.WriteString(fmt.Sprintf("- 被套层数: %d\n", t.TrappedLevelCount))
+		sb.WriteString(fmt.Sprintf("- 平均开仓价: $%.2f\n", t.AvgEntryPrice))
+		sb.WriteString(fmt.Sprintf("- 当前价格: $%.2f\n", t.CurrentPrice))
+		sb.WriteString(fmt.Sprintf("- 价差: %.2f%%\n", t.PriceDiffPct))
+		sb.WriteString(fmt.Sprintf("- 建议减仓比例: %.0f%%\n", t.SuggestReducePct))
+		if t.LastReduceMinutes >= 0 {
+			sb.WriteString(fmt.Sprintf("- 上次减仓: %d 分钟前\n", t.LastReduceMinutes))
+		} else {
+			sb.WriteString("- 上次减仓: 从未执行\n")
+		}
+		// Show T-trade state to prevent duplicate orders
+		switch t.TTradePhase {
+		case "waiting_buy_fill":
+			sb.WriteString(fmt.Sprintf("- **T字状态: 等待买单成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
+				t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
+			sb.WriteString("- ⛔ **系统正在等待T字买单成交后自动执行减仓，本轮请勿重复下 place_buy_limit 或 reduce_position**\n")
+		default:
+			sb.WriteString("- T字状态: 空闲 (可执行T字操作)\n")
+			sb.WriteString("**⚡ T字操作提示：先用 place_buy_limit 在低位挂买单，再执行 reduce_position 减仓**\n")
+		}
+		sb.WriteString("\n")
+	}
+
 	sb.WriteString("## 请分析以上数据，做出网格交易决策\n")
 	sb.WriteString("输出JSON数组格式的决策列表。\n")
 
@@ -428,6 +533,36 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	sb.WriteString(fmt.Sprintf("- Max Drawdown: %.2f%%\n", ctx.MaxDrawdown))
 	sb.WriteString(fmt.Sprintf("- Daily PnL: $%.2f\n", ctx.DailyPnL))
 	sb.WriteString("\n")
+
+	// Trapped position info
+	if ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped {
+		t := ctx.TrappedInfo
+		sb.WriteString("## ⚠️ TRAPPED POSITION WARNING\n")
+		sb.WriteString("- Trapped: YES\n")
+		sb.WriteString(fmt.Sprintf("- Unrealized Loss: $%.2f\n", t.TotalUnrealizedLoss))
+		sb.WriteString(fmt.Sprintf("- Loss Percentage: %.2f%%\n", t.LossPct))
+		sb.WriteString(fmt.Sprintf("- Trapped Levels: %d\n", t.TrappedLevelCount))
+		sb.WriteString(fmt.Sprintf("- Avg Entry Price: $%.2f\n", t.AvgEntryPrice))
+		sb.WriteString(fmt.Sprintf("- Current Price: $%.2f\n", t.CurrentPrice))
+		sb.WriteString(fmt.Sprintf("- Price Diff: %.2f%%\n", t.PriceDiffPct))
+		sb.WriteString(fmt.Sprintf("- Suggested Reduce Pct: %.0f%%\n", t.SuggestReducePct))
+		if t.LastReduceMinutes >= 0 {
+			sb.WriteString(fmt.Sprintf("- Last Reduction: %d minutes ago\n", t.LastReduceMinutes))
+		} else {
+			sb.WriteString("- Last Reduction: Never executed\n")
+		}
+		// Show T-trade state to prevent duplicate orders
+		switch t.TTradePhase {
+		case "waiting_buy_fill":
+			sb.WriteString(fmt.Sprintf("- **T-Trade State: WAITING FOR BUY FILL** (orderID=%s, price=%.2f, pending reduce=%.4f)\n",
+				t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
+			sb.WriteString("- ⛔ **System is waiting for T-trade buy to fill before auto-executing the reduce. DO NOT issue additional place_buy_limit or reduce_position this cycle.**\n")
+		default:
+			sb.WriteString("- T-Trade State: IDLE (ready for T-trade)\n")
+			sb.WriteString("**⚡ T-Trade tip: First use place_buy_limit to place low buy orders, THEN execute reduce_position**\n")
+		}
+		sb.WriteString("\n")
+	}
 
 	sb.WriteString("## Please analyze the data above and make grid trading decisions\n")
 	sb.WriteString("Output a JSON array of decisions.\n")
@@ -540,6 +675,7 @@ func isValidGridAction(action string) bool {
 		"resume_grid":       true,
 		"adjust_grid":       true,
 		"hold":              true,
+		"reduce_position":   true, // batch reduce trapped positions (分批减仓)
 		// Also support standard actions for compatibility
 		"open_long":  true,
 		"open_short": true,

@@ -87,6 +87,14 @@ type GridStrategyConfig struct {
 	DirectionBiasRatio float64 `json:"direction_bias_ratio"`
 	// Profit drawdown threshold for auto close (default 50%)
 	ProfitDrawdownThreshold float64 `json:"profit_drawdown_threshold"`
+	// Enable AI batch position reduction when trapped (被套时分批减仓)
+	EnableTrappedReduce bool `json:"enable_trapped_reduce"`
+	// Unrealized loss percentage to trigger batch reduction (default 3.0%)
+	TrappedReduceThresholdPct float64 `json:"trapped_reduce_threshold_pct"`
+	// Percentage of trapped position to reduce per batch (default 25%)
+	TrappedReduceBatchPct float64 `json:"trapped_reduce_batch_pct"`
+	// Minimum interval between trapped reductions in minutes (default 30)
+	TrappedReduceIntervalMin int `json:"trapped_reduce_interval_min"`
 }
 
 // PromptSectionsConfig editable sections of System Prompt

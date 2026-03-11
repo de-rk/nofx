@@ -70,6 +70,18 @@ type GridState struct {
 	CurrentDirection       market.GridDirection
 	DirectionChangedAt     time.Time
 	DirectionChangeCount   int
+
+	// Trapped position reduction tracking (被套减仓追踪)
+	LastTrappedReduceAt time.Time // time of last batch reduction
+	TrappedReduceCount  int       // total number of batch reductions performed
+
+	// T-trade state machine (T字操作状态机)
+	// Phase 1: place low buy order → Phase 2: wait for fill → Phase 3: execute reduce
+	TTradeBuyOrderID     string    // order ID of the T-trade prep buy order (waiting for fill)
+	TTradeBuyPrice       float64   // price of the T-trade buy order
+	TTradeBuyQty         float64   // quantity of the T-trade buy order
+	TTradeBuyPlacedAt    time.Time // when the T-trade buy was placed
+	TTradePendingReduceQty float64 // reduce qty deferred until T-trade buy fills (0 = none pending)
 }
 
 // NewGridState creates a new grid state
@@ -841,6 +853,11 @@ func (at *AutoTrader) RunGridCycle() error {
 		lang = "en"
 	}
 
+	// Check if T-trade buy order has filled → execute deferred reduce if so
+	if gridConfig.EnableTrappedReduce {
+		at.checkTTradeOrderFillAndReduce()
+	}
+
 	// Build grid context
 	gridCtx, err := at.buildGridContext()
 	if err != nil {
@@ -949,6 +966,11 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		}
 	}
 
+	// Build trapped position info (if feature enabled)
+	if gridConfig.EnableTrappedReduce && ctx.CurrentPrice > 0 {
+		ctx.TrappedInfo = at.buildTrappedPositionInfo(ctx.CurrentPrice)
+	}
+
 	return ctx, nil
 }
 
@@ -985,6 +1007,59 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 			at.refreshTotalInvestment()
 		}
 		return err
+	case "reduce_position":
+		// AI-triggered batch reduction for trapped positions (分批减仓)
+		// SAFETY GUARD: if a T-trade buy order is still PENDING (not yet filled),
+		// defer the reduce — do NOT sell before buy confirms, or we deepen the loss.
+		at.gridState.mu.Lock()
+		hasPendingTTrade := at.gridState.TTradeBuyOrderID != ""
+		if hasPendingTTrade {
+			// Buy order already tracked, just update the deferred reduce qty
+			if d.Quantity > 0 {
+				at.gridState.TTradePendingReduceQty = d.Quantity
+			}
+			orderID := at.gridState.TTradeBuyOrderID
+			price := at.gridState.TTradeBuyPrice
+			at.gridState.mu.Unlock()
+			logger.Infof("[Grid] ⏳ T-trade buy order still PENDING (orderID=%s price=%.2f) — reduce_position DEFERRED (qty=%.4f). Will execute after buy fills.",
+				orderID, price, d.Quantity)
+			return nil
+		}
+
+		// No T-trade buy tracked yet — look for the most recently placed pending BUY level
+		// This handles the case where place_buy_limit ran before reduce_position in same cycle
+		latestBuyOrderID := ""
+		latestBuyPrice := 0.0
+		latestBuyQty := 0.0
+		for _, level := range at.gridState.Levels {
+			if level.State == "pending" && level.Side == "buy" && level.OrderID != "" {
+				// Use the latest pending buy order (highest level index as proxy)
+				// In practice, the T-trade buy is the most recently placed
+				latestBuyOrderID = level.OrderID
+				latestBuyPrice = level.Price
+				latestBuyQty = level.OrderQuantity
+			}
+		}
+
+		if latestBuyOrderID != "" && gridConfig.EnableTrappedReduce {
+			// Found a pending buy order placed this cycle — treat it as T-trade prep
+			// Defer reduce until this buy fills
+			at.gridState.TTradeBuyOrderID = latestBuyOrderID
+			at.gridState.TTradeBuyPrice = latestBuyPrice
+			at.gridState.TTradeBuyQty = latestBuyQty
+			at.gridState.TTradeBuyPlacedAt = time.Now()
+			reduceQty := d.Quantity
+			at.gridState.TTradePendingReduceQty = reduceQty
+			at.gridState.mu.Unlock()
+			logger.Infof("[Grid] 🎯 T-trade paired: buy orderID=%s (price=%.2f qty=%.4f) ← linked to deferred reduce %.4f. Will reduce AFTER buy fills.",
+				latestBuyOrderID, latestBuyPrice, latestBuyQty, reduceQty)
+			return nil
+		}
+		at.gridState.mu.Unlock()
+
+		// No pending buy order found — execute reduce immediately (no buy to wait for)
+		logger.Infof("[Grid] AI decision: reduce_position qty=%.4f reason=%s", d.Quantity, d.Reasoning)
+		return at.executeTrappedReduce(d.Quantity)
 	default:
 		logger.Warnf("[Grid] Unknown action: %s", d.Action)
 		return nil
@@ -1136,6 +1211,8 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		at.gridState.Levels[d.LevelIndex].OrderQuantity = d.Quantity
 		at.gridState.OrderBook[result.OrderID] = d.LevelIndex
 	}
+	// T-trade tagging is handled at reduce_position interception time.
+	// Normal buy orders are NOT tagged here to avoid false positives.
 	at.gridState.mu.Unlock()
 
 	logger.Infof("[Grid] Placed %s limit order at $%.2f, qty=%.4f, level=%d, orderID=%s",
@@ -1898,4 +1975,374 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 			}
 		}
 	}
+}
+
+// ============================================================================
+// Trapped Position Detection & Batch Reduction (被套分批减仓)
+// ============================================================================
+
+// checkTTradeOrderFillAndReduce checks if the pending T-trade buy order has been filled.
+// This is called every cycle BEFORE AI decisions.
+// Flow: placeGridLimitOrder (buy) → [wait here each cycle] → fill confirmed → executeTrappedReduce
+func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	if !gridConfig.EnableTrappedReduce {
+		return
+	}
+
+	at.gridState.mu.RLock()
+	pendingOrderID := at.gridState.TTradeBuyOrderID
+	pendingReduceQty := at.gridState.TTradePendingReduceQty
+	buyPrice := at.gridState.TTradeBuyPrice
+	buyQty := at.gridState.TTradeBuyQty
+	placedAt := at.gridState.TTradeBuyPlacedAt
+	at.gridState.mu.RUnlock()
+
+	// Nothing pending
+	if pendingOrderID == "" || pendingReduceQty <= 0 {
+		return
+	}
+
+	// Check if order has timed out (e.g. > 4 hours unfilled) — cancel and clear state
+	maxWait := 4 * time.Hour
+	if !placedAt.IsZero() && time.Since(placedAt) > maxWait {
+		logger.Warnf("[Grid] ⚠️ T-trade buy order %s timed out after %.0f min (price=%.2f qty=%.4f). Cancelling and clearing.",
+			pendingOrderID, time.Since(placedAt).Minutes(), buyPrice, buyQty)
+		// Try to cancel the stale order
+		at.trader.CancelOrder(gridConfig.Symbol, pendingOrderID)
+		at.gridState.mu.Lock()
+		at.gridState.TTradeBuyOrderID = ""
+		at.gridState.TTradeBuyPrice = 0
+		at.gridState.TTradeBuyQty = 0
+		at.gridState.TTradeBuyPlacedAt = time.Time{}
+		at.gridState.TTradePendingReduceQty = 0
+		at.gridState.mu.Unlock()
+		logger.Infof("[Grid] T-trade state cleared due to timeout. Reduce will be re-evaluated next cycle.")
+		return
+	}
+
+	// Query current open orders to see if the T-trade buy order is still pending
+	orders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
+	if err != nil {
+		logger.Warnf("[Grid] T-trade check: failed to get open orders: %v", err)
+		return
+	}
+
+	// Check if the order is still open
+	stillOpen := false
+	for _, o := range orders {
+		if oid, ok := o["orderId"].(string); ok && oid == pendingOrderID {
+			stillOpen = true
+			break
+		}
+		// Also check numeric order ID
+		if oid, ok := o["orderId"].(float64); ok && fmt.Sprintf("%.0f", oid) == pendingOrderID {
+			stillOpen = true
+			break
+		}
+	}
+
+	if stillOpen {
+		logger.Infof("[Grid] ⏳ T-trade buy order %s still open (price=%.2f, placed %.0f min ago) — waiting for fill before reducing %.4f",
+			pendingOrderID, buyPrice, time.Since(placedAt).Minutes(), pendingReduceQty)
+		return
+	}
+
+	// Order is NO LONGER in open orders → it was filled (or cancelled)!
+	// Verify by checking if the level state changed to "filled" in grid state
+	filled := false
+	at.gridState.mu.RLock()
+	for _, level := range at.gridState.Levels {
+		if level.OrderID == pendingOrderID && level.State == "filled" {
+			filled = true
+			break
+		}
+	}
+	at.gridState.mu.RUnlock()
+
+	if !filled {
+		// Order disappeared but level not marked filled yet — it may be cancelled
+		// Check via exchange position: if position grew, it was likely filled
+		// As a safe fallback: clear the pending state without reducing
+		logger.Warnf("[Grid] T-trade buy order %s disappeared but level not filled — likely cancelled. Clearing T-trade state without reducing.",
+			pendingOrderID)
+		at.gridState.mu.Lock()
+		at.gridState.TTradeBuyOrderID = ""
+		at.gridState.TTradeBuyPrice = 0
+		at.gridState.TTradeBuyQty = 0
+		at.gridState.TTradeBuyPlacedAt = time.Time{}
+		at.gridState.TTradePendingReduceQty = 0
+		at.gridState.mu.Unlock()
+		return
+	}
+
+	// ✅ T-trade buy order is CONFIRMED FILLED — now safe to execute the reduce
+	logger.Infof("[Grid] ✅ T-trade buy order %s FILLED at price=%.2f qty=%.4f — NOW executing deferred reduce of %.4f",
+		pendingOrderID, buyPrice, buyQty, pendingReduceQty)
+
+	// Clear the T-trade pending state first
+	at.gridState.mu.Lock()
+	reduceQty := at.gridState.TTradePendingReduceQty
+	at.gridState.TTradeBuyOrderID = ""
+	at.gridState.TTradeBuyPrice = 0
+	at.gridState.TTradeBuyQty = 0
+	at.gridState.TTradeBuyPlacedAt = time.Time{}
+	at.gridState.TTradePendingReduceQty = 0
+	at.gridState.mu.Unlock()
+
+	// Execute the deferred reduce
+	if err := at.executeTrappedReduce(reduceQty); err != nil {
+		logger.Errorf("[Grid] T-trade deferred reduce failed: %v", err)
+	}
+}
+
+// buildTrappedPositionInfo builds trapped position information for AI context
+func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.TrappedPositionInfo {
+	gridConfig := at.config.StrategyConfig.GridConfig
+
+	at.gridState.mu.RLock()
+	defer at.gridState.mu.RUnlock()
+
+	totalLoss := 0.0
+	totalPositionSize := 0.0
+	weightedEntrySum := 0.0
+	trappedCount := 0
+
+	for _, level := range at.gridState.Levels {
+		if level.State != "filled" || level.PositionEntry <= 0 || level.PositionSize <= 0 {
+			continue
+		}
+
+		var levelLoss float64
+		if level.Side == "buy" {
+			levelLoss = (currentPrice - level.PositionEntry) * level.PositionSize
+		} else {
+			levelLoss = (level.PositionEntry - currentPrice) * level.PositionSize
+		}
+
+		if levelLoss < 0 {
+			totalLoss += levelLoss
+			trappedCount++
+			totalPositionSize += level.PositionSize
+			weightedEntrySum += level.PositionEntry * level.PositionSize
+		}
+	}
+
+	if trappedCount == 0 || totalLoss >= 0 {
+		return &kernel.TrappedPositionInfo{IsTrapped: false}
+	}
+
+	avgEntry := 0.0
+	if totalPositionSize > 0 {
+		avgEntry = weightedEntrySum / totalPositionSize
+	}
+
+	lossPct := 0.0
+	if gridConfig.TotalInvestment > 0 {
+		lossPct = math.Abs(totalLoss) / gridConfig.TotalInvestment * 100
+	}
+
+	priceDiffPct := 0.0
+	if avgEntry > 0 {
+		priceDiffPct = (avgEntry - currentPrice) / avgEntry * 100
+	}
+
+	threshold := gridConfig.TrappedReduceThresholdPct
+	if threshold <= 0 {
+		threshold = 3.0
+	}
+	batchPct := gridConfig.TrappedReduceBatchPct
+	if batchPct <= 0 {
+		batchPct = 25.0
+	}
+
+	isTrapped := lossPct >= threshold
+
+	suggestReducePct := 0.0
+	if isTrapped {
+		suggestReducePct = batchPct
+	}
+
+	lastReduceMinutes := -1
+	if !at.gridState.LastTrappedReduceAt.IsZero() {
+		lastReduceMinutes = int(time.Since(at.gridState.LastTrappedReduceAt).Minutes())
+	}
+
+	// Build T-trade phase info
+	tTradePhase := "idle"
+	tTradeBuyOrderID := ""
+	tTradeBuyPrice := 0.0
+	tTradePendingReduce := 0.0
+	if at.gridState.TTradeBuyOrderID != "" {
+		tTradePhase = "waiting_buy_fill"
+		tTradeBuyOrderID = at.gridState.TTradeBuyOrderID
+		tTradeBuyPrice = at.gridState.TTradeBuyPrice
+		tTradePendingReduce = at.gridState.TTradePendingReduceQty
+	}
+
+	return &kernel.TrappedPositionInfo{
+		IsTrapped:           isTrapped,
+		TotalUnrealizedLoss: totalLoss,
+		LossPct:             lossPct,
+		TrappedLevelCount:   trappedCount,
+		AvgEntryPrice:       avgEntry,
+		CurrentPrice:        currentPrice,
+		PriceDiffPct:        priceDiffPct,
+		SuggestReducePct:    suggestReducePct,
+		LastReduceMinutes:   lastReduceMinutes,
+		TTradePhase:         tTradePhase,
+		TTradeBuyOrderID:    tTradeBuyOrderID,
+		TTradeBuyPrice:      tTradeBuyPrice,
+		TTradePendingReduce: tTradePendingReduce,
+	}
+}
+
+// executeTrappedReduce executes a batch reduction of trapped positions
+// quantity: total contracts to close (0 = use suggested batch %)
+func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
+	gridConfig := at.config.StrategyConfig.GridConfig
+
+	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
+	if err != nil {
+		return fmt.Errorf("failed to get market price for trapped reduce: %w", err)
+	}
+
+	// Check interval between reductions
+	intervalMin := gridConfig.TrappedReduceIntervalMin
+	if intervalMin <= 0 {
+		intervalMin = 30
+	}
+	at.gridState.mu.RLock()
+	lastReduce := at.gridState.LastTrappedReduceAt
+	at.gridState.mu.RUnlock()
+
+	if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
+		logger.Infof("[Grid] Trapped reduce skipped: last reduction was %.0f min ago (min interval: %d min)",
+			time.Since(lastReduce).Minutes(), intervalMin)
+		return nil
+	}
+
+	// Collect filled long levels sorted by loss (worst first)
+	type levelLoss struct {
+		index    int
+		size     float64
+		entry    float64
+		lossAmt  float64
+	}
+	var losses []levelLoss
+
+	at.gridState.mu.RLock()
+	for i, level := range at.gridState.Levels {
+		if level.State != "filled" || level.PositionEntry <= 0 || level.PositionSize <= 0 {
+			continue
+		}
+		var loss float64
+		if level.Side == "buy" {
+			loss = (currentPrice - level.PositionEntry) * level.PositionSize
+		} else {
+			loss = (level.PositionEntry - currentPrice) * level.PositionSize
+		}
+		if loss < 0 {
+			losses = append(losses, levelLoss{
+				index:   i,
+				size:    level.PositionSize,
+				entry:   level.PositionEntry,
+				lossAmt: loss,
+			})
+		}
+	}
+	at.gridState.mu.RUnlock()
+
+	if len(losses) == 0 {
+		logger.Infof("[Grid] Trapped reduce: no trapped levels found")
+		return nil
+	}
+
+	// Sort by loss amount (most negative first = worst loss)
+	for i := 0; i < len(losses)-1; i++ {
+		for j := i + 1; j < len(losses); j++ {
+			if losses[j].lossAmt < losses[i].lossAmt {
+				losses[i], losses[j] = losses[j], losses[i]
+			}
+		}
+	}
+
+	// If quantity not specified, calculate from batch percentage
+	if quantity <= 0 {
+		batchPct := gridConfig.TrappedReduceBatchPct
+		if batchPct <= 0 {
+			batchPct = 25.0
+		}
+		totalSize := 0.0
+		for _, l := range losses {
+			totalSize += l.size
+		}
+		quantity = totalSize * batchPct / 100
+	}
+
+	// Close positions worst-first until quantity is fulfilled
+	remaining := quantity
+	closedTotal := 0.0
+	for _, l := range losses {
+		if remaining <= 0 {
+			break
+		}
+		closeSize := l.size
+		if closeSize > remaining {
+			closeSize = remaining
+		}
+
+		// Determine side from the level (buy level = long position)
+		at.gridState.mu.RLock()
+		side := at.gridState.Levels[l.index].Side
+		at.gridState.mu.RUnlock()
+
+		var closeErr error
+		if side == "buy" {
+			_, closeErr = at.trader.CloseLong(gridConfig.Symbol, closeSize)
+		} else {
+			_, closeErr = at.trader.CloseShort(gridConfig.Symbol, closeSize)
+		}
+
+		if closeErr != nil {
+			logger.Errorf("[Grid] Trapped reduce: failed to close level %d: %v", l.index, closeErr)
+			continue
+		}
+
+		realizedLoss := (currentPrice - l.entry) * closeSize
+		if side != "buy" {
+			realizedLoss = (l.entry - currentPrice) * closeSize
+		}
+
+		at.gridState.mu.Lock()
+		if closeSize >= at.gridState.Levels[l.index].PositionSize*0.99 {
+			// Full close of this level
+			at.gridState.Levels[l.index].State = "empty"
+			at.gridState.Levels[l.index].PositionSize = 0
+		} else {
+			// Partial close
+			at.gridState.Levels[l.index].PositionSize -= closeSize
+		}
+		at.gridState.DailyPnL += realizedLoss
+		at.gridState.TotalProfit += realizedLoss
+		at.gridState.TotalTrades++
+		at.gridState.mu.Unlock()
+
+		remaining -= closeSize
+		closedTotal += closeSize
+		logger.Infof("[Grid] Trapped reduce: closed %.4f of level %d (entry=%.2f, current=%.2f, loss=%.2f)",
+			closeSize, l.index, l.entry, currentPrice, realizedLoss)
+	}
+
+	if closedTotal > 0 {
+		at.gridState.mu.Lock()
+		at.gridState.LastTrappedReduceAt = time.Now()
+		at.gridState.TrappedReduceCount++
+		at.gridState.mu.Unlock()
+		at.refreshTotalInvestment()
+		logger.Infof("[Grid] ✅ Trapped reduce completed: closed %.4f contracts (reduce #%d)",
+			closedTotal, at.gridState.TrappedReduceCount)
+	}
+
+	return nil
 }
