@@ -149,27 +149,35 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 ### 被套时的T字操作规则（分批减仓）
 当 trapped_info.is_trapped = true 时，你需要评估是否执行T字操作：
 
-**T字操作的正确顺序**（关键！先买后卖）：
-1. **先挂低位买单** - 在当前价格下方挂好买入限价单（为摊薄成本做准备）
-2. **再减仓卖出** - 在买单已挂好后，再执行 reduce_position 减少被套仓位
-3. 这样减仓后立即有低位买单等待成交，价格继续下跌时可以摊薄成本
+**多单被套（side=buy，价格下跌亏损）**：
+- 目标：让平均入场价越低越好，降低成本
+- T字顺序：先用 place_buy_limit 在**更低价**挂买单 → 再执行 reduce_position 减仓
+- 示例：原均价$100，价格跌到$95，先在$93挂买单，再减仓50%%，新均价降至$96.5
+
+**空单被套（side=sell，价格上涨亏损）**：
+- 目标：让平均入场价越高越好，降低成本
+- T字顺序：先用 place_sell_limit 在**更高价**挂卖单 → 再执行 reduce_position 减仓
+- 示例：原均价$100，价格涨到$105，先在$107挂卖单，再减仓50%%，新均价升至$103.5
 
 **何时执行T字**（必须满足至少一个条件）：
-- 损失超过总投资的 3%% 且价格仍在下跌趋势（MACD红柱扩大，RSI < 40）
+- 损失超过总投资的 3%% 且价格仍在不利趋势（多单下跌/空单上涨）
 - 损失超过总投资的 5%% 无论趋势如何
-- 箱体破位确认，价格远离网格下轨
+- 箱体破位确认，价格远离网格边界
 
 **T字操作策略**：
-1. 先用 place_buy_limit 在当前价格下方1-2个ATR处挂买单（低位接货）
-2. 再用 reduce_position 卖出部分被套仓位（每次25%%，不要全部卖掉）
-3. 等待低位买单成交，降低平均持仓成本
-4. 重复操作，逐步扭亏为盈，不需要等价格回到原始开仓价
-5. 减仓时优先卖出亏损最大的层级
+1. 判断被套方向（多单还是空单）
+2. 多单：place_buy_limit 在低位挂买单；空单：place_sell_limit 在高位挂卖单
+3. 挂单位置：距离当前价格1-2个ATR
+4. 再用 reduce_position 减少被套仓位（每次25%%，不要全部卖掉）
+5. 等待挂单成交，降低平均持仓成本
+6. 重复操作，逐步扭亏为盈
+7. 减仓时优先平亏损最大的层级
 
 **何时不需要T字**：
 - 损失 < 3%% 且市场仍在震荡区间
-- RSI < 30 超卖区域，价格即将反弹，等反弹后再操作
-- 价格刚触及布林下轨，有支撑
+- 多单：RSI < 30 超卖区域，价格即将反弹
+- 空单：RSI > 70 超买区域，价格即将回落
+- 价格刚触及布林带边轨，有反转信号
 
 ### 可执行的操作
 - place_buy_limit: 在指定价格下买入限价单
@@ -193,10 +201,16 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - confidence: 置信度 0-100
 - reasoning: 决策理由
 
-示例（被套时T字操作，先买后卖）:
+示例（多单被套T字操作，先低买后减仓）:
 [
-  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 93000, "quantity": 0.003, "level_index": 1, "confidence": 75, "reasoning": "被套损失5%%，先在低位93000挂买单，为T字操作做准备"},
+  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 93000, "quantity": 0.003, "level_index": 1, "confidence": 75, "reasoning": "多单被套损失5%%，先在低位93000挂买单，为T字操作降低均价做准备"},
   {"symbol": "BTCUSDT", "action": "reduce_position", "quantity": 0.005, "confidence": 75, "reasoning": "低位买单已挂好，再减仓25%%，降低平均成本，逐步扭亏为盈"}
+]
+
+示例（空单被套T字操作，先高卖后减仓）:
+[
+  {"symbol": "BTCUSDT", "action": "place_sell_limit", "price": 107000, "quantity": 0.003, "level_index": 8, "confidence": 75, "reasoning": "空单被套损失5%%，先在高位107000挂卖单，为T字操作提高均价做准备"},
+  {"symbol": "BTCUSDT", "action": "reduce_position", "quantity": 0.005, "confidence": 75, "reasoning": "高位卖单已挂好，再减仓25%%，提高平均入场价，降低成本，逐步扭亏为盈"}
 ]
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution)
 }
@@ -228,27 +242,35 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 ### Trapped Position T-Trade Rules (Batch Reduction)
 When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 
-**CRITICAL: Correct T-Trade Order (buy first, then sell)**:
-1. **First: place low buy orders** - place buy limit orders below current price (prepare for cost averaging)
-2. **Then: reduce position** - AFTER buy orders are placed, execute reduce_position to close part of the trapped position
-3. This ensures that after reducing, there are already low buy orders waiting, averaging down the cost
+**Long position trapped (side=buy, price dropped, losing)**:
+- Goal: Lower the average entry price as much as possible
+- T-trade order: First use place_buy_limit at a **lower price** → then execute reduce_position
+- Example: Avg entry $100, price drops to $95, place buy at $93 first, then reduce 50%%, new avg = $96.5
+
+**Short position trapped (side=sell, price rose, losing)**:
+- Goal: Raise the average entry price as high as possible
+- T-trade order: First use place_sell_limit at a **higher price** → then execute reduce_position
+- Example: Avg entry $100, price rises to $105, place sell at $107 first, then reduce 50%%, new avg = $103.5
 
 **When to execute T-trade** (at least one condition must be met):
-- Loss > 3%% of total investment AND price still declining (MACD histogram expanding red, RSI < 40)
+- Loss > 3%% of total investment AND price still moving against position
 - Loss > 5%% of total investment regardless of trend
-- Box breakout confirmed, price far below grid lower bound
+- Box breakout confirmed, price far from grid boundary
 
 **T-Trade Strategy**:
-1. First use place_buy_limit to place buy orders 1-2 ATR below current price (ready to buy low)
-2. Then use reduce_position to close part of trapped position (~25%% each time, NOT all at once)
-3. Wait for low buy orders to fill, lowering the average holding cost
-4. Repeat the process to gradually turn losses into profits without needing price to return to original entry
-5. Prioritize closing levels with the largest losses first
+1. Identify the trapped direction (long or short)
+2. Long: place_buy_limit below current price; Short: place_sell_limit above current price
+3. Place order 1-2 ATR away from current price
+4. Then use reduce_position to close part of trapped position (~25%% each time, NOT all at once)
+5. Wait for the order to fill, lowering/raising the average cost
+6. Repeat to gradually turn losses into profits
+7. Prioritize closing levels with the largest losses first
 
 **When NOT to T-trade**:
 - Loss < 3%% and market still within ranging range
-- RSI < 30 (oversold), price about to rebound, wait for rebound first
-- Price just touched Bollinger lower band with support
+- Long: RSI < 30 (oversold), price about to rebound
+- Short: RSI > 70 (overbought), price about to decline
+- Price just touched Bollinger band with reversal signal
 
 ### Available Actions
 - place_buy_limit: Place buy limit order at specified price
@@ -272,10 +294,16 @@ Output JSON array, each decision contains:
 - confidence: Confidence 0-100
 - reasoning: Decision reason
 
-Example (T-Trade for trapped position - buy first, then sell):
+Example (Long trapped - T-Trade: buy lower first, then reduce):
 [
-  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 93000, "quantity": 0.003, "level_index": 1, "confidence": 75, "reasoning": "Loss 5%%, place low buy order at 93000 first to prepare for T-trade cost averaging"},
-  {"symbol": "BTCUSDT", "action": "reduce_position", "quantity": 0.005, "confidence": 75, "reasoning": "Low buy order placed, now reduce 25%% of trapped position to lower average cost and turn losses to profit"}
+  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 93000, "quantity": 0.003, "level_index": 1, "confidence": 75, "reasoning": "Long trapped, loss 5%%, place buy at 93000 first to lower average cost"},
+  {"symbol": "BTCUSDT", "action": "reduce_position", "quantity": 0.005, "confidence": 75, "reasoning": "Low buy order placed, now reduce 25%% of trapped long position to lower average cost"}
+]
+
+Example (Short trapped - T-Trade: sell higher first, then reduce):
+[
+  {"symbol": "BTCUSDT", "action": "place_sell_limit", "price": 107000, "quantity": 0.003, "level_index": 8, "confidence": 75, "reasoning": "Short trapped, loss 5%%, place sell at 107000 first to raise average entry price"},
+  {"symbol": "BTCUSDT", "action": "reduce_position", "quantity": 0.005, "confidence": 75, "reasoning": "High sell order placed, now reduce 25%% of trapped short position to raise average cost"}
 ]
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution)
 }
