@@ -1010,6 +1010,10 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 	case "reduce_position":
 		// AI-triggered batch reduction for trapped positions (分批减仓)
 		gridConfig := at.config.StrategyConfig.GridConfig
+		if !gridConfig.EnableTrappedReduce {
+			logger.Warnf("[Grid] reduce_position action ignored: trapped reduce feature is disabled")
+			return nil
+		}
 		// SAFETY GUARD: if a T-trade buy order is still PENDING (not yet filled),
 		// defer the reduce — do NOT sell before buy confirms, or we deepen the loss.
 		at.gridState.mu.Lock()
