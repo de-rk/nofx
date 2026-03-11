@@ -1031,33 +1031,57 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 			return nil
 		}
 
-		// No T-trade buy tracked yet — look for the most recently placed pending BUY level
-		// This handles the case where place_buy_limit ran before reduce_position in same cycle
-		latestBuyOrderID := ""
-		latestBuyPrice := 0.0
-		latestBuyQty := 0.0
+		// No T-trade buy tracked yet — look for the most recently placed pending order
+		// Direction depends on which side is trapped:
+		// - Long trapped: look for pending BUY order (buy lower to reduce cost)
+		// - Short trapped: look for pending SELL order (sell higher to reduce cost)
+
+		// First, determine which side has trapped positions
+		currentPrice, _ := at.trader.GetMarketPrice(gridConfig.Symbol)
+		trappedSide := ""
 		for _, level := range at.gridState.Levels {
-			if level.State == "pending" && level.Side == "buy" && level.OrderID != "" {
-				// Use the latest pending buy order (highest level index as proxy)
-				// In practice, the T-trade buy is the most recently placed
-				latestBuyOrderID = level.OrderID
-				latestBuyPrice = level.Price
-				latestBuyQty = level.OrderQuantity
+			if level.State != "filled" || level.PositionEntry <= 0 {
+				continue
+			}
+			var isTrapped bool
+			if level.Side == "buy" {
+				// Long position trapped if price dropped
+				isTrapped = currentPrice < level.PositionEntry
+			} else {
+				// Short position trapped if price rose
+				isTrapped = currentPrice > level.PositionEntry
+			}
+			if isTrapped {
+				trappedSide = level.Side
+				break
 			}
 		}
 
-		if latestBuyOrderID != "" && gridConfig.EnableTrappedReduce {
-			// Found a pending buy order placed this cycle — treat it as T-trade prep
-			// Defer reduce until this buy fills
-			at.gridState.TTradeBuyOrderID = latestBuyOrderID
-			at.gridState.TTradeBuyPrice = latestBuyPrice
-			at.gridState.TTradeBuyQty = latestBuyQty
+		// Search for pending order matching the trapped side
+		latestOrderID := ""
+		latestOrderPrice := 0.0
+		latestOrderQty := 0.0
+		for _, level := range at.gridState.Levels {
+			if level.State == "pending" && level.Side == trappedSide && level.OrderID != "" {
+				// Use the latest pending order (highest level index as proxy)
+				latestOrderID = level.OrderID
+				latestOrderPrice = level.Price
+				latestOrderQty = level.OrderQuantity
+			}
+		}
+
+		if latestOrderID != "" && gridConfig.EnableTrappedReduce {
+			// Found a pending order placed this cycle — treat it as T-trade prep
+			// Defer reduce until this order fills
+			at.gridState.TTradeBuyOrderID = latestOrderID
+			at.gridState.TTradeBuyPrice = latestOrderPrice
+			at.gridState.TTradeBuyQty = latestOrderQty
 			at.gridState.TTradeBuyPlacedAt = time.Now()
 			reduceQty := d.Quantity
 			at.gridState.TTradePendingReduceQty = reduceQty
 			at.gridState.mu.Unlock()
-			logger.Infof("[Grid] 🎯 T-trade paired: buy orderID=%s (price=%.2f qty=%.4f) ← linked to deferred reduce %.4f. Will reduce AFTER buy fills.",
-				latestBuyOrderID, latestBuyPrice, latestBuyQty, reduceQty)
+			logger.Infof("[Grid] 🎯 T-trade paired: %s orderID=%s (price=%.2f qty=%.4f) ← linked to deferred reduce %.4f. Will reduce AFTER order fills.",
+				trappedSide, latestOrderID, latestOrderPrice, latestOrderQty, reduceQty)
 			return nil
 		}
 		at.gridState.mu.Unlock()
