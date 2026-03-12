@@ -2236,12 +2236,14 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 			trappedSize = shortSize
 			trappedEntrySum = shortEntrySum
 			trappedCount = shortCount
+			logger.Infof("[Grid] 🔍 DEBUG: shortPnL(%.2f) < longPnL(%.2f) = true, trappedSide = SELL", shortPnL, longPnL)
 		} else if longPnL < 0 {
 			// Long side has loss
 			totalLoss = longPnL
 			trappedSize = longSize
 			trappedEntrySum = longEntrySum
 			trappedCount = longCount
+			logger.Infof("[Grid] 🔍 DEBUG: longPnL(%.2f) < 0, trappedSide = BUY", longPnL)
 		}
 
 		if totalLoss >= 0 || trappedCount == 0 {
