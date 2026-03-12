@@ -2140,7 +2140,11 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 				continue
 			}
 			side, _ := pos["side"].(string)
+			// Try both field names used by different exchanges
 			pnl, _ := pos["unrealized_pnl"].(float64)
+			if pnl == 0 {
+				pnl, _ = pos["unRealizedProfit"].(float64)
+			}
 			if side == "long" && pnl < 0 {
 				longPnL += pnl
 			} else if side == "short" && pnl < 0 {
