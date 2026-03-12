@@ -1036,25 +1036,12 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 		// - Long trapped: look for pending BUY order (buy lower to reduce cost)
 		// - Short trapped: look for pending SELL order (sell higher to reduce cost)
 
-		// First, determine which side has trapped positions
+		// Determine trapped side from exchange positions (consistent with buildTrappedPositionInfo)
 		currentPrice, _ := at.trader.GetMarketPrice(gridConfig.Symbol)
+		trappedInfo := at.buildTrappedPositionInfo(currentPrice)
 		trappedSide := ""
-		for _, level := range at.gridState.Levels {
-			if level.State != "filled" || level.PositionEntry <= 0 {
-				continue
-			}
-			var isTrapped bool
-			if level.Side == "buy" {
-				// Long position trapped if price dropped
-				isTrapped = currentPrice < level.PositionEntry
-			} else {
-				// Short position trapped if price rose
-				isTrapped = currentPrice > level.PositionEntry
-			}
-			if isTrapped {
-				trappedSide = level.Side
-				break
-			}
+		if trappedInfo != nil && trappedInfo.IsTrapped {
+			trappedSide = trappedInfo.Side
 		}
 
 		// Search for pending order matching the trapped side
