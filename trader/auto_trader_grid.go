@@ -2128,6 +2128,31 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.TrappedPositionInfo {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
+	// First, try to get actual positions from exchange to determine trapped side
+	trappedSide := "buy" // default
+	exchangePositions, err := at.trader.GetPositions()
+	if err == nil {
+		longPnL := 0.0
+		shortPnL := 0.0
+		for _, pos := range exchangePositions {
+			symbol, _ := pos["symbol"].(string)
+			if symbol != gridConfig.Symbol {
+				continue
+			}
+			side, _ := pos["side"].(string)
+			pnl, _ := pos["unrealized_pnl"].(float64)
+			if side == "long" && pnl < 0 {
+				longPnL += pnl
+			} else if side == "short" && pnl < 0 {
+				shortPnL += pnl
+			}
+		}
+		// Determine trapped side by which has more loss (more negative)
+		if shortPnL < longPnL {
+			trappedSide = "sell"
+		}
+	}
+
 	at.gridState.mu.RLock()
 	defer at.gridState.mu.RUnlock()
 
@@ -2135,8 +2160,6 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 	totalPositionSize := 0.0
 	weightedEntrySum := 0.0
 	trappedCount := 0
-	buySideLoss := 0.0
-	sellSideLoss := 0.0
 
 	for _, level := range at.gridState.Levels {
 		if level.State != "filled" || level.PositionEntry <= 0 || level.PositionSize <= 0 {
@@ -2155,22 +2178,11 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 			trappedCount++
 			totalPositionSize += level.PositionSize
 			weightedEntrySum += level.PositionEntry * level.PositionSize
-			if level.Side == "buy" {
-				buySideLoss += levelLoss
-			} else {
-				sellSideLoss += levelLoss
-			}
 		}
 	}
 
 	if trappedCount == 0 || totalLoss >= 0 {
 		return &kernel.TrappedPositionInfo{IsTrapped: false}
-	}
-
-	// Determine trapped side by which side has more loss
-	trappedSide := "buy"
-	if sellSideLoss < buySideLoss {
-		trappedSide = "sell"
 	}
 
 	avgEntry := 0.0
