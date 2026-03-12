@@ -44,10 +44,13 @@ COPY --from=ta-lib-builder /usr/local /usr/local
 
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 GOOS=linux \
     CGO_CFLAGS="-D_LARGEFILE64_SOURCE" \
     go build -trimpath -ldflags="-s -w" -o nofx .
 
