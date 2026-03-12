@@ -1398,6 +1398,18 @@ func (at *AutoTrader) syncGridState() {
 					level.PositionSize = level.OrderQuantity
 					at.gridState.TotalTrades++
 					logger.Infof("[Grid] Level %d order filled at $%.2f", i, level.Price)
+
+					// Check if this was a T-trade prep order - if so, execute deferred reduce
+					if level.OrderID == at.gridState.TTradeBuyOrderID && at.gridState.TTradePendingReduceQty > 0 {
+						reduceQty := at.gridState.TTradePendingReduceQty
+						at.gridState.TTradeBuyOrderID = ""
+						at.gridState.TTradePendingReduceQty = 0
+						at.gridState.mu.Unlock()
+						logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f) → executing deferred reduce (%.4f)",
+							level.OrderQuantity, level.Price, reduceQty)
+						at.executeTrappedReduce(reduceQty)
+						at.gridState.mu.Lock()
+					}
 				} else {
 					// Position didn't increase as expected, likely cancelled
 					level.State = "empty"
