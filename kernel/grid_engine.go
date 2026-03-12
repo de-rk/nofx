@@ -99,6 +99,7 @@ type TrappedPositionInfo struct {
 	TotalUnrealizedLoss float64 `json:"total_unrealized_loss"`  // total USD loss
 	LossPct             float64 `json:"loss_pct"`               // loss as % of total investment
 	TrappedLevelCount   int     `json:"trapped_level_count"`    // number of losing levels
+	TrappedPositionSize float64 `json:"trapped_position_size"`  // total size of trapped position
 	AvgEntryPrice       float64 `json:"avg_entry_price"`        // weighted average entry price
 	CurrentPrice        float64 `json:"current_price"`          // current market price
 	PriceDiffPct        float64 `json:"price_diff_pct"`         // (avgEntry - current) / avgEntry * 100
@@ -150,11 +151,12 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 2. 多单：place_buy_limit 在低位挂买单；空单：place_sell_limit 在高位挂卖单
 3. 挂单位置：距离当前价格1-2个ATR
 4. 再用 reduce_position 减少被套仓位（每次%.1f%%，不要全部卖掉）
-5. **⚠️ 关键：reduce_position数量必须≥挂单数量，否则仓位不减反增**
-6. **⚠️ 价格方向必须正确：多单必须在更低价买入，空单必须在更高价卖出，否则成本不降反升**
-7. 等待挂单成交，降低平均持仓成本
-8. 重复操作，逐步扭亏为盈
-9. 减仓时优先平亏损最大的层级
+5. **⚠️ 数量计算：reduce数量 = trapped_position_size × suggest_reduce_pct / 100（例如：被套10张，25%%减仓 = 2.5张）**
+6. **⚠️ 关键：reduce_position数量必须≥挂单数量，否则仓位不减反增**
+7. **⚠️ 价格方向必须正确：多单必须在更低价买入，空单必须在更高价卖出，否则成本不降反升**
+8. 等待挂单成交，降低平均持仓成本
+9. 重复操作，逐步扭亏为盈
+10. 减仓时优先平亏损最大的层级
 
 **何时不需要T字**：
 - 损失 < %.1f%% 且市场仍在震荡区间
@@ -253,11 +255,12 @@ When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 2. Long: place_buy_limit below current price; Short: place_sell_limit above current price
 3. Place order 1-2 ATR away from current price
 4. Then use reduce_position to close part of trapped position (~%.1f%% each time, NOT all at once)
-5. **⚠️ CRITICAL: reduce_position quantity MUST be ≥ prep order quantity, otherwise position increases instead of decreases**
-6. **⚠️ Price direction MUST be correct: Long must buy LOWER, Short must sell HIGHER, otherwise cost increases**
-7. Wait for the order to fill, lowering/raising the average cost
-8. Repeat to gradually turn losses into profits
-9. Prioritize closing levels with the largest losses first
+5. **⚠️ Quantity calculation: reduce_qty = trapped_position_size × suggest_reduce_pct / 100 (e.g., trapped 10 contracts, 25%% reduce = 2.5 contracts)**
+6. **⚠️ CRITICAL: reduce_position quantity MUST be ≥ prep order quantity, otherwise position increases instead of decreases**
+7. **⚠️ Price direction MUST be correct: Long must buy LOWER, Short must sell HIGHER, otherwise cost increases**
+8. Wait for the order to fill, lowering/raising the average cost
+9. Repeat to gradually turn losses into profits
+10. Prioritize closing levels with the largest losses first
 
 **When NOT to T-trade**:
 - Loss < %.1f%% and market still within ranging range
