@@ -1281,23 +1281,53 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 func (at *AutoTrader) cancelAllGridOrders() error {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	if err := at.trader.CancelAllOrders(gridConfig.Symbol); err != nil {
-		return fmt.Errorf("failed to cancel all orders: %w", err)
+	// Get T-trade order ID to protect it
+	at.gridState.mu.RLock()
+	tTradeOrderID := at.gridState.TTradeBuyOrderID
+	at.gridState.mu.RUnlock()
+
+	// Get all open orders
+	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
+	if err != nil {
+		return fmt.Errorf("failed to get open orders: %w", err)
 	}
 
-	// Reset all pending levels
+	// Cancel orders one by one, skipping T-trade prep order
+	cancelCount := 0
+	for _, order := range openOrders {
+		if order.OrderID == tTradeOrderID && tTradeOrderID != "" {
+			logger.Infof("[Grid] Skipping T-trade prep order %s during cancel all", order.OrderID)
+			continue
+		}
+		if gridTrader, ok := at.trader.(GridTrader); ok {
+			if err := gridTrader.CancelOrder(gridConfig.Symbol, order.OrderID); err != nil {
+				logger.Warnf("[Grid] Failed to cancel order %s: %v", order.OrderID, err)
+			} else {
+				cancelCount++
+			}
+		}
+	}
+
+	// Reset all pending levels except T-trade
 	at.gridState.mu.Lock()
 	for i := range at.gridState.Levels {
-		if at.gridState.Levels[i].State == "pending" {
+		if at.gridState.Levels[i].State == "pending" && at.gridState.Levels[i].OrderID != tTradeOrderID {
 			at.gridState.Levels[i].State = "empty"
 			at.gridState.Levels[i].OrderID = ""
 			at.gridState.Levels[i].OrderQuantity = 0
 		}
 	}
-	at.gridState.OrderBook = make(map[string]int)
+	// Rebuild OrderBook, keeping T-trade order
+	newOrderBook := make(map[string]int)
+	for i, level := range at.gridState.Levels {
+		if level.State == "pending" && level.OrderID != "" {
+			newOrderBook[level.OrderID] = i
+		}
+	}
+	at.gridState.OrderBook = newOrderBook
 	at.gridState.mu.Unlock()
 
-	logger.Infof("[Grid] Cancelled all orders")
+	logger.Infof("[Grid] Cancelled %d orders (protected T-trade order)", cancelCount)
 	return nil
 }
 
