@@ -2421,7 +2421,60 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 	at.gridState.mu.RUnlock()
 
 	if len(losses) == 0 {
-		logger.Infof("[Grid] Trapped reduce: no trapped levels found")
+		// Grid Levels have no trapped positions - fall back to exchange positions directly
+		logger.Infof("[Grid] Trapped reduce: no trapped grid levels found, checking exchange positions...")
+		exchangePositions, posErr := at.trader.GetPositions()
+		if posErr != nil {
+			logger.Errorf("[Grid] Trapped reduce: failed to get exchange positions: %v", posErr)
+			return nil
+		}
+		for _, pos := range exchangePositions {
+			symbol, _ := pos["symbol"].(string)
+			if symbol != gridConfig.Symbol {
+				continue
+			}
+			side, _ := pos["side"].(string)
+			posSize, _ := pos["positionAmt"].(float64)
+			entryPrice, _ := pos["entryPrice"].(float64)
+			pnl, _ := pos["unRealizedProfit"].(float64)
+			if pnl == 0 {
+				pnl, _ = pos["unrealized_pnl"].(float64)
+			}
+			if pnl >= 0 || posSize <= 0 {
+				continue // only close losing positions
+			}
+			closeQty := quantity
+			if closeQty <= 0 {
+				batchPct := gridConfig.TrappedReduceBatchPct
+				if batchPct <= 0 {
+					batchPct = 25.0
+				}
+				closeQty = posSize * batchPct / 100
+			}
+			if closeQty > posSize {
+				closeQty = posSize
+			}
+			var closeErr error
+			if side == "long" {
+				_, closeErr = at.trader.CloseLong(gridConfig.Symbol, closeQty)
+			} else {
+				_, closeErr = at.trader.CloseShort(gridConfig.Symbol, closeQty)
+			}
+			if closeErr != nil {
+				logger.Errorf("[Grid] Trapped reduce (exchange): failed to close %s position: %v", side, closeErr)
+				continue
+			}
+			at.gridState.mu.Lock()
+			at.gridState.LastTrappedReduceAt = time.Now()
+			at.gridState.TrappedReduceCount++
+			at.gridState.DailyPnL += pnl * (closeQty / posSize)
+			at.gridState.TotalProfit += pnl * (closeQty / posSize)
+			at.gridState.TotalTrades++
+			at.gridState.mu.Unlock()
+			at.refreshTotalInvestment()
+			logger.Infof("[Grid] ✅ Trapped reduce (exchange): closed %.4f %s contracts (entry=%.2f, current=%.2f)",
+				closeQty, side, entryPrice, currentPrice)
+		}
 		return nil
 	}
 
