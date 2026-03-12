@@ -146,45 +146,33 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - 损失超过总投资的 5%% 无论趋势如何
 - 箱体破位确认，价格远离网格边界
 
-**T字操作策略**：
-1. 判断被套方向（多单还是空单）
-2. 多单：place_buy_limit 在低位挂买单；空单：place_sell_limit 在高位挂卖单
-3. 挂单位置：距离当前价格1-2个ATR
-4. **⚠️ 重要：本周期只执行挂单动作，不要同时执行reduce_position**
-5. **⚠️ 下个周期检查挂单状态，如果仍在等待成交，输出wait动作等待**
-6. **⚠️ 挂单成交后，系统会自动执行reduce，无需手动调用reduce_position**
-7. 再用 reduce_position 减少被套仓位（每次%.1f%%，不要全部卖掉）
-8. **⚠️ 数量计算：reduce数量 = trapped_position_size × suggest_reduce_pct / 100（例如：被套10张，25%%减仓 = 2.5张）**
-9. **⚠️ 关键：reduce_position数量必须等于挂单数量，确保成本改善且仓位可控**
-10. **⚠️ 价格方向必须正确：多单必须在更低价买入，空单必须在更高价卖出，否则成本不降反升**
-11. 等待挂单成交，降低平均持仓成本
-12. 重复操作，逐步扭亏为盈
-13. 减仓时优先平亏损最大的层级
+**T字操作策略**（仅在trapped_info.side指示的方向执行）：
 
-**何时不需要T字**：
-- 损失 < %.1f%% 且市场仍在震荡区间
-- 多单：RSI < 30 超卖区域，价格即将反弹
-- 空单：RSI > 70 超买区域，价格即将回落
-- 价格刚触及布林带边轨，有反转信号
+**关键规则**：
+- **必须根据trapped_info.side字段判断方向，不要自行推测**
+- trapped_info.side = "sell" → 空单被套 → place_sell_limit在高位
+- trapped_info.side = "buy" → 多单被套 → place_buy_limit在低位
+- 挂单数量 = trapped_position_size × suggest_reduce_pct / 100
+- 本周期只挂单，下周期等待成交，系统自动执行reduce
 
-示例（多单被套T字操作，分两个周期执行）:
-周期1 - 挂单:
+**执行步骤**：
+1. 检查trapped_info.side确定被套方向
+2. 周期1：根据side挂单（sell→place_sell_limit高位，buy→place_buy_limit低位）
+3. 周期2：输出wait等待成交
+4. 成交后系统自动reduce，无需手动操作
+
+**何时不执行**：
+- 损失 < %.1f%%
+- RSI极端值（<30或>70）且有反转信号
+
+示例（空单被套，trapped_info.side="sell"）:
 [
-  {"symbol": "BTCUSDT", "action": "place_buy_limit", "price": 93000, "quantity": 0.005, "level_index": 1, "confidence": 75, "reasoning": "多单被套损失5%%，在低位93000挂买单0.005 BTC，等待成交"}
-]
-周期2 - 等待或已成交:
-[
-  {"symbol": "BTCUSDT", "action": "wait", "confidence": 75, "reasoning": "T字买单等待成交，成交后系统自动执行reduce"}
+  {"action": "place_sell_limit", "price": 107000, "quantity": 0.005, "reasoning": "trapped_info.side=sell，空单被套，高位107000挂卖单"}
 ]
 
-示例（空单被套T字操作，分两个周期执行）:
-周期1 - 挂单:
+示例（多单被套，trapped_info.side="buy"）:
 [
-  {"symbol": "BTCUSDT", "action": "place_sell_limit", "price": 107000, "quantity": 0.005, "level_index": 8, "confidence": 75, "reasoning": "空单被套损失5%%，在高位107000挂卖单0.005 BTC，等待成交"}
-]
-周期2 - 等待或已成交:
-[
-  {"symbol": "BTCUSDT", "action": "wait", "confidence": 75, "reasoning": "T字卖单等待成交，成交后系统自动执行reduce"}
+  {"action": "place_buy_limit", "price": 93000, "quantity": 0.005, "reasoning": "trapped_info.side=buy，多单被套，低位93000挂买单"}
 ]
 `, config.TrappedReduceThresholdPct, config.TrappedReduceBatchPct, config.TrappedReduceThresholdPct)
 	}
