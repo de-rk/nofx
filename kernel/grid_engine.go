@@ -463,8 +463,12 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		// Show T-trade state and correct direction hint
 		switch t.TTradePhase {
 		case "waiting_buy_fill":
-			sb.WriteString(fmt.Sprintf("- **T字状态: 等待挂单成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
-				t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
+			tTradeOrderLabelZh := "买单"
+			if t.Side == "sell" {
+				tTradeOrderLabelZh = "卖单"
+			}
+			sb.WriteString(fmt.Sprintf("- **T字状态: 等待%s成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
+				tTradeOrderLabelZh, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
 			sb.WriteString("- ⛔ **系统正在等待T字挂单成交后自动执行减仓，本轮请勿重复下单或 reduce_position**\n")
 		default:
 			sb.WriteString("- T字状态: 空闲 (可执行T字操作)\n")
@@ -613,8 +617,12 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		// Show T-trade state to prevent duplicate orders
 		switch t.TTradePhase {
 		case "waiting_buy_fill":
-			sb.WriteString(fmt.Sprintf("- **T-Trade State: WAITING FOR BUY FILL** (orderID=%s, price=%.2f, pending reduce=%.4f)\n",
-				t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
+			tTradeOrderLabel := "BUY"
+			if t.Side == "sell" {
+				tTradeOrderLabel = "SELL"
+			}
+			sb.WriteString(fmt.Sprintf("- **T-Trade State: WAITING FOR %s FILL** (orderID=%s, price=%.2f, pending reduce=%.4f)\n",
+				tTradeOrderLabel, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
 			sb.WriteString("- ⛔ **System is waiting for T-trade order to fill before auto-executing the reduce. DO NOT issue additional T-trade orders or reduce_position this cycle.**\n")
 		default:
 			sb.WriteString("- T-Trade State: IDLE (ready for T-trade)\n")

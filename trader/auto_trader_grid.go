@@ -2183,9 +2183,16 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		lossPct = math.Abs(totalLoss) / gridConfig.TotalInvestment * 100
 	}
 
+	// priceDiffPct: positive = price moved against the trapped position
+	// Long trapped: price dropped below entry → (entry - current) / entry
+	// Short trapped: price rose above entry → (current - entry) / entry
 	priceDiffPct := 0.0
 	if avgEntry > 0 {
-		priceDiffPct = (avgEntry - currentPrice) / avgEntry * 100
+		if trappedSide == "sell" {
+			priceDiffPct = (currentPrice - avgEntry) / avgEntry * 100
+		} else {
+			priceDiffPct = (avgEntry - currentPrice) / avgEntry * 100
+		}
 	}
 
 	threshold := gridConfig.TrappedReduceThresholdPct
