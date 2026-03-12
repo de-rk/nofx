@@ -2428,6 +2428,13 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 			logger.Errorf("[Grid] Trapped reduce: failed to get exchange positions: %v", posErr)
 			return nil
 		}
+
+		// Find the most-trapped side (largest loss)
+		mostLosingSide := ""
+		mostLoss := 0.0
+		mostLossSize := 0.0
+		mostLossEntry := 0.0
+		mostLossPnL := 0.0
 		for _, pos := range exchangePositions {
 			symbol, _ := pos["symbol"].(string)
 			if symbol != gridConfig.Symbol {
@@ -2440,41 +2447,56 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 			if pnl == 0 {
 				pnl, _ = pos["unrealized_pnl"].(float64)
 			}
-			if pnl >= 0 || posSize <= 0 {
-				continue // only close losing positions
+			if pnl < mostLoss && posSize > 0 {
+				mostLoss = pnl
+				mostLosingSide = side
+				mostLossSize = posSize
+				mostLossEntry = entryPrice
+				mostLossPnL = pnl
 			}
-			closeQty := quantity
-			if closeQty <= 0 {
-				batchPct := gridConfig.TrappedReduceBatchPct
-				if batchPct <= 0 {
-					batchPct = 25.0
-				}
-				closeQty = posSize * batchPct / 100
-			}
-			if closeQty > posSize {
-				closeQty = posSize
-			}
-			var closeErr error
-			if side == "long" {
-				_, closeErr = at.trader.CloseLong(gridConfig.Symbol, closeQty)
-			} else {
-				_, closeErr = at.trader.CloseShort(gridConfig.Symbol, closeQty)
-			}
-			if closeErr != nil {
-				logger.Errorf("[Grid] Trapped reduce (exchange): failed to close %s position: %v", side, closeErr)
-				continue
-			}
-			at.gridState.mu.Lock()
-			at.gridState.LastTrappedReduceAt = time.Now()
-			at.gridState.TrappedReduceCount++
-			at.gridState.DailyPnL += pnl * (closeQty / posSize)
-			at.gridState.TotalProfit += pnl * (closeQty / posSize)
-			at.gridState.TotalTrades++
-			at.gridState.mu.Unlock()
-			at.refreshTotalInvestment()
-			logger.Infof("[Grid] ✅ Trapped reduce (exchange): closed %.4f %s contracts (entry=%.2f, current=%.2f)",
-				closeQty, side, entryPrice, currentPrice)
 		}
+
+		if mostLosingSide == "" || mostLossSize <= 0 {
+			logger.Infof("[Grid] Trapped reduce: no losing exchange positions found")
+			return nil
+		}
+
+		closeQty := quantity
+		if closeQty <= 0 {
+			batchPct := gridConfig.TrappedReduceBatchPct
+			if batchPct <= 0 {
+				batchPct = 25.0
+			}
+			closeQty = mostLossSize * batchPct / 100
+		}
+		if closeQty > mostLossSize {
+			closeQty = mostLossSize
+		}
+
+		logger.Infof("[Grid] Trapped reduce (exchange): closing %.4f of %s position (entry=%.2f, size=%.4f, pnl=%.2f)",
+			closeQty, mostLosingSide, mostLossEntry, mostLossSize, mostLossPnL)
+
+		var closeErr error
+		if mostLosingSide == "long" {
+			_, closeErr = at.trader.CloseLong(gridConfig.Symbol, closeQty)
+		} else {
+			_, closeErr = at.trader.CloseShort(gridConfig.Symbol, closeQty)
+		}
+		if closeErr != nil {
+			logger.Errorf("[Grid] Trapped reduce (exchange): failed to close %s position: %v", mostLosingSide, closeErr)
+			return closeErr
+		}
+
+		at.gridState.mu.Lock()
+		at.gridState.LastTrappedReduceAt = time.Now()
+		at.gridState.TrappedReduceCount++
+		at.gridState.DailyPnL += mostLossPnL * (closeQty / mostLossSize)
+		at.gridState.TotalProfit += mostLossPnL * (closeQty / mostLossSize)
+		at.gridState.TotalTrades++
+		at.gridState.mu.Unlock()
+		at.refreshTotalInvestment()
+		logger.Infof("[Grid] ✅ Trapped reduce (exchange): closed %.4f %s contracts (entry=%.2f, current=%.2f)",
+			closeQty, mostLosingSide, mostLossEntry, currentPrice)
 		return nil
 	}
 
