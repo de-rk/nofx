@@ -2270,6 +2270,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		}
 
 		isTrapped := lossPct >= threshold
+		logger.Infof("[Grid] 🔍 DEBUG: lossPct=%.2f%%, threshold=%.2f%%, isTrapped=%v", lossPct, threshold, isTrapped)
 		suggestReducePct := 0.0
 		if isTrapped {
 			suggestReducePct = batchPct
