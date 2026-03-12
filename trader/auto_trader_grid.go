@@ -1542,6 +1542,15 @@ func (at *AutoTrader) checkGridSkew() (bool, int, int) {
 
 // autoAdjustGrid automatically adjusts grid when heavily skewed
 func (at *AutoTrader) autoAdjustGrid() {
+	// Don't adjust grid if T-trade is in progress
+	at.gridState.mu.RLock()
+	hasPendingTTrade := at.gridState.TTradeBuyOrderID != ""
+	at.gridState.mu.RUnlock()
+	if hasPendingTTrade {
+		logger.Infof("[Grid] Skipping auto-adjust: T-trade order is pending")
+		return
+	}
+
 	skewed, buyFilled, sellFilled := at.checkGridSkew()
 	if !skewed {
 		return
