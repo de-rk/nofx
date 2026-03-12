@@ -470,6 +470,7 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		if t.Side == "sell" {
 			sideZh = "空单（卖出方向）"
 		}
+		logger.Infof("[Grid] 🔍 DEBUG: t.Side=%s, sideZh=%s", t.Side, sideZh)
 		sb.WriteString("## ⚠️ 被套警告\n")
 		sb.WriteString(fmt.Sprintf("- 被套状态: 是\n"))
 		sb.WriteString(fmt.Sprintf("- 被套方向: %s\n", sideZh))
