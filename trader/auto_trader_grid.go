@@ -1412,6 +1412,13 @@ func (at *AutoTrader) syncGridState() {
 					}
 				} else {
 					// Position didn't increase as expected, likely cancelled
+					// If this was a T-trade prep order, clear the deferred reduce
+					if level.OrderID == at.gridState.TTradeBuyOrderID {
+						logger.Infof("[Grid] ⚠️ T-trade prep order cancelled (orderID=%s) - clearing deferred reduce (%.4f)",
+							level.OrderID, at.gridState.TTradePendingReduceQty)
+						at.gridState.TTradeBuyOrderID = ""
+						at.gridState.TTradePendingReduceQty = 0
+					}
 					level.State = "empty"
 					level.OrderID = ""
 					level.OrderQuantity = 0
