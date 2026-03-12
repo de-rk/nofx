@@ -2128,35 +2128,141 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.TrappedPositionInfo {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// First, try to get actual positions from exchange to determine trapped side
-	trappedSide := "buy" // default
+	threshold := gridConfig.TrappedReduceThresholdPct
+	if threshold <= 0 {
+		threshold = 3.0
+	}
+	batchPct := gridConfig.TrappedReduceBatchPct
+	if batchPct <= 0 {
+		batchPct = 25.0
+	}
+
+	// Use exchange positions as the primary source of truth
 	exchangePositions, err := at.trader.GetPositions()
-	if err == nil {
+	if err == nil && len(exchangePositions) > 0 {
 		longPnL := 0.0
 		shortPnL := 0.0
+		longSize := 0.0
+		shortSize := 0.0
+		longEntrySum := 0.0
+		shortEntrySum := 0.0
+		longCount := 0
+		shortCount := 0
+
 		for _, pos := range exchangePositions {
 			symbol, _ := pos["symbol"].(string)
 			if symbol != gridConfig.Symbol {
 				continue
 			}
 			side, _ := pos["side"].(string)
-			// Try both field names used by different exchanges
-			pnl, _ := pos["unrealized_pnl"].(float64)
+			size, _ := pos["positionAmt"].(float64)
+			entry, _ := pos["entryPrice"].(float64)
+			pnl, _ := pos["unRealizedProfit"].(float64)
 			if pnl == 0 {
-				pnl, _ = pos["unRealizedProfit"].(float64)
+				pnl, _ = pos["unrealized_pnl"].(float64)
 			}
-			if side == "long" && pnl < 0 {
+
+			if side == "long" && pnl < 0 && size > 0 {
 				longPnL += pnl
-			} else if side == "short" && pnl < 0 {
+				longSize += size
+				longEntrySum += entry * size
+				longCount++
+			} else if side == "short" && pnl < 0 && size > 0 {
 				shortPnL += pnl
+				shortSize += size
+				shortEntrySum += entry * size
+				shortCount++
 			}
 		}
-		// Determine trapped side by which has more loss (more negative)
+		logger.Infof("[Grid] TrappedInfo from exchange: longPnL=%.2f longSize=%.4f, shortPnL=%.2f shortSize=%.4f",
+			longPnL, longSize, shortPnL, shortSize)
+
+		// Determine which side is more trapped
+		totalLoss := 0.0
+		trappedSide := "buy"
+		trappedSize := 0.0
+		trappedEntrySum := 0.0
+		trappedCount := 0
+
 		if shortPnL < longPnL {
+			// Short side has more loss
 			trappedSide = "sell"
+			totalLoss = shortPnL
+			trappedSize = shortSize
+			trappedEntrySum = shortEntrySum
+			trappedCount = shortCount
+		} else if longPnL < 0 {
+			// Long side has loss
+			totalLoss = longPnL
+			trappedSize = longSize
+			trappedEntrySum = longEntrySum
+			trappedCount = longCount
+		}
+
+		if totalLoss >= 0 || trappedCount == 0 {
+			return &kernel.TrappedPositionInfo{IsTrapped: false}
+		}
+
+		avgEntry := 0.0
+		if trappedSize > 0 {
+			avgEntry = trappedEntrySum / trappedSize
+		}
+
+		lossPct := 0.0
+		if gridConfig.TotalInvestment > 0 {
+			lossPct = math.Abs(totalLoss) / gridConfig.TotalInvestment * 100
+		}
+
+		priceDiffPct := 0.0
+		if avgEntry > 0 {
+			if trappedSide == "sell" {
+				priceDiffPct = (currentPrice - avgEntry) / avgEntry * 100
+			} else {
+				priceDiffPct = (avgEntry - currentPrice) / avgEntry * 100
+			}
+		}
+
+		isTrapped := lossPct >= threshold
+		suggestReducePct := 0.0
+		if isTrapped {
+			suggestReducePct = batchPct
+		}
+
+		lastReduceMinutes := -1
+		if !at.gridState.LastTrappedReduceAt.IsZero() {
+			lastReduceMinutes = int(time.Since(at.gridState.LastTrappedReduceAt).Minutes())
+		}
+
+		tTradePhase := "idle"
+		tTradeBuyOrderID := ""
+		tTradeBuyPrice := 0.0
+		tTradePendingReduce := 0.0
+		if at.gridState.TTradeBuyOrderID != "" {
+			tTradePhase = "waiting_buy_fill"
+			tTradeBuyOrderID = at.gridState.TTradeBuyOrderID
+			tTradeBuyPrice = at.gridState.TTradeBuyPrice
+			tTradePendingReduce = at.gridState.TTradePendingReduceQty
+		}
+
+		return &kernel.TrappedPositionInfo{
+			IsTrapped:           isTrapped,
+			Side:                trappedSide,
+			TotalUnrealizedLoss: totalLoss,
+			LossPct:             lossPct,
+			TrappedLevelCount:   trappedCount,
+			AvgEntryPrice:       avgEntry,
+			CurrentPrice:        currentPrice,
+			PriceDiffPct:        priceDiffPct,
+			SuggestReducePct:    suggestReducePct,
+			LastReduceMinutes:   lastReduceMinutes,
+			TTradePhase:         tTradePhase,
+			TTradeBuyOrderID:    tTradeBuyOrderID,
+			TTradeBuyPrice:      tTradeBuyPrice,
+			TTradePendingReduce: tTradePendingReduce,
 		}
 	}
 
+	// Fallback: scan grid Levels if exchange positions unavailable
 	at.gridState.mu.RLock()
 	defer at.gridState.mu.RUnlock()
 
@@ -2164,29 +2270,39 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 	totalPositionSize := 0.0
 	weightedEntrySum := 0.0
 	trappedCount := 0
+	buySideLoss := 0.0
+	sellSideLoss := 0.0
 
 	for _, level := range at.gridState.Levels {
 		if level.State != "filled" || level.PositionEntry <= 0 || level.PositionSize <= 0 {
 			continue
 		}
-
 		var levelLoss float64
 		if level.Side == "buy" {
 			levelLoss = (currentPrice - level.PositionEntry) * level.PositionSize
 		} else {
 			levelLoss = (level.PositionEntry - currentPrice) * level.PositionSize
 		}
-
 		if levelLoss < 0 {
 			totalLoss += levelLoss
 			trappedCount++
 			totalPositionSize += level.PositionSize
 			weightedEntrySum += level.PositionEntry * level.PositionSize
+			if level.Side == "buy" {
+				buySideLoss += levelLoss
+			} else {
+				sellSideLoss += levelLoss
+			}
 		}
 	}
 
 	if trappedCount == 0 || totalLoss >= 0 {
 		return &kernel.TrappedPositionInfo{IsTrapped: false}
+	}
+
+	trappedSide := "buy"
+	if sellSideLoss < buySideLoss {
+		trappedSide = "sell"
 	}
 
 	avgEntry := 0.0
@@ -2199,9 +2315,6 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		lossPct = math.Abs(totalLoss) / gridConfig.TotalInvestment * 100
 	}
 
-	// priceDiffPct: positive = price moved against the trapped position
-	// Long trapped: price dropped below entry → (entry - current) / entry
-	// Short trapped: price rose above entry → (current - entry) / entry
 	priceDiffPct := 0.0
 	if avgEntry > 0 {
 		if trappedSide == "sell" {
@@ -2211,17 +2324,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		}
 	}
 
-	threshold := gridConfig.TrappedReduceThresholdPct
-	if threshold <= 0 {
-		threshold = 3.0
-	}
-	batchPct := gridConfig.TrappedReduceBatchPct
-	if batchPct <= 0 {
-		batchPct = 25.0
-	}
-
 	isTrapped := lossPct >= threshold
-
 	suggestReducePct := 0.0
 	if isTrapped {
 		suggestReducePct = batchPct
@@ -2232,7 +2335,6 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		lastReduceMinutes = int(time.Since(at.gridState.LastTrappedReduceAt).Minutes())
 	}
 
-	// Build T-trade phase info
 	tTradePhase := "idle"
 	tTradeBuyOrderID := ""
 	tTradeBuyPrice := 0.0
