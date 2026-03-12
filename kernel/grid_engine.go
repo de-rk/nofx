@@ -95,6 +95,7 @@ type GridContext struct {
 // TrappedPositionInfo contains information about trapped (losing) positions
 type TrappedPositionInfo struct {
 	IsTrapped           bool    `json:"is_trapped"`             // whether currently trapped
+	Side                string  `json:"side"`                   // "buy" (long trapped) or "sell" (short trapped)
 	TotalUnrealizedLoss float64 `json:"total_unrealized_loss"`  // total USD loss
 	LossPct             float64 `json:"loss_pct"`               // loss as % of total investment
 	TrappedLevelCount   int     `json:"trapped_level_count"`    // number of losing levels
@@ -440,8 +441,13 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	// Trapped position info
 	if ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped {
 		t := ctx.TrappedInfo
+		sideZh := "多单（买入方向）"
+		if t.Side == "sell" {
+			sideZh = "空单（卖出方向）"
+		}
 		sb.WriteString("## ⚠️ 被套警告\n")
 		sb.WriteString(fmt.Sprintf("- 被套状态: 是\n"))
+		sb.WriteString(fmt.Sprintf("- 被套方向: %s\n", sideZh))
 		sb.WriteString(fmt.Sprintf("- 未实现亏损: $%.2f\n", t.TotalUnrealizedLoss))
 		sb.WriteString(fmt.Sprintf("- 亏损占比: %.2f%%\n", t.LossPct))
 		sb.WriteString(fmt.Sprintf("- 被套层数: %d\n", t.TrappedLevelCount))
@@ -454,15 +460,19 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		} else {
 			sb.WriteString("- 上次减仓: 从未执行\n")
 		}
-		// Show T-trade state to prevent duplicate orders
+		// Show T-trade state and correct direction hint
 		switch t.TTradePhase {
 		case "waiting_buy_fill":
-			sb.WriteString(fmt.Sprintf("- **T字状态: 等待买单成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
+			sb.WriteString(fmt.Sprintf("- **T字状态: 等待挂单成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
 				t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ **系统正在等待T字买单成交后自动执行减仓，本轮请勿重复下 place_buy_limit 或 reduce_position**\n")
+			sb.WriteString("- ⛔ **系统正在等待T字挂单成交后自动执行减仓，本轮请勿重复下单或 reduce_position**\n")
 		default:
 			sb.WriteString("- T字状态: 空闲 (可执行T字操作)\n")
-			sb.WriteString("**⚡ T字操作提示：先用 place_buy_limit 在低位挂买单，再执行 reduce_position 减仓**\n")
+			if t.Side == "sell" {
+				sb.WriteString("**⚡ 空单被套T字提示：先用 place_sell_limit 在【高位】挂卖单，再执行 reduce_position 减仓（提高平均入场价）**\n")
+			} else {
+				sb.WriteString("**⚡ 多单被套T字提示：先用 place_buy_limit 在【低位】挂买单，再执行 reduce_position 减仓（降低平均入场价）**\n")
+			}
 		}
 		sb.WriteString("\n")
 	}
@@ -583,6 +593,11 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		t := ctx.TrappedInfo
 		sb.WriteString("## ⚠️ TRAPPED POSITION WARNING\n")
 		sb.WriteString("- Trapped: YES\n")
+		trappedSideEn := "Long (buy direction)"
+		if t.Side == "sell" {
+			trappedSideEn = "Short (sell direction)"
+		}
+		sb.WriteString(fmt.Sprintf("- Trapped Side: %s\n", trappedSideEn))
 		sb.WriteString(fmt.Sprintf("- Unrealized Loss: $%.2f\n", t.TotalUnrealizedLoss))
 		sb.WriteString(fmt.Sprintf("- Loss Percentage: %.2f%%\n", t.LossPct))
 		sb.WriteString(fmt.Sprintf("- Trapped Levels: %d\n", t.TrappedLevelCount))
@@ -600,10 +615,14 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		case "waiting_buy_fill":
 			sb.WriteString(fmt.Sprintf("- **T-Trade State: WAITING FOR BUY FILL** (orderID=%s, price=%.2f, pending reduce=%.4f)\n",
 				t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ **System is waiting for T-trade buy to fill before auto-executing the reduce. DO NOT issue additional place_buy_limit or reduce_position this cycle.**\n")
+			sb.WriteString("- ⛔ **System is waiting for T-trade order to fill before auto-executing the reduce. DO NOT issue additional T-trade orders or reduce_position this cycle.**\n")
 		default:
 			sb.WriteString("- T-Trade State: IDLE (ready for T-trade)\n")
-			sb.WriteString("**⚡ T-Trade tip: First use place_buy_limit to place low buy orders, THEN execute reduce_position**\n")
+			if t.Side == "sell" {
+				sb.WriteString("**⚡ T-Trade tip (SHORT trapped): First use place_sell_limit to place a HIGH sell order, THEN execute reduce_position**\n")
+			} else {
+				sb.WriteString("**⚡ T-Trade tip (LONG trapped): First use place_buy_limit to place a LOW buy order, THEN execute reduce_position**\n")
+			}
 		}
 		sb.WriteString("\n")
 	}

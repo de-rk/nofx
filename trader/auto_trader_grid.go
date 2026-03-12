@@ -2135,6 +2135,8 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 	totalPositionSize := 0.0
 	weightedEntrySum := 0.0
 	trappedCount := 0
+	buySideLoss := 0.0
+	sellSideLoss := 0.0
 
 	for _, level := range at.gridState.Levels {
 		if level.State != "filled" || level.PositionEntry <= 0 || level.PositionSize <= 0 {
@@ -2153,11 +2155,22 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 			trappedCount++
 			totalPositionSize += level.PositionSize
 			weightedEntrySum += level.PositionEntry * level.PositionSize
+			if level.Side == "buy" {
+				buySideLoss += levelLoss
+			} else {
+				sellSideLoss += levelLoss
+			}
 		}
 	}
 
 	if trappedCount == 0 || totalLoss >= 0 {
 		return &kernel.TrappedPositionInfo{IsTrapped: false}
+	}
+
+	// Determine trapped side by which side has more loss
+	trappedSide := "buy"
+	if sellSideLoss < buySideLoss {
+		trappedSide = "sell"
 	}
 
 	avgEntry := 0.0
@@ -2210,6 +2223,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 
 	return &kernel.TrappedPositionInfo{
 		IsTrapped:           isTrapped,
+		Side:                trappedSide,
 		TotalUnrealizedLoss: totalLoss,
 		LossPct:             lossPct,
 		TrappedLevelCount:   trappedCount,
