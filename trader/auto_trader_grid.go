@@ -2207,6 +2207,8 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 				pnl, _ = pos["unrealized_pnl"].(float64)
 			}
 
+			logger.Infof("[Grid] 🔍 Position: side=%s, size=%.4f, entry=%.2f, pnl=%.2f", side, size, entry, pnl)
+
 			if side == "long" && pnl < 0 && size > 0 {
 				longPnL += pnl
 				longSize += size
