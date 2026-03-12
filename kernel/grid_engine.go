@@ -150,9 +150,11 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 2. 多单：place_buy_limit 在低位挂买单；空单：place_sell_limit 在高位挂卖单
 3. 挂单位置：距离当前价格1-2个ATR
 4. 再用 reduce_position 减少被套仓位（每次%.1f%%，不要全部卖掉）
-5. 等待挂单成交，降低平均持仓成本
-6. 重复操作，逐步扭亏为盈
-7. 减仓时优先平亏损最大的层级
+5. **⚠️ 关键：reduce_position数量必须≥挂单数量，否则仓位不减反增**
+6. **⚠️ 价格方向必须正确：多单必须在更低价买入，空单必须在更高价卖出，否则成本不降反升**
+7. 等待挂单成交，降低平均持仓成本
+8. 重复操作，逐步扭亏为盈
+9. 减仓时优先平亏损最大的层级
 
 **何时不需要T字**：
 - 损失 < %.1f%% 且市场仍在震荡区间
@@ -251,9 +253,11 @@ When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 2. Long: place_buy_limit below current price; Short: place_sell_limit above current price
 3. Place order 1-2 ATR away from current price
 4. Then use reduce_position to close part of trapped position (~%.1f%% each time, NOT all at once)
-5. Wait for the order to fill, lowering/raising the average cost
-6. Repeat to gradually turn losses into profits
-7. Prioritize closing levels with the largest losses first
+5. **⚠️ CRITICAL: reduce_position quantity MUST be ≥ prep order quantity, otherwise position increases instead of decreases**
+6. **⚠️ Price direction MUST be correct: Long must buy LOWER, Short must sell HIGHER, otherwise cost increases**
+7. Wait for the order to fill, lowering/raising the average cost
+8. Repeat to gradually turn losses into profits
+9. Prioritize closing levels with the largest losses first
 
 **When NOT to T-trade**:
 - Loss < %.1f%% and market still within ranging range
