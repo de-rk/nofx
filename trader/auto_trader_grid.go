@@ -2546,11 +2546,45 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 		logger.Infof("[Grid] Trapped reduce (exchange): closing %.4f of %s position (entry=%.2f, size=%.4f, pnl=%.2f)",
 			closeQty, mostLosingSide, mostLossEntry, mostLossSize, mostLossPnL)
 
-		var closeErr error
-		if mostLosingSide == "long" {
-			_, closeErr = at.trader.CloseLong(gridConfig.Symbol, closeQty)
+		// Calculate limit price for reduce order based on T-trade buy price
+		at.gridState.mu.RLock()
+		tTradeBuyPrice := at.gridState.TTradeBuyPrice
+		at.gridState.mu.RUnlock()
+
+		var reducePrice float64
+		if tTradeBuyPrice > 0 {
+			// Use T-trade buy price with spread
+			spreadPct := 0.5 // 0.5% spread for profit
+			if mostLosingSide == "long" {
+				// Long reduce: sell higher than T-trade buy price
+				reducePrice = tTradeBuyPrice * (1 + spreadPct/100)
+			} else {
+				// Short reduce: buy lower than T-trade sell price
+				reducePrice = tTradeBuyPrice * (1 - spreadPct/100)
+			}
 		} else {
-			_, closeErr = at.trader.CloseShort(gridConfig.Symbol, closeQty)
+			// Fallback: use current price with small spread
+			if mostLosingSide == "long" {
+				reducePrice = currentPrice * 1.002
+			} else {
+				reducePrice = currentPrice * 0.998
+			}
+		}
+
+		logger.Infof("[Grid] Placing limit reduce order: side=%s qty=%.4f price=%.2f (T-trade price=%.2f)",
+			mostLosingSide, closeQty, reducePrice, tTradeBuyPrice)
+
+		var closeErr error
+		if gridTrader, ok := at.trader.(GridTrader); ok {
+			var orderSide string
+			if mostLosingSide == "long" {
+				orderSide = "sell"
+			} else {
+				orderSide = "buy"
+			}
+			_, closeErr = gridTrader.PlaceLimitOrder(gridConfig.Symbol, orderSide, closeQty, reducePrice)
+		} else {
+			return fmt.Errorf("trader does not support limit orders")
 		}
 		if closeErr != nil {
 			logger.Errorf("[Grid] Trapped reduce (exchange): failed to close %s position: %v", mostLosingSide, closeErr)
