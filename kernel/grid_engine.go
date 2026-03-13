@@ -199,6 +199,12 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 ## 决策规则
 
+### 重要：多任务并行处理
+**即使存在被套头寸，也必须同时处理正常的网格交易！**
+- 被套处理和网格交易是独立的任务，可以在同一周期内同时执行
+- 例如：可以同时输出T字操作订单 + 空网格层级的补单
+- 不要因为有被套就忽略网格维护，两者互不冲突
+
 ### 市场状态判断
 - **震荡市场** (适合网格): 布林带宽度 < 3%%, EMA20/50 距离 < 1%%, 价格在布林带中轨附近
 - **趋势市场** (暂停网格): 布林带宽度 > 4%%, EMA20/50 距离 > 2%%, 价格持续突破布林带
@@ -309,6 +315,12 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 - Distribution: %s
 
 ## Decision Rules
+
+### IMPORTANT: Multi-Task Parallel Processing
+**Even when trapped positions exist, you MUST continue normal grid trading!**
+- Trapped position handling and grid trading are independent tasks that can execute simultaneously in the same cycle
+- Example: You can output T-trade orders + fill empty grid levels at the same time
+- Do not ignore grid maintenance just because there's a trapped position - they don't conflict
 
 ### Market Regime Assessment
 - **Ranging Market** (ideal for grid): Bollinger width < 3%%, EMA20/50 distance < 1%%, price near middle band
