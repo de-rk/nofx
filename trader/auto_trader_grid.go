@@ -1312,6 +1312,14 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 		}
 	}
 	at.gridState.OrderBook = newOrderBook
+
+	// Clear T-trade pending reduce since all non-T-trade orders were cancelled
+	if at.gridState.TTradePendingReduceQty > 0 {
+		logger.Warnf("[Grid] Clearing T-trade pending reduce (%.4f) - reduce orders were cancelled",
+			at.gridState.TTradePendingReduceQty)
+		at.gridState.TTradePendingReduceQty = 0
+	}
+
 	at.gridState.mu.Unlock()
 
 	logger.Infof("[Grid] Cancelled %d orders (protected T-trade order)", cancelCount)
