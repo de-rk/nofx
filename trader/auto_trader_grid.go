@@ -77,11 +77,12 @@ type GridState struct {
 
 	// T-trade state machine (T字操作状态机)
 	// Phase 1: place low buy order → Phase 2: wait for fill → Phase 3: execute reduce
-	TTradeBuyOrderID     string    // order ID of the T-trade prep buy order (waiting for fill)
-	TTradeBuyPrice       float64   // price of the T-trade buy order
-	TTradeBuyQty         float64   // quantity of the T-trade buy order
-	TTradeBuyPlacedAt    time.Time // when the T-trade buy was placed
-	TTradePendingReduceQty float64 // reduce qty deferred until T-trade buy fills (0 = none pending)
+	TTradeBuyOrderID       string    // order ID of the T-trade prep buy order (waiting for fill)
+	TTradeBuyPrice         float64   // price of the T-trade buy order
+	TTradeBuyQty           float64   // quantity of the T-trade buy order
+	TTradeBuyPlacedAt      time.Time // when the T-trade buy was placed
+	TTradePendingReduceQty float64   // reduce qty deferred until T-trade buy fills (0 = none pending)
+	TTradeReduceOrderID    string    // order ID of the reduce limit order (after buy fills)
 }
 
 // NewGridState creates a new grid state
@@ -1268,9 +1269,10 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 func (at *AutoTrader) cancelAllGridOrders() error {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Get T-trade order ID to protect it
+	// Get T-trade order IDs to protect them
 	at.gridState.mu.RLock()
 	tTradeOrderID := at.gridState.TTradeBuyOrderID
+	tTradeReduceOrderID := at.gridState.TTradeReduceOrderID
 	at.gridState.mu.RUnlock()
 
 	// Get all open orders
@@ -1279,11 +1281,17 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 		return fmt.Errorf("failed to get open orders: %w", err)
 	}
 
-	// Cancel orders one by one, skipping T-trade prep order
+	// Cancel orders one by one, skipping T-trade orders
 	cancelCount := 0
 	for _, order := range openOrders {
 		if order.OrderID == tTradeOrderID && tTradeOrderID != "" {
 			logger.Infof("[Grid] Skipping T-trade prep order %s during cancel all", order.OrderID)
+			continue
+		}
+		if order.OrderID == tTradeReduceOrderID && tTradeReduceOrderID != "" {
+			logger.Infof("[Grid] Skipping T-trade reduce order %s during cancel all", order.OrderID)
+			continue
+		}
 			continue
 		}
 		if gridTrader, ok := at.trader.(GridTrader); ok {
@@ -2575,6 +2583,7 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 			mostLosingSide, closeQty, reducePrice, tTradeBuyPrice)
 
 		var closeErr error
+		var reduceOrderResp map[string]interface{}
 		if gridTrader, ok := at.trader.(GridTrader); ok {
 			var orderSide string
 			if mostLosingSide == "long" {
@@ -2582,7 +2591,7 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 			} else {
 				orderSide = "buy"
 			}
-			_, closeErr = gridTrader.PlaceLimitOrder(gridConfig.Symbol, orderSide, closeQty, reducePrice)
+			reduceOrderResp, closeErr = gridTrader.PlaceLimitOrder(gridConfig.Symbol, orderSide, closeQty, reducePrice)
 		} else {
 			return fmt.Errorf("trader does not support limit orders")
 		}
@@ -2591,7 +2600,18 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 			return closeErr
 		}
 
+		// Save reduce order ID for protection
+		reduceOrderID := ""
+		if reduceOrderResp != nil {
+			if oid, ok := reduceOrderResp["orderId"].(int64); ok {
+				reduceOrderID = fmt.Sprintf("%d", oid)
+			} else if oid, ok := reduceOrderResp["orderId"].(string); ok {
+				reduceOrderID = oid
+			}
+		}
+
 		at.gridState.mu.Lock()
+		at.gridState.TTradeReduceOrderID = reduceOrderID
 		at.gridState.LastTrappedReduceAt = time.Now()
 		at.gridState.TrappedReduceCount++
 		at.gridState.DailyPnL += mostLossPnL * (closeQty / mostLossSize)
