@@ -215,8 +215,8 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - cancel_all_orders: 取消所有订单
 - pause_grid: 暂停网格交易（趋势市场时）
 - resume_grid: 恢复网格交易（震荡市场时）
-- adjust_grid: 调整网格边界%s
-- hold: 保持当前状态不操作
+- adjust_grid: 调整网格边界
+- hold: 保持当前状态不操作%s
 
 ## 输出格式
 输出JSON数组，每个决策包含:
@@ -330,8 +330,8 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 - cancel_all_orders: Cancel all orders
 - pause_grid: Pause grid trading (in trending market)
 - resume_grid: Resume grid trading (in ranging market)
-- adjust_grid: Adjust grid boundaries%s
-- hold: Maintain current state
+- adjust_grid: Adjust grid boundaries
+- hold: Maintain current state%s
 
 ## Output Format
 Output JSON array, each decision contains:
