@@ -1011,14 +1011,7 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 		}
 		return err
 	case "reduce_position":
-		// Direct position reduction with specified side
-		if d.Side == "" {
-			logger.Warnf("[Grid] reduce_position requires 'side' parameter (\"long\" or \"short\")")
-			return fmt.Errorf("reduce_position requires side parameter")
-		}
-
-		logger.Infof("[Grid] AI decision: reduce_%s_position qty=%.4f reason=%s", d.Side, d.Quantity, d.Reasoning)
-
+		// Legacy support - redirect to reduce_long/reduce_short based on side
 		if d.Side == "long" {
 			_, err := at.trader.CloseLong(d.Symbol, d.Quantity)
 			if err == nil {
@@ -1032,7 +1025,21 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 			}
 			return err
 		}
-		return fmt.Errorf("invalid side: %s (must be \"long\" or \"short\")", d.Side)
+		return fmt.Errorf("reduce_position requires side parameter")
+	case "reduce_long":
+		logger.Infof("[Grid] AI decision: reduce_long qty=%.4f reason=%s", d.Quantity, d.Reasoning)
+		_, err := at.trader.CloseLong(d.Symbol, d.Quantity)
+		if err == nil {
+			at.refreshTotalInvestment()
+		}
+		return err
+	case "reduce_short":
+		logger.Infof("[Grid] AI decision: reduce_short qty=%.4f reason=%s", d.Quantity, d.Reasoning)
+		_, err := at.trader.CloseShort(d.Symbol, d.Quantity)
+		if err == nil {
+			at.refreshTotalInvestment()
+		}
+		return err
 	default:
 		logger.Warnf("[Grid] Unknown action: %s", d.Action)
 		return nil
