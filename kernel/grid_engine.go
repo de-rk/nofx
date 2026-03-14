@@ -211,6 +211,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 ### 可执行的操作
 - place_buy_limit: 在指定价格下买入限价单
 - place_sell_limit: 在指定价格下卖出限价单
+- reduce_position: 平仓/减仓指定数量的持仓，quantity字段指定减仓数量
 - cancel_order: 取消指定订单
 - cancel_all_orders: 取消所有订单
 - pause_grid: 暂停网格交易（趋势市场时）
@@ -326,6 +327,7 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 ### Available Actions
 - place_buy_limit: Place buy limit order at specified price
 - place_sell_limit: Place sell limit order at specified price
+- reduce_position: Close/reduce position by specified quantity
 - cancel_order: Cancel specific order
 - cancel_all_orders: Cancel all orders
 - pause_grid: Pause grid trading (in trending market)
