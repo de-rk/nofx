@@ -177,7 +177,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 	reduceAction := ""
 	if config.EnableTrappedReduce {
-		reduceAction = "\n- reduce_position: 分批减仓（被套时使用），quantity字段指定减仓数量"
+		reduceAction = "\n- reduce_position: 平仓/减仓指定数量的持仓，quantity字段指定减仓数量"
 	}
 
 	return fmt.Sprintf(`# 你是一个专业的网格交易AI
@@ -292,7 +292,7 @@ Example (Short trapped - T-Trade: sell higher first, then reduce):
 
 	reduceAction := ""
 	if config.EnableTrappedReduce {
-		reduceAction = "\n- reduce_position: Batch reduce trapped position, quantity field specifies contracts to close"
+		reduceAction = "\n- reduce_position: Close/reduce position by specified quantity, quantity field specifies contracts to close"
 	}
 
 	return fmt.Sprintf(`# You are a Professional Grid Trading AI
