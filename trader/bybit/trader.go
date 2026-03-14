@@ -1126,10 +1126,25 @@ func (t *BybitTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.Limi
 		}
 	}
 
-	// Determine side
+	// Determine side and position index
 	side := "Buy"
-	if req.Side == "SELL" {
+	positionIdx := 0 // Default: one-way mode
+
+	// Set side
+	if req.Side == "sell" || req.Side == "SELL" {
 		side = "Sell"
+	}
+
+	// Set position index based on PositionSide (for hedge mode)
+	if req.PositionSide != "" {
+		switch req.PositionSide {
+		case "LONG", "long":
+			positionIdx = 1 // Long position in hedge mode
+		case "SHORT", "short":
+			positionIdx = 2 // Short position in hedge mode
+		default:
+			positionIdx = 0 // One-way mode
+		}
 	}
 
 	params := map[string]interface{}{
@@ -1139,8 +1154,8 @@ func (t *BybitTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.Limi
 		"orderType":   "Limit",
 		"qty":         qtyStr,
 		"price":       priceStr,
-		"timeInForce": "GTC", // Good Till Cancel
-		"positionIdx": 0,     // One-way position mode
+		"timeInForce": "GTC",
+		"positionIdx": positionIdx,
 	}
 
 	// Add reduce only if specified

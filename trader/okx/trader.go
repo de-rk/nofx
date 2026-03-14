@@ -1556,9 +1556,29 @@ func (t *OKXTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitO
 	// Determine side and position side
 	side := "buy"
 	posSide := "long"
-	if req.Side == "SELL" {
+
+	// Set side
+	if req.Side == "sell" || req.Side == "SELL" {
 		side = "sell"
-		posSide = "short"
+	}
+
+	// Set position side - use from request if provided, otherwise infer
+	if req.PositionSide != "" {
+		switch req.PositionSide {
+		case "LONG", "long":
+			posSide = "long"
+		case "SHORT", "short":
+			posSide = "short"
+		default:
+			posSide = "net" // OKX uses "net" for one-way mode
+		}
+	} else {
+		// Fallback: infer from side (for backward compatibility)
+		if side == "sell" {
+			posSide = "short"
+		} else {
+			posSide = "long"
+		}
 	}
 
 	body := map[string]interface{}{

@@ -1245,7 +1245,7 @@ func (t *BitgetTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.Lim
 
 	// Determine side
 	side := "buy"
-	if req.Side == "SELL" {
+	if req.Side == "sell" || req.Side == "SELL" {
 		side = "sell"
 	}
 
@@ -1258,8 +1258,18 @@ func (t *BitgetTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.Lim
 		"orderType":   "limit",
 		"size":        qtyStr,
 		"price":       fmt.Sprintf("%.8f", req.Price),
-		"force":       "GTC", // Good Till Cancel
+		"force":       "GTC",
 		"clientOid":   genBitgetClientOid(),
+	}
+
+	// Set holdSide for hedge mode if PositionSide is specified
+	if req.PositionSide != "" {
+		switch req.PositionSide {
+		case "LONG", "long":
+			body["holdSide"] = "long"
+		case "SHORT", "short":
+			body["holdSide"] = "short"
+		}
 	}
 
 	// Add reduce only if specified

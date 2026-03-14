@@ -1494,9 +1494,22 @@ func (t *AsterTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.Limi
 		side = "SELL"
 	}
 
+	// Determine position side
+	positionSide := "BOTH" // Default: one-way mode
+	if req.PositionSide != "" {
+		switch req.PositionSide {
+		case "LONG", "long":
+			positionSide = "LONG"
+		case "SHORT", "short":
+			positionSide = "SHORT"
+		default:
+			positionSide = "BOTH"
+		}
+	}
+
 	params := map[string]interface{}{
 		"symbol":       req.Symbol,
-		"positionSide": "BOTH",
+		"positionSide": positionSide,
 		"type":         "LIMIT",
 		"side":         side,
 		"timeInForce":  "GTC",

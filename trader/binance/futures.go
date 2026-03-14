@@ -198,11 +198,27 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 		posMap["liquidationPrice"], _ = strconv.ParseFloat(pos.LiquidationPrice, 64)
 		// Note: Binance SDK doesn't expose updateTime field, will fallback to local tracking
 
-		// Determine direction
-		if posAmt > 0 {
+		// Determine direction - support both hedge mode and one-way mode
+		// Hedge mode: use PositionSide field (LONG/SHORT/BOTH)
+		// One-way mode: use positionAmt sign (positive=long, negative=short)
+		if pos.PositionSide == "LONG" {
 			posMap["side"] = "long"
-		} else {
+		} else if pos.PositionSide == "SHORT" {
 			posMap["side"] = "short"
+		} else if pos.PositionSide == "BOTH" {
+			// One-way mode: determine by positionAmt sign
+			if posAmt > 0 {
+				posMap["side"] = "long"
+			} else {
+				posMap["side"] = "short"
+			}
+		} else {
+			// Fallback: determine by positionAmt sign
+			if posAmt > 0 {
+				posMap["side"] = "long"
+			} else {
+				posMap["side"] = "short"
+			}
 		}
 
 		result = append(result, posMap)
@@ -743,12 +759,30 @@ func (t *FuturesTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.Li
 	var side futures.SideType
 	var positionSide futures.PositionSideType
 
-	if req.Side == "BUY" {
+	// Set side
+	if req.Side == "buy" || req.Side == "BUY" {
 		side = futures.SideTypeBuy
-		positionSide = futures.PositionSideTypeLong
 	} else {
 		side = futures.SideTypeSell
-		positionSide = futures.PositionSideTypeShort
+	}
+
+	// Set position side - use from request if provided, otherwise infer
+	if req.PositionSide != "" {
+		switch req.PositionSide {
+		case "LONG", "long":
+			positionSide = futures.PositionSideTypeLong
+		case "SHORT", "short":
+			positionSide = futures.PositionSideTypeShort
+		default:
+			positionSide = futures.PositionSideTypeBoth
+		}
+	} else {
+		// Fallback: infer from side (for backward compatibility)
+		if side == futures.SideTypeBuy {
+			positionSide = futures.PositionSideTypeLong
+		} else {
+			positionSide = futures.PositionSideTypeShort
+		}
 	}
 
 	// Build order service with broker ID
@@ -761,6 +795,11 @@ func (t *FuturesTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.Li
 		Quantity(quantityStr).
 		Price(priceStr).
 		NewClientOrderID(getBrOrderID())
+
+	// Set ReduceOnly if specified
+	if req.ReduceOnly {
+		orderService = orderService.ReduceOnly(true)
+	}
 
 	// Execute order
 	order, err := orderService.Do(context.Background())

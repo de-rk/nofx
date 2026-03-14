@@ -2151,8 +2151,8 @@ func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*type
 	// Round price to 5 significant figures
 	roundedPrice := t.roundPriceToSigfigs(req.Price)
 
-	// Determine if buy or sell
-	isBuy := req.Side == "BUY"
+	// Determine if buy or sell (support both uppercase and lowercase)
+	isBuy := req.Side == "BUY" || req.Side == "buy"
 
 	logger.Infof("[Hyperliquid] PlaceLimitOrder: %s %s @ %.4f, qty=%.4f", coin, req.Side, roundedPrice, roundedQuantity)
 

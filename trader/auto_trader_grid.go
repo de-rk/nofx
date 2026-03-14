@@ -1010,36 +1010,38 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 			at.refreshTotalInvestment()
 		}
 		return err
-	case "reduce_position":
-		// Legacy support - redirect to reduce_long/reduce_short based on side
-		if d.Side == "long" {
-			_, err := at.trader.CloseLong(d.Symbol, d.Quantity)
-			if err == nil {
-				at.refreshTotalInvestment()
-			}
-			return err
-		} else if d.Side == "short" {
-			_, err := at.trader.CloseShort(d.Symbol, d.Quantity)
-			if err == nil {
-				at.refreshTotalInvestment()
-			}
-			return err
-		}
-		return fmt.Errorf("reduce_position requires side parameter")
 	case "reduce_long":
-		logger.Infof("[Grid] AI decision: reduce_long qty=%.4f reason=%s", d.Quantity, d.Reasoning)
-		_, err := at.trader.CloseLong(d.Symbol, d.Quantity)
-		if err == nil {
-			at.refreshTotalInvestment()
+		// Close long position with sell limit order
+		logger.Infof("[Grid] AI decision: reduce_long qty=%.4f price=%.2f reason=%s", d.Quantity, d.Price, d.Reasoning)
+		if gridTrader, ok := at.trader.(GridTrader); ok {
+			_, err := gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
+				Symbol:       d.Symbol,
+				Side:         "sell",
+				PositionSide: "LONG",
+				Quantity:     d.Quantity,
+				Price:        d.Price,
+				Leverage:     at.config.StrategyConfig.GridConfig.Leverage,
+				ReduceOnly:   true,
+			})
+			return err
 		}
-		return err
+		return fmt.Errorf("trader does not support limit orders")
 	case "reduce_short":
-		logger.Infof("[Grid] AI decision: reduce_short qty=%.4f reason=%s", d.Quantity, d.Reasoning)
-		_, err := at.trader.CloseShort(d.Symbol, d.Quantity)
-		if err == nil {
-			at.refreshTotalInvestment()
+		// Close short position with buy limit order
+		logger.Infof("[Grid] AI decision: reduce_short qty=%.4f price=%.2f reason=%s", d.Quantity, d.Price, d.Reasoning)
+		if gridTrader, ok := at.trader.(GridTrader); ok {
+			_, err := gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
+				Symbol:       d.Symbol,
+				Side:         "buy",
+				PositionSide: "SHORT",
+				Quantity:     d.Quantity,
+				Price:        d.Price,
+				Leverage:     at.config.StrategyConfig.GridConfig.Leverage,
+				ReduceOnly:   true,
+			})
+			return err
 		}
-		return err
+		return fmt.Errorf("trader does not support limit orders")
 	default:
 		logger.Warnf("[Grid] Unknown action: %s", d.Action)
 		return nil
@@ -2562,10 +2564,43 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 		at.gridState.mu.RUnlock()
 
 		var closeErr error
-		if side == "buy" {
-			_, closeErr = at.trader.CloseLong(gridConfig.Symbol, closeSize)
+		// Calculate limit price for reduce order
+		at.gridState.mu.RLock()
+		tTradeBuyPrice := at.gridState.TTradeBuyPrice
+		at.gridState.mu.RUnlock()
+
+		var reducePrice float64
+		if tTradeBuyPrice > 0 {
+			spreadPct := 0.5
+			if side == "buy" {
+				reducePrice = tTradeBuyPrice * (1 + spreadPct/100)
+			} else {
+				reducePrice = tTradeBuyPrice * (1 - spreadPct/100)
+			}
 		} else {
-			_, closeErr = at.trader.CloseShort(gridConfig.Symbol, closeSize)
+			if side == "buy" {
+				reducePrice = currentPrice * 1.002
+			} else {
+				reducePrice = currentPrice * 0.998
+			}
+		}
+
+		if gridTrader, ok := at.trader.(GridTrader); ok {
+			var orderSide string
+			if side == "buy" {
+				orderSide = "sell"
+			} else {
+				orderSide = "buy"
+			}
+			_, closeErr = gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
+				Symbol:   gridConfig.Symbol,
+				Side:     orderSide,
+				Quantity: closeSize,
+				Price:    reducePrice,
+				Leverage: gridConfig.Leverage,
+			})
+		} else {
+			closeErr = fmt.Errorf("trader does not support limit orders")
 		}
 
 		if closeErr != nil {

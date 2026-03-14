@@ -931,8 +931,8 @@ func (t *LighterTraderV2) PlaceLimitOrder(req *tradertypes.LimitOrderRequest) (*
 		return nil, fmt.Errorf("TxClient not initialized")
 	}
 
-	// Determine if this is a sell (ask) order
-	isAsk := req.Side == "SELL"
+	// Determine if this is a sell (ask) order (support both uppercase and lowercase)
+	isAsk := req.Side == "SELL" || req.Side == "sell"
 
 	logger.Infof("📝 LIGHTER placing limit order: %s %s @ %.4f, qty=%.4f, leverage=%dx",
 		req.Symbol, req.Side, req.Price, req.Quantity, req.Leverage)

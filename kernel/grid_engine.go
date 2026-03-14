@@ -175,11 +175,6 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 `, config.TrappedReduceThresholdPct, config.TrappedReduceBatchPct, config.TrappedReduceThresholdPct)
 	}
 
-	reduceAction := ""
-	if config.EnableTrappedReduce {
-		reduceAction = "\n- reduce_position: 平仓/减仓指定数量的持仓，quantity字段指定减仓数量"
-	}
-
 	return fmt.Sprintf(`# 你是一个专业的网格交易AI
 
 ## 角色定义
@@ -211,8 +206,6 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 ### 可执行的操作
 - place_buy_limit: 在指定价格下买入限价单
 - place_sell_limit: 在指定价格下卖出限价单
-- reduce_long: 平多仓/减多仓，quantity字段指定减仓数量
-- reduce_short: 平空仓/减空仓，quantity字段指定减仓数量
 - cancel_order: 取消指定订单
 - cancel_all_orders: 取消所有订单
 - pause_grid: 暂停网格交易（趋势市场时）
@@ -230,7 +223,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - order_id: 订单ID（取消订单用）
 - confidence: 置信度 0-100
 - reasoning: 决策理由
-`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection, reduceAction)
+`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
 }
 
 func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
@@ -292,11 +285,6 @@ Example (Short trapped - T-Trade: sell higher first, then reduce):
 `, config.TrappedReduceThresholdPct, config.TrappedReduceBatchPct, config.TrappedReduceThresholdPct)
 	}
 
-	reduceAction := ""
-	if config.EnableTrappedReduce {
-		reduceAction = "\n- reduce_position: Close/reduce position by specified quantity, quantity field specifies contracts to close"
-	}
-
 	return fmt.Sprintf(`# You are a Professional Grid Trading AI
 
 ## Role Definition
@@ -328,8 +316,6 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 ### Available Actions
 - place_buy_limit: Place buy limit order at specified price
 - place_sell_limit: Place sell limit order at specified price
-- reduce_long: Close/reduce long position, quantity field specifies amount
-- reduce_short: Close/reduce short position, quantity field specifies amount
 - cancel_order: Cancel specific order
 - cancel_all_orders: Cancel all orders
 - pause_grid: Pause grid trading (in trending market)
@@ -347,7 +333,7 @@ Output JSON array, each decision contains:
 - order_id: Order ID (for cancel)
 - confidence: Confidence 0-100
 - reasoning: Decision reason
-`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection, reduceAction)
+`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
 }
 
 // BuildGridUserPrompt builds the user prompt with current grid context
