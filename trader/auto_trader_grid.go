@@ -1302,8 +1302,6 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 			logger.Infof("[Grid] Skipping T-trade reduce order %s during cancel all", order.OrderID)
 			continue
 		}
-			continue
-		}
 		if gridTrader, ok := at.trader.(GridTrader); ok {
 			if err := gridTrader.CancelOrder(gridConfig.Symbol, order.OrderID); err != nil {
 				logger.Warnf("[Grid] Failed to cancel order %s: %v", order.OrderID, err)
