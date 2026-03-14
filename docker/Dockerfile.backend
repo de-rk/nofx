@@ -38,6 +38,7 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-${TA_LIB_VERSION}-src.
 # ──────────────────────────────────────────────────────────────
 FROM golang:${GO_VERSION} AS backend-builder
 
+# Install build tools and cross-compilation toolchain
 RUN apk update && apk add --no-cache git make gcc g++ musl-dev
 
 COPY --from=ta-lib-builder /usr/local /usr/local
@@ -50,7 +51,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=1 GOOS=linux \
+    CGO_ENABLED=1 \
     CGO_CFLAGS="-D_LARGEFILE64_SOURCE" \
     go build -trimpath -ldflags="-s -w" -o nofx .
 
