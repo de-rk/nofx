@@ -2526,7 +2526,7 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 			mostLosingSide, closeQty, reducePrice, tTradeBuyPrice)
 
 		var closeErr error
-		var reduceOrderResp map[string]interface{}
+		var reduceOrderResult *types.LimitOrderResult
 		if gridTrader, ok := at.trader.(GridTrader); ok {
 			var orderSide string
 			if mostLosingSide == "long" {
@@ -2534,7 +2534,13 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 			} else {
 				orderSide = "buy"
 			}
-			reduceOrderResp, closeErr = gridTrader.PlaceLimitOrder(gridConfig.Symbol, orderSide, closeQty, reducePrice)
+			reduceOrderResult, closeErr = gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
+				Symbol:   gridConfig.Symbol,
+				Side:     orderSide,
+				Quantity: closeQty,
+				Price:    reducePrice,
+				Leverage: gridConfig.Leverage,
+			})
 		} else {
 			return fmt.Errorf("trader does not support limit orders")
 		}
@@ -2545,12 +2551,8 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 
 		// Save reduce order ID for protection
 		reduceOrderID := ""
-		if reduceOrderResp != nil {
-			if oid, ok := reduceOrderResp["orderId"].(int64); ok {
-				reduceOrderID = fmt.Sprintf("%d", oid)
-			} else if oid, ok := reduceOrderResp["orderId"].(string); ok {
-				reduceOrderID = oid
-			}
+		if reduceOrderResult != nil {
+			reduceOrderID = reduceOrderResult.OrderID
 		}
 
 		at.gridState.mu.Lock()
