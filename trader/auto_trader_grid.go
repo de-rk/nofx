@@ -857,6 +857,7 @@ func (at *AutoTrader) RunGridCycle() error {
 	// Check if T-trade buy order has filled → execute deferred reduce if so
 	if gridConfig.EnableTrappedReduce {
 		at.checkTTradeOrderFillAndReduce()
+		at.checkTTradeReduceOrderStatus()
 	}
 
 	// Build grid context
@@ -1019,6 +1020,15 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 		// defer the reduce — do NOT sell before buy confirms, or we deepen the loss.
 		at.gridState.mu.Lock()
 		hasPendingTTrade := at.gridState.TTradeBuyOrderID != ""
+		hasPendingReduce := at.gridState.TTradeReduceOrderID != ""
+
+		// Limit: max 2 pending T-trade orders (1 prep + 1 reduce)
+		if hasPendingTTrade && hasPendingReduce {
+			at.gridState.mu.Unlock()
+			logger.Infof("[Grid] ⏸️ T-trade limit reached: both prep and reduce orders pending, skipping new reduce request")
+			return nil
+		}
+
 		if hasPendingTTrade {
 			// Buy order already tracked, just update the deferred reduce qty
 			if d.Quantity > 0 {
@@ -2182,6 +2192,44 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 	// Execute the deferred reduce
 	if err := at.executeTrappedReduce(reduceQty); err != nil {
 		logger.Errorf("[Grid] T-trade deferred reduce failed: %v", err)
+	}
+}
+
+// checkTTradeReduceOrderStatus checks if reduce order was cancelled and retries
+func (at *AutoTrader) checkTTradeReduceOrderStatus() {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	if !gridConfig.EnableTrappedReduce {
+		return
+	}
+
+	at.gridState.mu.RLock()
+	reduceOrderID := at.gridState.TTradeReduceOrderID
+	at.gridState.mu.RUnlock()
+
+	if reduceOrderID == "" {
+		return
+	}
+
+	// Check if reduce order still exists
+	orders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
+	if err != nil {
+		return
+	}
+
+	stillOpen := false
+	for _, o := range orders {
+		if o.OrderID == reduceOrderID {
+			stillOpen = true
+			break
+		}
+	}
+
+	if !stillOpen {
+		// Reduce order was cancelled or filled, clear it
+		at.gridState.mu.Lock()
+		at.gridState.TTradeReduceOrderID = ""
+		at.gridState.mu.Unlock()
+		logger.Infof("[Grid] T-trade reduce order %s no longer open (filled or cancelled)", reduceOrderID)
 	}
 }
 
