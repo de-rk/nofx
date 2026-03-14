@@ -146,6 +146,7 @@ type Decision struct {
 	Quantity   float64 `json:"quantity,omitempty"`    // Order quantity (for grid)
 	LevelIndex int     `json:"level_index,omitempty"` // Grid level index
 	OrderID    string  `json:"order_id,omitempty"`    // Order ID (for cancel)
+	Side       string  `json:"side,omitempty"`        // Position side: "long" or "short" (for reduce_position)
 
 	// Common parameters
 	Confidence int     `json:"confidence,omitempty"` // Confidence level (0-100)

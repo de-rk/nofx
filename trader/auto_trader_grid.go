@@ -1011,83 +1011,28 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 		}
 		return err
 	case "reduce_position":
-		// AI-triggered batch reduction for trapped positions (分批减仓)
-		gridConfig := at.config.StrategyConfig.GridConfig
-		if !gridConfig.EnableTrappedReduce {
-			logger.Warnf("[Grid] reduce_position action ignored: trapped reduce feature is disabled")
-			return nil
-		}
-		// SAFETY GUARD: if a T-trade buy order is still PENDING (not yet filled),
-		// defer the reduce — do NOT sell before buy confirms, or we deepen the loss.
-		at.gridState.mu.Lock()
-		hasPendingTTrade := at.gridState.TTradeBuyOrderID != ""
-		hasPendingReduce := at.gridState.TTradeReduceOrderID != ""
-
-		// Limit: max 2 pending T-trade orders (1 prep + 1 reduce)
-		if hasPendingTTrade && hasPendingReduce {
-			at.gridState.mu.Unlock()
-			logger.Infof("[Grid] ⏸️ T-trade limit reached: both prep and reduce orders pending, skipping new reduce request")
-			return nil
+		// Direct position reduction with specified side
+		if d.Side == "" {
+			logger.Warnf("[Grid] reduce_position requires 'side' parameter (\"long\" or \"short\")")
+			return fmt.Errorf("reduce_position requires side parameter")
 		}
 
-		if hasPendingTTrade {
-			// Buy order already tracked, just update the deferred reduce qty
-			if d.Quantity > 0 {
-				at.gridState.TTradePendingReduceQty = d.Quantity
+		logger.Infof("[Grid] AI decision: reduce_%s_position qty=%.4f reason=%s", d.Side, d.Quantity, d.Reasoning)
+
+		if d.Side == "long" {
+			_, err := at.trader.CloseLong(d.Symbol, d.Quantity)
+			if err == nil {
+				at.refreshTotalInvestment()
 			}
-			orderID := at.gridState.TTradeBuyOrderID
-			price := at.gridState.TTradeBuyPrice
-			at.gridState.mu.Unlock()
-			logger.Infof("[Grid] ⏳ T-trade buy order still PENDING (orderID=%s price=%.2f) — reduce_position DEFERRED (qty=%.4f). Will execute after buy fills.",
-				orderID, price, d.Quantity)
-			return nil
-		}
-
-		// No T-trade buy tracked yet — look for the most recently placed pending order
-		// Direction depends on which side is trapped:
-		// - Long trapped: look for pending BUY order (buy lower to reduce cost)
-		// - Short trapped: look for pending SELL order (sell higher to reduce cost)
-
-		// Determine trapped side from exchange positions (consistent with buildTrappedPositionInfo)
-		currentPrice, _ := at.trader.GetMarketPrice(gridConfig.Symbol)
-		trappedInfo := at.buildTrappedPositionInfo(currentPrice)
-		trappedSide := ""
-		if trappedInfo != nil && trappedInfo.IsTrapped {
-			trappedSide = trappedInfo.Side
-		}
-
-		// Search for pending order matching the trapped side
-		latestOrderID := ""
-		latestOrderPrice := 0.0
-		latestOrderQty := 0.0
-		for _, level := range at.gridState.Levels {
-			if level.State == "pending" && level.Side == trappedSide && level.OrderID != "" {
-				// Use the latest pending order (highest level index as proxy)
-				latestOrderID = level.OrderID
-				latestOrderPrice = level.Price
-				latestOrderQty = level.OrderQuantity
+			return err
+		} else if d.Side == "short" {
+			_, err := at.trader.CloseShort(d.Symbol, d.Quantity)
+			if err == nil {
+				at.refreshTotalInvestment()
 			}
+			return err
 		}
-
-		if latestOrderID != "" && gridConfig.EnableTrappedReduce {
-			// Found a pending order placed this cycle — treat it as T-trade prep
-			// Defer reduce until this order fills
-			at.gridState.TTradeBuyOrderID = latestOrderID
-			at.gridState.TTradeBuyPrice = latestOrderPrice
-			at.gridState.TTradeBuyQty = latestOrderQty
-			at.gridState.TTradeBuyPlacedAt = time.Now()
-			reduceQty := d.Quantity
-			at.gridState.TTradePendingReduceQty = reduceQty
-			at.gridState.mu.Unlock()
-			logger.Infof("[Grid] 🎯 T-trade paired: %s orderID=%s (price=%.2f qty=%.4f) ← linked to deferred reduce %.4f. Will reduce AFTER order fills.",
-				trappedSide, latestOrderID, latestOrderPrice, latestOrderQty, reduceQty)
-			return nil
-		}
-		at.gridState.mu.Unlock()
-
-		// No pending buy order found — execute reduce immediately (no buy to wait for)
-		logger.Infof("[Grid] AI decision: reduce_position qty=%.4f reason=%s", d.Quantity, d.Reasoning)
-		return at.executeTrappedReduce(d.Quantity)
+		return fmt.Errorf("invalid side: %s (must be \"long\" or \"short\")", d.Side)
 	default:
 		logger.Warnf("[Grid] Unknown action: %s", d.Action)
 		return nil
