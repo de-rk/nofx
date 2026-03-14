@@ -141,10 +141,8 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - T字顺序：先用 place_sell_limit 在**更高价**挂卖单 → 再执行 reduce_position 减仓
 - 示例：原均价$100，价格涨到$105，先在$107挂卖单，再减仓50%%，新均价升至$103.5
 
-**何时执行T字**（必须满足至少一个条件）：
-- 损失超过总投资的 %.1f%% 且价格仍在不利趋势（多单下跌/空单上涨）
-- 损失超过总投资的 5%% 无论趋势如何
-- 箱体破位确认，价格远离网格边界
+**何时执行T字**：
+- 损失超过单仓仓位的 %.1f%% 且价格仍在不利趋势（多单下跌/空单上涨）
 
 **T字操作策略**（仅在trapped_info.side指示的方向执行）：
 
@@ -250,10 +248,8 @@ When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 - T-trade order: First use place_sell_limit at a **higher price** → then execute reduce_position
 - Example: Avg entry $100, price rises to $105, place sell at $107 first, then reduce 50%%, new avg = $103.5
 
-**When to execute T-trade** (at least one condition must be met):
-- Loss > %.1f%% of total investment AND price still moving against position
-- Loss > 5%% of total investment regardless of trend
-- Box breakout confirmed, price far from grid boundary
+**When to execute T-trade**:
+- Loss > %.1f%% of position size AND price still moving against position
 
 **T-Trade Strategy**:
 1. Identify the trapped direction (long or short)
