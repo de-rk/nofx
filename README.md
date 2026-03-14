@@ -177,11 +177,12 @@ docker compose -f docker-compose.prod.yml up -d
 Access Web Interface: **http://127.0.0.1:3000**
 
 ```bash
-# Management commands
-docker compose -f docker-compose.prod.yml logs -f    # View logs
-docker compose -f docker-compose.prod.yml restart    # Restart
-docker compose -f docker-compose.prod.yml down       # Stop
-docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d  # Update
+# Quick Commands:
+cd /root/nofx
+docker compose logs -f       # View logs
+docker compose restart       # Restart services
+docker compose down          # Stop services
+docker compose pull && docker compose up -d  # Update to latest
 ```
 
 ### Keeping Updated
