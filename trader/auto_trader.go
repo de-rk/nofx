@@ -140,6 +140,7 @@ type AutoTrader struct {
 	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
 	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
 	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
+	peakEquity            float64            // Peak equity for profit drawdown tracking
 	lastBalanceSyncTime   time.Time          // Last balance sync time
 	userID                string             // User ID
 	gridState             *GridState         // Grid trading state (only used when StrategyType == "grid_trading")
@@ -564,6 +565,34 @@ func (at *AutoTrader) runCycle() error {
 		at.dailyPnL = 0
 		at.lastResetTime = time.Now()
 		logger.Info("📅 Daily P&L reset")
+	}
+
+	// 3. Check profit drawdown protection
+	triggered, err := at.checkProfitDrawdown()
+	if err != nil {
+		logger.Warnf("⚠️ Failed to check profit drawdown: %v", err)
+	}
+	if triggered {
+		// Close all positions
+		positions, err := at.trader.GetPositions()
+		if err == nil {
+			for _, pos := range positions {
+				symbol, _ := pos["symbol"].(string)
+				size, _ := pos["positionAmt"].(float64)
+				if size != 0 {
+					if size > 0 {
+						at.trader.CloseLong(symbol, size)
+					} else {
+						at.trader.CloseShort(symbol, -size)
+					}
+					logger.Infof("🔴 [PROFIT DRAWDOWN] Closed position: %s (size: %.4f)", symbol, size)
+				}
+			}
+		}
+		record.Success = false
+		record.ErrorMessage = "Profit drawdown protection triggered, all positions closed"
+		at.saveDecision(record)
+		return nil
 	}
 
 	// 4. Collect trading context
@@ -2332,6 +2361,69 @@ func (at *AutoTrader) enforceMaxPositions(currentPositionCount int) error {
 		return fmt.Errorf("❌ [RISK CONTROL] Already at max positions (%d/%d)", currentPositionCount, maxPositions)
 	}
 	return nil
+}
+
+// checkProfitDrawdown checks if profit drawdown exceeds threshold and triggers position closure
+// Returns true if drawdown protection is triggered
+func (at *AutoTrader) checkProfitDrawdown() (bool, error) {
+	if at.config.StrategyConfig == nil {
+		return false, nil
+	}
+
+	riskControl := at.config.StrategyConfig.RiskControl
+	profitThreshold := riskControl.ProfitThresholdPct
+	drawdownThreshold := riskControl.ProfitDrawdownPct
+
+	// Default values
+	if profitThreshold <= 0 {
+		profitThreshold = 5.0
+	}
+	if drawdownThreshold <= 0 {
+		return false, nil // Disabled
+	}
+
+	// Get current equity and calculate total PnL
+	balance, err := at.trader.GetBalance()
+	if err != nil {
+		return false, fmt.Errorf("failed to get balance: %w", err)
+	}
+
+	currentEquity := balance["totalEquity"].(float64)
+	initialEquity := at.config.InitialBalance
+	if initialEquity <= 0 {
+		return false, nil // Cannot calculate without initial balance
+	}
+
+	// Calculate current profit percentage
+	currentProfitPct := ((currentEquity - initialEquity) / initialEquity) * 100
+
+	// Only check drawdown if profit exceeds threshold
+	if currentProfitPct < profitThreshold {
+		return false, nil
+	}
+
+	// Track peak equity
+	at.mu.Lock()
+	if currentEquity > at.peakEquity {
+		at.peakEquity = currentEquity
+	}
+	peakEquity := at.peakEquity
+	at.mu.Unlock()
+
+	// Calculate drawdown from peak
+	drawdownPct := ((peakEquity - currentEquity) / peakEquity) * 100
+
+	logger.Infof("[PROFIT DRAWDOWN] Current profit: %.2f%%, Peak equity: %.2f, Current: %.2f, Drawdown: %.2f%%",
+		currentProfitPct, peakEquity, currentEquity, drawdownPct)
+
+	// Trigger if drawdown exceeds threshold
+	if drawdownPct >= drawdownThreshold {
+		logger.Warnf("⚠️ [PROFIT DRAWDOWN] Drawdown %.2f%% exceeds threshold %.2f%%, closing all positions",
+			drawdownPct, drawdownThreshold)
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // getSideFromAction converts order action to side (BUY/SELL)

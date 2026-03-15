@@ -240,6 +240,11 @@ type RiskControlConfig struct {
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"`
 	// Min AI confidence to open position (AI guided)
 	MinConfidence int `json:"min_confidence"`
+
+	// Profit drawdown threshold (%) - auto close when profit drawdown exceeds this (when profit>5%)
+	ProfitDrawdownPct float64 `json:"profit_drawdown_pct"`
+	// Profit threshold (%) - profit drawdown only triggers when profit exceeds this (default 5%)
+	ProfitThresholdPct float64 `json:"profit_threshold_pct"`
 }
 
 // NewStrategyStore creates a new StrategyStore

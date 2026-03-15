@@ -42,6 +42,10 @@ export function RiskControlEditor({
       minPositionSizeDesc: { zh: 'USDT 最小名义价值', en: 'Minimum notional value in USDT' },
       minConfidence: { zh: '最小信心度', en: 'Min Confidence' },
       minConfidenceDesc: { zh: 'AI 开仓信心度阈值', en: 'AI confidence threshold for entry' },
+      profitDrawdown: { zh: '利润回撤阈值 (%)', en: 'Profit Drawdown (%)' },
+      profitDrawdownDesc: { zh: '盈利回撤超过此值时自动平仓', en: 'Auto close when profit drawdown exceeds this' },
+      profitThreshold: { zh: '利润触发阈值 (%)', en: 'Profit Threshold (%)' },
+      profitThresholdDesc: { zh: '利润超过此值后才启用回撤保护', en: 'Enable drawdown protection when profit exceeds this' },
     }
     return translations[key]?.[language] || key
   }
@@ -381,6 +385,67 @@ export function RiskControlEditor({
               />
               <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
                 {config.min_confidence ?? 75}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Profit Drawdown Protection */}
+        <div className="grid grid-cols-2 gap-4">
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('profitThreshold')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('profitThresholdDesc')}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                value={config.profit_threshold_pct ?? 5}
+                onChange={(e) =>
+                  updateField('profit_threshold_pct', parseFloat(e.target.value))
+                }
+                disabled={disabled}
+                min={1}
+                max={20}
+                step={0.5}
+                className="flex-1 accent-green-500"
+              />
+              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
+                {config.profit_threshold_pct ?? 5}%
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('profitDrawdown')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('profitDrawdownDesc')}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                value={config.profit_drawdown_pct ?? 40}
+                onChange={(e) =>
+                  updateField('profit_drawdown_pct', parseFloat(e.target.value))
+                }
+                disabled={disabled}
+                min={10}
+                max={80}
+                step={5}
+                className="flex-1 accent-red-500"
+              />
+              <span className="w-12 text-center font-mono" style={{ color: '#F6465D' }}>
+                {config.profit_drawdown_pct ?? 40}%
               </span>
             </div>
           </div>
