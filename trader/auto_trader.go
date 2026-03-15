@@ -133,6 +133,7 @@ type AutoTrader struct {
 	stopUntil             time.Time
 	isRunning             bool
 	isRunningMutex        sync.RWMutex       // Mutex to protect isRunning flag
+	mu                    sync.RWMutex       // General purpose mutex
 	startTime             time.Time          // System start time
 	callCount             int                // AI call count
 	positionFirstSeenTime map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
