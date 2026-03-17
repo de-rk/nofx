@@ -138,8 +138,8 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 **空单被套（side=sell，价格上涨亏损）**：
 - ⚠️ **空单被套不适合T字操作**，因为在高价再次做空会增加风险
-- 建议：直接减仓或等待价格回落后再操作
-- 如果亏损严重（>%.1f%%），可以考虑分批减仓
+- 建议：使用 reduce_short 在合理价格平仓减仓
+- 如果亏损严重（>%.1f%%），可以在当前价格附近挂 reduce_short 限价单逐步减仓
 
 **何时执行T字**：
 - **仅对多单被套**：损失超过单仓仓位的 %.1f%% 且价格仍在下跌趋势
@@ -166,7 +166,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 示例（空单被套，trapped_info.side="sell"）:
 [
-  {"action": "hold", "confidence": 70, "reasoning": "trapped_info.side=sell，空单被套，T字操作不适用于空单，等待价格回落或考虑直接减仓"}
+  {"action": "reduce_short", "price": 40.50, "quantity": 7.5, "confidence": 75, "reasoning": "trapped_info.side=sell，空单被套亏损严重，使用reduce_short在40.50挂限价单减仓10%"}
 ]
 
 示例（多单被套，trapped_info.side="buy"）:
@@ -205,8 +205,10 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - **高波动市场** (谨慎): ATR异常放大, 价格剧烈波动
 %s
 ### 可执行的操作
-- place_buy_limit: 在指定价格下买入限价单
-- place_sell_limit: 在指定价格下卖出限价单
+- place_buy_limit: 在指定价格下买入限价单（开多仓或补网格）
+- place_sell_limit: 在指定价格下卖出限价单（开空仓或补网格）
+- reduce_long: 平多仓/减多仓，price字段指定限价，quantity字段指定减仓数量
+- reduce_short: 平空仓/减空仓，price字段指定限价，quantity字段指定减仓数量
 - cancel_order: 取消指定订单
 - cancel_all_orders: 取消所有订单
 - pause_grid: 暂停网格交易（趋势市场时）
@@ -241,8 +243,8 @@ When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 
 **Short position trapped (side=sell, price rose, losing)**:
 - ⚠️ **T-trade NOT recommended for short positions** - selling higher increases risk
-- Recommendation: Direct position reduction or wait for price pullback
-- If loss severe (>%.1f%%), consider gradual reduction
+- Recommendation: Use reduce_short with limit order to gradually close position
+- If loss severe (>%.1f%%), place reduce_short limit orders near current price to reduce exposure
 
 **When to execute T-trade**:
 - **Only for long positions**: Loss > %.1f%% of position size AND price still declining
@@ -280,7 +282,7 @@ Cycle 2 - Wait or filled:
 
 Example (Short trapped - Direct reduction recommended):
 [
-  {"symbol": "BTCUSDT", "action": "hold", "confidence": 70, "reasoning": "Short trapped with 5%% loss, but T-trade not suitable for shorts. Waiting for price pullback or consider direct reduction if loss worsens"}
+  {"symbol": "BTCUSDT", "action": "reduce_short", "price": 40500, "quantity": 0.003, "confidence": 75, "reasoning": "Short trapped with 5% loss. Use reduce_short limit order at 40500 to gradually close position (10% reduction)"}
 ]
 `, config.TrappedReduceThresholdPct, config.TrappedReduceBatchPct, config.TrappedReduceThresholdPct)
 	}
@@ -314,8 +316,10 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 - **High Volatility** (caution): ATR spike, erratic price movement
 %s
 ### Available Actions
-- place_buy_limit: Place buy limit order at specified price
-- place_sell_limit: Place sell limit order at specified price
+- place_buy_limit: Place buy limit order at specified price (open long or fill grid)
+- place_sell_limit: Place sell limit order at specified price (open short or fill grid)
+- reduce_long: Close/reduce long position, price field specifies limit price, quantity field specifies amount
+- reduce_short: Close/reduce short position, price field specifies limit price, quantity field specifies amount
 - cancel_order: Cancel specific order
 - cancel_all_orders: Cancel all orders
 - pause_grid: Pause grid trading (in trending market)
