@@ -135,6 +135,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - 目标：让平均入场价越低越好，降低成本
 - T字顺序：先用 place_buy_limit 在**更低价**挂买单 → 再执行 reduce_position 减仓
 - 示例：原均价$100，价格跌到$95，先在$93挂买单，再减仓50%%，新均价降至$96.5
+- **直接减仓**：如不使用T字，可用 reduce_long 卖出平仓，价格应在**当前价或略高**（例如当前价$41.36，挂$41.40）
 
 **空单被套（side=sell，价格上涨亏损）**：
 - ⚠️ **空单被套不适合T字操作**，因为在高价再次做空会增加风险
@@ -241,6 +242,7 @@ When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 - Goal: Lower the average entry price as much as possible
 - T-trade order: First use place_buy_limit at a **lower price** → then execute reduce_position
 - Example: Avg entry $100, price drops to $95, place buy at $93 first, then reduce 50%%, new avg = $96.5
+- **Direct reduction**: If not using T-trade, use reduce_long to sell and close, price should be **at or above current price** (e.g., current $41.36, set $41.40)
 
 **Short position trapped (side=sell, price rose, losing)**:
 - ⚠️ **T-trade NOT recommended for short positions** - selling higher increases risk
