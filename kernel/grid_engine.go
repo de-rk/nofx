@@ -489,7 +489,7 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		default:
 			sb.WriteString("- T字状态: 空闲 (可执行T字操作)\n")
 			if t.Side == "sell" {
-				sb.WriteString("**⚡ 空单被套T字提示：先用 place_sell_limit 在【高位】挂卖单，再执行 reduce_position 减仓（提高平均入场价）**\n")
+				sb.WriteString("**⚡ 空单被套建议：使用 reduce_short 在当前价格附近挂限价单逐步减仓（不建议T字操作）**\n")
 			} else {
 				sb.WriteString("**⚡ 多单被套T字提示：先用 place_buy_limit 在【低位】挂买单，再执行 reduce_position 减仓（降低平均入场价）**\n")
 			}
