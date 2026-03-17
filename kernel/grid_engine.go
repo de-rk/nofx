@@ -135,12 +135,12 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - 目标：让平均入场价越低越好，降低成本
 - T字顺序：先用 place_buy_limit 在**更低价**挂买单 → 再执行 reduce_position 减仓
 - 示例：原均价$100，价格跌到$95，先在$93挂买单，再减仓50%%，新均价降至$96.5
-- **直接减仓**：如不使用T字，可用 reduce_long 卖出平仓，价格应在**当前价或略高**（例如当前价$41.36，挂$41.40）
+- **直接减仓**：如不使用T字，可用 reduce_long 卖出平仓，价格应在**当前价或略低**以确保成交（例如当前价$41.36，挂$41.30或$41.35）
 
 **空单被套（side=sell，价格上涨亏损）**：
 - ⚠️ **空单被套不适合T字操作**，因为在高价再次做空会增加风险
 - 建议：使用 reduce_short 在合理价格平仓减仓
-- **价格设置**：reduce_short 是买入平仓，应在**当前价或略低**挂单（例如当前价$41.36，挂$41.30或$41.35）
+- **价格设置**：reduce_short 是买入平仓，应在**当前价或略高**挂单以确保成交（例如当前价$41.36，挂$41.40或$41.45）
 - 如果亏损严重（>%.1f%%），可以在当前价格附近挂 reduce_short 限价单逐步减仓
 
 **何时执行T字**：
@@ -242,12 +242,12 @@ When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 - Goal: Lower the average entry price as much as possible
 - T-trade order: First use place_buy_limit at a **lower price** → then execute reduce_position
 - Example: Avg entry $100, price drops to $95, place buy at $93 first, then reduce 50%%, new avg = $96.5
-- **Direct reduction**: If not using T-trade, use reduce_long to sell and close, price should be **at or above current price** (e.g., current $41.36, set $41.40)
+- **Direct reduction**: If not using T-trade, use reduce_long to sell and close, price should be **at or below current price** to ensure execution (e.g., current $41.36, set $41.30 or $41.35)
 
 **Short position trapped (side=sell, price rose, losing)**:
 - ⚠️ **T-trade NOT recommended for short positions** - selling higher increases risk
 - Recommendation: Use reduce_short with limit order to gradually close position
-- **Price setting**: reduce_short is buying to close, set price **at or below current price** (e.g., current $41.36, set $41.30 or $41.35)
+- **Price setting**: reduce_short is buying to close, set price **at or above current price** to ensure execution (e.g., current $41.36, set $41.40 or $41.45)
 - If loss severe (>%.1f%%), place reduce_short limit orders near current price to reduce exposure
 
 **When to execute T-trade**:
