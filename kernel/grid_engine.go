@@ -139,6 +139,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 **空单被套（side=sell，价格上涨亏损）**：
 - ⚠️ **空单被套不适合T字操作**，因为在高价再次做空会增加风险
 - 建议：使用 reduce_short 在合理价格平仓减仓
+- **价格设置**：reduce_short 是买入平仓，应在**当前价或略低**挂单（例如当前价$41.36，挂$41.30或$41.35）
 - 如果亏损严重（>%.1f%%），可以在当前价格附近挂 reduce_short 限价单逐步减仓
 
 **何时执行T字**：
@@ -166,7 +167,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 示例（空单被套，trapped_info.side="sell"）:
 [
-  {"action": "reduce_short", "price": 40.50, "quantity": 7.5, "confidence": 75, "reasoning": "trapped_info.side=sell，空单被套亏损严重，使用reduce_short在40.50挂限价单减仓10%"}
+  {"action": "reduce_short", "price": 41.30, "quantity": 7.5, "confidence": 75, "reasoning": "trapped_info.side=sell，空单被套亏损严重，使用reduce_short在41.30（略低于当前价41.36）挂限价单减仓10%"}
 ]
 
 示例（多单被套，trapped_info.side="buy"）:
@@ -244,6 +245,7 @@ When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 **Short position trapped (side=sell, price rose, losing)**:
 - ⚠️ **T-trade NOT recommended for short positions** - selling higher increases risk
 - Recommendation: Use reduce_short with limit order to gradually close position
+- **Price setting**: reduce_short is buying to close, set price **at or below current price** (e.g., current $41.36, set $41.30 or $41.35)
 - If loss severe (>%.1f%%), place reduce_short limit orders near current price to reduce exposure
 
 **When to execute T-trade**:
@@ -282,7 +284,7 @@ Cycle 2 - Wait or filled:
 
 Example (Short trapped - Direct reduction recommended):
 [
-  {"symbol": "BTCUSDT", "action": "reduce_short", "price": 40500, "quantity": 0.003, "confidence": 75, "reasoning": "Short trapped with 5% loss. Use reduce_short limit order at 40500 to gradually close position (10% reduction)"}
+  {"symbol": "BTCUSDT", "action": "reduce_short", "price": 41300, "quantity": 0.003, "confidence": 75, "reasoning": "Short trapped with 5% loss. Use reduce_short at 41300 (slightly below current 41360) to gradually close position (10% reduction)"}
 ]
 `, config.TrappedReduceThresholdPct, config.TrappedReduceBatchPct, config.TrappedReduceThresholdPct)
 	}
