@@ -1011,6 +1011,20 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 		}
 		return err
 	case "reduce_long":
+		// Check reduce interval
+		intervalMin := at.config.StrategyConfig.GridConfig.TrappedReduceIntervalMin
+		if intervalMin <= 0 {
+			intervalMin = 30
+		}
+		at.gridState.mu.RLock()
+		lastReduce := at.gridState.LastTrappedReduceAt
+		at.gridState.mu.RUnlock()
+		if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
+			logger.Infof("[Grid] reduce_long skipped: last reduction was %.0f min ago (min interval: %d min)",
+				time.Since(lastReduce).Minutes(), intervalMin)
+			return nil
+		}
+
 		// Close long position with sell limit order
 		logger.Infof("[Grid] AI decision: reduce_long qty=%.4f price=%.2f reason=%s", d.Quantity, d.Price, d.Reasoning)
 		if gridTrader, ok := at.trader.(GridTrader); ok {
@@ -1023,10 +1037,29 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 				Leverage:     at.config.StrategyConfig.GridConfig.Leverage,
 				ReduceOnly:   true,
 			})
+			if err == nil {
+				at.gridState.mu.Lock()
+				at.gridState.LastTrappedReduceAt = time.Now()
+				at.gridState.mu.Unlock()
+			}
 			return err
 		}
 		return fmt.Errorf("trader does not support limit orders")
 	case "reduce_short":
+		// Check reduce interval
+		intervalMin := at.config.StrategyConfig.GridConfig.TrappedReduceIntervalMin
+		if intervalMin <= 0 {
+			intervalMin = 30
+		}
+		at.gridState.mu.RLock()
+		lastReduce := at.gridState.LastTrappedReduceAt
+		at.gridState.mu.RUnlock()
+		if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
+			logger.Infof("[Grid] reduce_short skipped: last reduction was %.0f min ago (min interval: %d min)",
+				time.Since(lastReduce).Minutes(), intervalMin)
+			return nil
+		}
+
 		// Close short position with buy limit order
 		logger.Infof("[Grid] AI decision: reduce_short qty=%.4f price=%.2f reason=%s", d.Quantity, d.Price, d.Reasoning)
 		if gridTrader, ok := at.trader.(GridTrader); ok {
@@ -1039,6 +1072,11 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 				Leverage:     at.config.StrategyConfig.GridConfig.Leverage,
 				ReduceOnly:   true,
 			})
+			if err == nil {
+				at.gridState.mu.Lock()
+				at.gridState.LastTrappedReduceAt = time.Now()
+				at.gridState.mu.Unlock()
+			}
 			return err
 		}
 		return fmt.Errorf("trader does not support limit orders")
