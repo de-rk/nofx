@@ -137,26 +137,27 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - 示例：原均价$100，价格跌到$95，先在$93挂买单，再减仓50%%，新均价降至$96.5
 
 **空单被套（side=sell，价格上涨亏损）**：
-- 目标：让平均入场价越高越好，降低成本
-- T字顺序：先用 place_sell_limit 在**更高价**挂卖单 → 再执行 reduce_position 减仓
-- 示例：原均价$100，价格涨到$105，先在$107挂卖单，再减仓50%%，新均价升至$103.5
+- ⚠️ **空单被套不适合T字操作**，因为在高价再次做空会增加风险
+- 建议：直接减仓或等待价格回落后再操作
+- 如果亏损严重（>%.1f%%），可以考虑分批减仓
 
 **何时执行T字**：
-- 损失超过单仓仓位的 %.1f%% 且价格仍在不利趋势（多单下跌/空单上涨）
+- **仅对多单被套**：损失超过单仓仓位的 %.1f%% 且价格仍在下跌趋势
 
-**T字操作策略**（仅在trapped_info.side指示的方向执行）：
+**T字操作策略**（仅适用于多单被套）：
 
 **关键规则**：
-- **必须根据trapped_info.side字段判断方向，不要自行推测**
-- trapped_info.side = "sell" → 空单被套 → place_sell_limit在高位
+- **仅对多单被套执行T字操作**
+- **空单被套直接减仓，不做T字**
 - trapped_info.side = "buy" → 多单被套 → place_buy_limit在低位
+- trapped_info.side = "sell" → 空单被套 → 直接减仓或等待
 - 挂单数量 = trapped_position_size × suggest_reduce_pct / 100
 - 本周期只挂单，下周期等待成交，系统自动执行reduce
 
 **执行步骤**：
 1. 检查trapped_info.side确定被套方向
-2. 周期1：根据side挂单（sell→place_sell_limit高位，buy→place_buy_limit低位）
-3. 周期2：输出wait等待成交
+2. 如果side="buy"（多单被套）：周期1挂place_buy_limit低位，周期2等待
+3. 如果side="sell"（空单被套）：直接输出hold或考虑减仓
 4. 成交后系统自动reduce，无需手动操作
 
 **何时不执行**：
@@ -165,7 +166,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 示例（空单被套，trapped_info.side="sell"）:
 [
-  {"action": "place_sell_limit", "price": 107000, "quantity": 0.005, "reasoning": "trapped_info.side=sell，空单被套，高位107000挂卖单"}
+  {"action": "hold", "confidence": 70, "reasoning": "trapped_info.side=sell，空单被套，T字操作不适用于空单，等待价格回落或考虑直接减仓"}
 ]
 
 示例（多单被套，trapped_info.side="buy"）:
@@ -239,17 +240,17 @@ When trapped_info.is_trapped = true, evaluate whether to execute T-trade:
 - Example: Avg entry $100, price drops to $95, place buy at $93 first, then reduce 50%%, new avg = $96.5
 
 **Short position trapped (side=sell, price rose, losing)**:
-- Goal: Raise the average entry price as high as possible
-- T-trade order: First use place_sell_limit at a **higher price** → then execute reduce_position
-- Example: Avg entry $100, price rises to $105, place sell at $107 first, then reduce 50%%, new avg = $103.5
+- ⚠️ **T-trade NOT recommended for short positions** - selling higher increases risk
+- Recommendation: Direct position reduction or wait for price pullback
+- If loss severe (>%.1f%%), consider gradual reduction
 
 **When to execute T-trade**:
-- Loss > %.1f%% of position size AND price still moving against position
+- **Only for long positions**: Loss > %.1f%% of position size AND price still declining
 
-**T-Trade Strategy**:
+**T-Trade Strategy** (Long positions only):
 1. Identify the trapped direction (long or short)
-2. Long: place_buy_limit below current price; Short: place_sell_limit above current price
-3. Place order 1-2 ATR away from current price
+2. **If long trapped**: place_buy_limit below current price (1-2 ATR away)
+3. **If short trapped**: Skip T-trade, consider direct reduction or hold
 4. **⚠️ IMPORTANT: Only execute the prep order this cycle, do NOT call reduce_position in the same cycle**
 5. **⚠️ Next cycle: check order status, if still pending output wait action**
 6. **⚠️ After order fills, system auto-executes reduce, no need to manually call reduce_position**
@@ -277,10 +278,9 @@ Cycle 2 - Wait or filled:
   {"symbol": "BTCUSDT", "action": "wait", "confidence": 75, "reasoning": "T-trade buy order pending, system auto-executes reduce after fill"}
 ]
 
-Example (Short trapped - T-Trade: sell higher first, then reduce):
+Example (Short trapped - Direct reduction recommended):
 [
-  {"symbol": "BTCUSDT", "action": "place_sell_limit", "price": 107000, "quantity": 0.003, "level_index": 8, "confidence": 75, "reasoning": "Short trapped, loss 5%%, place sell at 107000 first to raise average entry price"},
-  {"symbol": "BTCUSDT", "action": "reduce_position", "quantity": 0.005, "confidence": 75, "reasoning": "High sell order placed, now reduce 25%% of trapped short position to raise average cost"}
+  {"symbol": "BTCUSDT", "action": "hold", "confidence": 70, "reasoning": "Short trapped with 5%% loss, but T-trade not suitable for shorts. Waiting for price pullback or consider direct reduction if loss worsens"}
 ]
 `, config.TrappedReduceThresholdPct, config.TrappedReduceBatchPct, config.TrappedReduceThresholdPct)
 	}
