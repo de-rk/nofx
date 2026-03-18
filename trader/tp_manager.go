@@ -109,7 +109,12 @@ func (m *TPManager) checkAndExecute() {
 			logger.Infof("[TPManager] Executing TP level %d for %s: %.2f%% profit, closing %.2f%%",
 				i+1, pos.Symbol, pnlPct, levels[i].CloseRatio)
 
-			action := pos.Side == "long" ? "reduce_long" : "reduce_short"
+			var action string
+			if pos.Side == "long" {
+				action = "reduce_long"
+			} else {
+				action = "reduce_short"
+			}
 			_, err := m.trader.PlaceOrder(pos.Symbol, action, closeQty, 0, 0)
 			if err != nil {
 				logger.Errorf("[TPManager] Failed to execute TP: %v", err)
