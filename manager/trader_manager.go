@@ -228,15 +228,11 @@ func (tm *TraderManager) GetCompetitionData() (map[string]interface{}, error) {
 
 	tm.mu.RLock()
 
-	// Get all trader list (only those with ShowInCompetition = true)
+	// Get all trader list
 	allTraders := make([]*trader.AutoTrader, 0, len(tm.traders))
 	for id, t := range tm.traders {
-		if t.GetShowInCompetition() {
-			allTraders = append(allTraders, t)
-			logger.Infof("📋 Competition data includes trader: %s (%s)", t.GetName(), id)
-		} else {
-			logger.Infof("📋 Competition data excludes trader (hidden): %s (%s)", t.GetName(), id)
-		}
+		allTraders = append(allTraders, t)
+		logger.Infof("📋 Competition data includes trader: %s (%s)", t.GetName(), id)
 	}
 	tm.mu.RUnlock()
 
@@ -667,7 +663,6 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		ScanInterval:         time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:       traderCfg.InitialBalance,
 		IsCrossMargin:        traderCfg.IsCrossMargin,
-		ShowInCompetition:    traderCfg.ShowInCompetition,
 		StrategyConfig:       strategyConfig,
 	}
 
