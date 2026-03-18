@@ -410,7 +410,6 @@ type CreateTraderRequest struct {
 	InitialBalance      float64 `json:"initial_balance"`
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`     // Pointer type, nil means use default value true
-	ShowInCompetition   *bool   `json:"show_in_competition"` // Pointer type, nil means use default value true
 	// The following fields are kept for backward compatibility, new version uses strategy config
 	BTCETHLeverage       int    `json:"btc_eth_leverage"`
 	AltcoinLeverage      int    `json:"altcoin_leverage"`
@@ -536,11 +535,6 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	isCrossMargin := true // Default to cross margin mode
 	if req.IsCrossMargin != nil {
 		isCrossMargin = *req.IsCrossMargin
-	}
-
-	showInCompetition := true // Default to show in competition
-	if req.ShowInCompetition != nil {
-		showInCompetition = *req.ShowInCompetition
 	}
 
 	// Set leverage default values
@@ -697,7 +691,6 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		OverrideBasePrompt:   req.OverrideBasePrompt,
 		SystemPromptTemplate: systemPromptTemplate,
 		IsCrossMargin:        isCrossMargin,
-		ShowInCompetition:    showInCompetition,
 		ScanIntervalMinutes:  scanIntervalMinutes,
 		IsRunning:            false,
 	}
@@ -740,7 +733,6 @@ type UpdateTraderRequest struct {
 	InitialBalance      float64 `json:"initial_balance"`
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`
-	ShowInCompetition   *bool   `json:"show_in_competition"`
 	// The following fields are kept for backward compatibility, new version uses strategy config
 	BTCETHLeverage       int    `json:"btc_eth_leverage"`
 	AltcoinLeverage      int    `json:"altcoin_leverage"`
@@ -785,11 +777,6 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	isCrossMargin := existingTrader.IsCrossMargin // Keep original value
 	if req.IsCrossMargin != nil {
 		isCrossMargin = *req.IsCrossMargin
-	}
-
-	showInCompetition := existingTrader.ShowInCompetition // Keep original value
-	if req.ShowInCompetition != nil {
-		showInCompetition = *req.ShowInCompetition
 	}
 
 	// Set leverage default values
@@ -840,7 +827,6 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		OverrideBasePrompt:   req.OverrideBasePrompt,
 		SystemPromptTemplate: systemPromptTemplate,
 		IsCrossMargin:        isCrossMargin,
-		ShowInCompetition:    showInCompetition,
 		ScanIntervalMinutes:  scanIntervalMinutes,
 		IsRunning:            existingTrader.IsRunning, // Keep original value
 	}
@@ -2074,7 +2060,6 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			"ai_model":            trader.AIModelID, // Use complete ID
 			"exchange_id":         trader.ExchangeID,
 			"is_running":          isRunning,
-			"show_in_competition": trader.ShowInCompetition,
 			"initial_balance":     trader.InitialBalance,
 			"strategy_id":         trader.StrategyID,
 			"strategy_name":       strategyName,
