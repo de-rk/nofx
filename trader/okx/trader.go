@@ -553,12 +553,17 @@ func (t *OKXTrader) SetMarginMode(symbol string, isCrossMargin bool) error {
 func (t *OKXTrader) SetLeverage(symbol string, leverage int) error {
 	instId := t.convertSymbol(symbol)
 
+	mgnMode := "isolated"
+	if t.isCrossMargin {
+		mgnMode = "cross"
+	}
+
 	// Set leverage for both long and short
 	for _, posSide := range []string{"long", "short"} {
 		body := map[string]interface{}{
 			"instId":  instId,
 			"lever":   strconv.Itoa(leverage),
-			"mgnMode": "cross",
+			"mgnMode": mgnMode,
 			"posSide": posSide,
 		}
 
