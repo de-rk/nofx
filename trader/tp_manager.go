@@ -86,13 +86,19 @@ func (m *TPManager) checkAndExecute() {
 	defer m.mu.Unlock()
 
 	for _, pos := range positions {
-		levels, exists := m.activeLevels[pos.Symbol]
+		symbol, _ := pos["symbol"].(string)
+		side, _ := pos["side"].(string)
+		entryPrice, _ := pos["entry_price"].(float64)
+		markPrice, _ := pos["mark_price"].(float64)
+		quantity, _ := pos["quantity"].(float64)
+
+		levels, exists := m.activeLevels[symbol]
 		if !exists || len(levels) == 0 {
 			continue
 		}
 
-		pnlPct := ((pos.MarkPrice - pos.EntryPrice) / pos.EntryPrice) * 100
-		if pos.Side == "short" {
+		pnlPct := ((markPrice - entryPrice) / entryPrice) * 100
+		if side == "short" {
 			pnlPct = -pnlPct
 		}
 
@@ -101,31 +107,28 @@ func (m *TPManager) checkAndExecute() {
 				continue
 			}
 
-			closeQty := pos.Quantity * levels[i].CloseRatio / 100
+			closeQty := quantity * levels[i].CloseRatio / 100
 			if closeQty < 0.001 {
 				continue
 			}
 
 			logger.Infof("[TPManager] Executing TP level %d for %s: %.2f%% profit, closing %.2f%%",
-				i+1, pos.Symbol, pnlPct, levels[i].CloseRatio)
+				i+1, symbol, pnlPct, levels[i].CloseRatio)
 
-			var action string
-			if pos.Side == "long" {
-				action = "reduce_long"
+			if side == "long" {
+				_, err = m.trader.CloseLong(symbol, closeQty)
 			} else {
-				action = "reduce_short"
+				_, err = m.trader.CloseShort(symbol, closeQty)
 			}
-			_, err := m.trader.PlaceOrder(pos.Symbol, action, closeQty, 0, 0)
 			if err != nil {
 				logger.Errorf("[TPManager] Failed to execute TP: %v", err)
 				continue
 			}
 
 			levels[i].Executed = true
-			m.activeLevels[pos.Symbol] = levels
+			m.activeLevels[symbol] = levels
 		}
 
-		// Clean up if all levels executed
 		allExecuted := true
 		for _, level := range levels {
 			if !level.Executed {
@@ -134,7 +137,7 @@ func (m *TPManager) checkAndExecute() {
 			}
 		}
 		if allExecuted {
-			delete(m.activeLevels, pos.Symbol)
+			delete(m.activeLevels, symbol)
 		}
 	}
 }

@@ -1514,11 +1514,6 @@ func (at *AutoTrader) GetShowInCompetition() bool {
 	return at.showInCompetition
 }
 
-// SetShowInCompetition sets whether trader should be shown in competition
-func (at *AutoTrader) SetShowInCompetition(show bool) {
-	at.showInCompetition = show
-}
-
 // SetCustomPrompt sets custom trading strategy prompt
 func (at *AutoTrader) SetCustomPrompt(prompt string) {
 	at.customPrompt = prompt
