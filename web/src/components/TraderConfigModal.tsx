@@ -32,7 +32,6 @@ interface FormState {
   exchange_id: string
   strategy_id: string
   is_cross_margin: boolean
-  show_in_competition: boolean
   scan_interval_minutes: number
   initial_balance?: number
 }
@@ -63,7 +62,6 @@ export function TraderConfigModal({
     exchange_id: '',
     strategy_id: '',
     is_cross_margin: true,
-    show_in_competition: true,
     scan_interval_minutes: 3,
   })
   const [isSaving, setIsSaving] = useState(false)
@@ -111,7 +109,6 @@ export function TraderConfigModal({
         exchange_id: availableExchanges[0]?.id || '',
         strategy_id: '',
         is_cross_margin: true,
-        show_in_competition: true,
         scan_interval_minutes: 3,
       })
     }
@@ -165,7 +162,6 @@ export function TraderConfigModal({
         exchange_id: formData.exchange_id,
         strategy_id: formData.strategy_id,
         is_cross_margin: formData.is_cross_margin,
-        show_in_competition: formData.show_in_competition,
         scan_interval_minutes: formData.scan_interval_minutes,
       }
 
@@ -443,39 +439,6 @@ export function TraderConfigModal({
                 </div>
               </div>
 
-              {/* Competition visibility */}
-              <div>
-                <label className="text-sm text-[#EAECEF] block mb-2">
-                  {t('competitionDisplay', language)}
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleInputChange('show_in_competition', true)}
-                    className={`flex-1 px-3 py-2 rounded text-sm ${
-                      formData.show_in_competition
-                        ? 'bg-[#F0B90B] text-black'
-                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
-                    }`}
-                  >
-                    {t('show', language)}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleInputChange('show_in_competition', false)}
-                    className={`flex-1 px-3 py-2 rounded text-sm ${
-                      !formData.show_in_competition
-                        ? 'bg-[#F0B90B] text-black'
-                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
-                    }`}
-                  >
-                    {t('hide', language)}
-                  </button>
-                </div>
-                  <p className="text-xs text-[#848E9C] mt-1">
-                    {t('hiddenInCompetition', language)}
-                </p>
-              </div>
 
               {/* Initial Balance (Edit mode only) */}
               {isEditMode && (
