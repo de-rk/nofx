@@ -29,7 +29,6 @@ type Trader struct {
 	ScanIntervalMinutes int       `gorm:"column:scan_interval_minutes;default:3" json:"scan_interval_minutes"`
 	IsRunning           bool      `gorm:"column:is_running;default:false" json:"is_running"`
 	IsCrossMargin       bool      `gorm:"column:is_cross_margin;default:true" json:"is_cross_margin"`
-	ShowInCompetition   bool      `gorm:"column:show_in_competition;default:true" json:"show_in_competition"`
 	CreatedAt           time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt           time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 
@@ -97,13 +96,6 @@ func (s *TraderStore) UpdateStatus(userID, id string, isRunning bool) error {
 		Update("is_running", isRunning).Error
 }
 
-// UpdateShowInCompetition updates trader competition visibility
-func (s *TraderStore) UpdateShowInCompetition(userID, id string, showInCompetition bool) error {
-	return s.db.Model(&Trader{}).
-		Where("id = ? AND user_id = ?", id, userID).
-		Update("show_in_competition", showInCompetition).Error
-}
-
 // Update updates trader configuration
 func (s *TraderStore) Update(trader *Trader) error {
 	fmt.Printf("📝 TraderStore.Update: ID=%s, Name=%s, AIModelID=%s, StrategyID=%s\n",
@@ -115,7 +107,6 @@ func (s *TraderStore) Update(trader *Trader) error {
 		"exchange_id":    trader.ExchangeID,
 		"strategy_id":    trader.StrategyID,
 		"is_cross_margin": trader.IsCrossMargin,
-		"show_in_competition": trader.ShowInCompetition,
 	}
 
 	// Only update these if > 0
