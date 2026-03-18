@@ -1,7 +1,6 @@
 package trader
 
 import (
-	"fmt"
 	"nofx/logger"
 	"nofx/store"
 	"sync"

@@ -1509,11 +1509,6 @@ func (at *AutoTrader) GetExchange() string {
 	return at.exchange
 }
 
-// GetShowInCompetition returns whether trader should be shown in competition
-func (at *AutoTrader) GetShowInCompetition() bool {
-	return at.showInCompetition
-}
-
 // SetCustomPrompt sets custom trading strategy prompt
 func (at *AutoTrader) SetCustomPrompt(prompt string) {
 	at.customPrompt = prompt
