@@ -104,9 +104,6 @@ type AutoTraderConfig struct {
 	// Position mode
 	IsCrossMargin bool // true=cross margin mode, false=isolated margin mode
 
-	// Competition visibility
-	ShowInCompetition bool // Whether to show in competition page
-
 	// Strategy configuration (use complete strategy config)
 	StrategyConfig *store.StrategyConfig // Strategy configuration (includes coin sources, indicators, risk control, prompts, etc.)
 }
@@ -118,7 +115,6 @@ type AutoTrader struct {
 	aiModel               string // AI model name
 	exchange              string // Trading platform type (binance/bybit/etc)
 	exchangeID            string // Exchange account UUID
-	showInCompetition     bool   // Whether to show in competition page
 	config                AutoTraderConfig
 	trader                Trader // Use Trader interface (supports multiple platforms)
 	mcpClient             mcp.AIClient
@@ -145,6 +141,7 @@ type AutoTrader struct {
 	lastBalanceSyncTime   time.Time          // Last balance sync time
 	userID                string             // User ID
 	gridState             *GridState         // Grid trading state (only used when StrategyType == "grid_trading")
+	tpManager             *TPManager         // Take profit manager for partial TP
 }
 
 // NewAutoTrader creates an automatic trader
@@ -347,7 +344,6 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		aiModel:               config.AIModel,
 		exchange:              config.Exchange,
 		exchangeID:            config.ExchangeID,
-		showInCompetition:     config.ShowInCompetition,
 		config:                config,
 		trader:                trader,
 		mcpClient:             mcpClient,
@@ -366,6 +362,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		peakPnLCacheMutex:     sync.RWMutex{},
 		lastBalanceSyncTime:   time.Now(),
 		userID:                userID,
+		tpManager:             NewTPManager(trader, st, config.ID),
 	}, nil
 }
 
@@ -387,6 +384,12 @@ func (at *AutoTrader) Run() error {
 
 	// Start drawdown monitoring
 	at.startDrawdownMonitor()
+
+	// Start take profit manager
+	if at.tpManager != nil {
+		at.tpManager.Start()
+		logger.Info("📊 Take profit manager started")
+	}
 
 	// Start Lighter order sync if using Lighter exchange
 	if at.exchange == "lighter" {
@@ -522,6 +525,10 @@ func (at *AutoTrader) Stop() {
 	}
 	at.isRunning = false
 	at.isRunningMutex.Unlock()
+
+	if at.tpManager != nil {
+		at.tpManager.Stop()
+	}
 
 	close(at.stopMonitorCh) // Notify monitoring goroutine to stop
 	at.monitorWg.Wait()     // Wait for monitoring goroutine to finish

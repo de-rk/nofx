@@ -49,8 +49,17 @@ type StrategyConfig struct {
 	// editable sections of System Prompt
 	PromptSections PromptSectionsConfig `json:"prompt_sections,omitempty"`
 
+	// Position management configuration
+	PositionManagement *PositionManagementConfig `json:"position_management,omitempty"`
+
 	// Grid trading configuration (only used when StrategyType == "grid_trading")
 	GridConfig *GridStrategyConfig `json:"grid_config,omitempty"`
+}
+
+// PositionManagementConfig position management configuration
+type PositionManagementConfig struct {
+	EnablePartialTakeProfit bool      `json:"enable_partial_take_profit"`
+	TPLevels                []TPLevel `json:"tp_levels"`
 }
 
 // GridStrategyConfig grid trading specific configuration
