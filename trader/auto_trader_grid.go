@@ -963,7 +963,14 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		for _, pos := range positions {
 			if sym, ok := pos["symbol"].(string); ok && sym == gridConfig.Symbol {
 				if size, ok := pos["positionAmt"].(float64); ok {
-					ctx.CurrentPosition = size
+					ctx.CurrentPosition += size
+					if side, ok := pos["side"].(string); ok {
+						if side == "long" {
+							ctx.LongPosition = size
+						} else if side == "short" {
+							ctx.ShortPosition = size
+						}
+					}
 				}
 			}
 		}

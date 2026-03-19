@@ -73,6 +73,8 @@ type GridContext struct {
 	TotalEquity      float64 `json:"total_equity"`
 	AvailableBalance float64 `json:"available_balance"`
 	CurrentPosition  float64 `json:"current_position"` // Net position size
+	LongPosition     float64 `json:"long_position"`    // Long position size
+	ShortPosition    float64 `json:"short_position"`   // Short position size
 	UnrealizedPnL    float64 `json:"unrealized_pnl"`
 
 	// Performance
@@ -411,6 +413,10 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	sb.WriteString(fmt.Sprintf("- 总权益: $%.2f\n", ctx.TotalEquity))
 	sb.WriteString(fmt.Sprintf("- 可用余额: $%.2f\n", ctx.AvailableBalance))
 	sb.WriteString(fmt.Sprintf("- 当前持仓: %.4f (净头寸)\n", ctx.CurrentPosition))
+	if ctx.LongPosition != 0 || ctx.ShortPosition != 0 {
+		sb.WriteString(fmt.Sprintf("  - 多头: %.4f 合约\n", ctx.LongPosition))
+		sb.WriteString(fmt.Sprintf("  - 空头: %.4f 合约\n", ctx.ShortPosition))
+	}
 	sb.WriteString(fmt.Sprintf("- 未实现盈亏: $%.2f\n", ctx.UnrealizedPnL))
 	sb.WriteString("\n")
 
