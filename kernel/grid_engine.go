@@ -71,6 +71,7 @@ type GridContext struct {
 
 	// Account info
 	TotalEquity      float64 `json:"total_equity"`
+	WalletBalance    float64 `json:"wallet_balance"`    // Available + margin in positions (excl. unrealized PnL)
 	AvailableBalance float64 `json:"available_balance"`
 	CurrentPosition  float64 `json:"current_position"` // Net position size
 	LongPosition     float64 `json:"long_position"`    // Long position size
@@ -191,7 +192,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 ## 网格配置
 - 交易对: %s
 - 网格层数: %d
-- 总投资: %.2f USDT
+- 总投资 (余额=可用+持仓保证金): %.2f USDT
 - 杠杆: %dx
 - 价格分布: %s
 
@@ -304,7 +305,7 @@ You are an experienced grid trading expert managing a grid strategy for %s. Your
 ## Grid Configuration
 - Symbol: %s
 - Grid Levels: %d
-- Total Investment: %.2f USDT
+- Total Investment (Balance = Available + Margin): %.2f USDT
 - Leverage: %dx
 - Distribution: %s
 
@@ -412,6 +413,7 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	sb.WriteString("## 账户状态\n")
 	sb.WriteString(fmt.Sprintf("- 总权益: $%.2f\n", ctx.TotalEquity))
 	sb.WriteString(fmt.Sprintf("- 可用余额: $%.2f\n", ctx.AvailableBalance))
+	sb.WriteString(fmt.Sprintf("- 余额 (网格总投资=可用+持仓保证金): $%.2f\n", ctx.WalletBalance))
 	sb.WriteString(fmt.Sprintf("- 当前持仓: %.4f (净头寸)\n", ctx.CurrentPosition))
 	if ctx.LongPosition != 0 || ctx.ShortPosition != 0 {
 		sb.WriteString(fmt.Sprintf("  - 多头: %.4f 合约\n", ctx.LongPosition))
@@ -571,6 +573,7 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	sb.WriteString("## Account Status\n")
 	sb.WriteString(fmt.Sprintf("- Total Equity: $%.2f\n", ctx.TotalEquity))
 	sb.WriteString(fmt.Sprintf("- Available Balance: $%.2f\n", ctx.AvailableBalance))
+	sb.WriteString(fmt.Sprintf("- Balance (Grid Investment = Available + Margin): $%.2f\n", ctx.WalletBalance))
 	sb.WriteString(fmt.Sprintf("- Current Position: %.4f (net)\n", ctx.CurrentPosition))
 	sb.WriteString(fmt.Sprintf("- Unrealized PnL: $%.2f\n", ctx.UnrealizedPnL))
 	sb.WriteString("\n")

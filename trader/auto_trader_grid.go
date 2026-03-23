@@ -526,22 +526,18 @@ func (at *AutoTrader) InitializeGrid() error {
 
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Use actual account equity as total investment
+	// Use wallet balance (available + margin in positions, excl. unrealized PnL) as total investment
 	balance, err := at.trader.GetBalance()
 	if err != nil {
 		logger.Warnf("[Grid] Failed to get balance for total investment, using config value: %v", err)
 	} else {
-		equity := 0.0
-		if e, ok := balance["totalEquity"].(float64); ok {
-			equity = e
-		} else if total, ok := balance["totalWalletBalance"].(float64); ok {
-			if unrealized, ok := balance["totalUnrealizedProfit"].(float64); ok {
-				equity = total + unrealized
-			}
+		walletBal := 0.0
+		if w, ok := balance["totalWalletBalance"].(float64); ok {
+			walletBal = w
 		}
-		if equity > 0 {
-			logger.Infof("[Grid] Using actual account equity as total investment: %.2f USDT (config was: %.2f)", equity, gridConfig.TotalInvestment)
-			gridConfig.TotalInvestment = equity
+		if walletBal > 0 {
+			logger.Infof("[Grid] Using wallet balance as total investment: %.2f USDT (config was: %.2f)", walletBal, gridConfig.TotalInvestment)
+			gridConfig.TotalInvestment = walletBal
 		}
 	}
 
@@ -949,6 +945,9 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		if equity, ok := balance["totalEquity"].(float64); ok {
 			ctx.TotalEquity = equity
 		}
+		if walletBal, ok := balance["totalWalletBalance"].(float64); ok {
+			ctx.WalletBalance = walletBal
+		}
 		if available, ok := balance["availableBalance"].(float64); ok {
 			ctx.AvailableBalance = available
 		}
@@ -1093,7 +1092,7 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision) error {
 	}
 }
 
-// refreshTotalInvestment updates TotalInvestment from actual account equity after a position is closed
+// refreshTotalInvestment updates TotalInvestment from wallet balance after a position is closed
 func (at *AutoTrader) refreshTotalInvestment() {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	bal, err := at.trader.GetBalance()
@@ -1101,10 +1100,10 @@ func (at *AutoTrader) refreshTotalInvestment() {
 		logger.Warnf("[Grid] Failed to refresh total investment: %v", err)
 		return
 	}
-	if equity, ok := bal["totalEquity"].(float64); ok && equity > 0 {
+	if walletBal, ok := bal["totalWalletBalance"].(float64); ok && walletBal > 0 {
 		old := gridConfig.TotalInvestment
-		gridConfig.TotalInvestment = equity
-		logger.Infof("[Grid] Refreshed total investment after close: %.2f -> %.2f USDT", old, equity)
+		gridConfig.TotalInvestment = walletBal
+		logger.Infof("[Grid] Refreshed total investment after close: %.2f -> %.2f USDT", old, walletBal)
 	}
 }
 
@@ -1895,12 +1894,12 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 	// Get current price
 	currentPrice, _ := at.trader.GetMarketPrice(gridConfig.Symbol)
 
-	// Use actual account equity as total investment
+	// Use wallet balance (available + margin in positions, excl. unrealized PnL) as total investment
 	leverage := gridConfig.Leverage
 	totalInvestment := gridConfig.TotalInvestment
 	if bal, err := at.trader.GetBalance(); err == nil {
-		if e, ok := bal["totalEquity"].(float64); ok && e > 0 {
-			totalInvestment = e
+		if w, ok := bal["totalWalletBalance"].(float64); ok && w > 0 {
+			totalInvestment = w
 		}
 	}
 
