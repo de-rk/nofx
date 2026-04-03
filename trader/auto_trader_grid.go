@@ -1113,8 +1113,8 @@ func (at *AutoTrader) checkTotalPositionLimit(symbol string, additionalValue flo
 	gridConfig := at.config.StrategyConfig.GridConfig
 
 	// Calculate max allowed total position value
-	// Total position should not exceed: TotalInvestment × Leverage
-	maxTotalPositionValue := gridConfig.TotalInvestment * float64(gridConfig.Leverage)
+	// Total position should not exceed: TotalInvestment × Leverage × MaxPositionSizePct%
+	maxTotalPositionValue := gridConfig.TotalInvestment * float64(gridConfig.Leverage) * gridConfig.MaxPositionSizePct / 100
 
 	// Get current position value from exchange
 	currentPositionValue := 0.0

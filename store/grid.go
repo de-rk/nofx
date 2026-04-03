@@ -32,7 +32,7 @@ type GridConfigModel struct {
 	MaxDrawdownPct     float64 `json:"max_drawdown_pct" gorm:"default:15.0"`
 	StopLossPct        float64 `json:"stop_loss_pct" gorm:"default:5.0"`
 	DailyLossLimitPct  float64 `json:"daily_loss_limit_pct" gorm:"default:10"`
-	MaxPositionSizePct float64 `json:"max_position_size_pct" gorm:"default:30"`
+	MaxPositionSizePct float64 `json:"max_position_size_pct" gorm:"default:35"`
 
 	RegimeCheckInterval  int  `json:"regime_check_interval" gorm:"default:30"`
 	AutoPauseOnTrend     bool `json:"auto_pause_on_trend" gorm:"default:true"`
