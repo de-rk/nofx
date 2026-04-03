@@ -33,16 +33,16 @@ type GridState struct {
 	GridSpacing float64
 
 	// State flags
-	IsPaused    bool
+	IsPaused      bool
 	IsInitialized bool
 
 	// Performance tracking
-	TotalProfit   float64
-	TotalTrades   int
-	WinningTrades int
-	MaxDrawdown   float64
-	PeakEquity    float64
-	DailyPnL      float64
+	TotalProfit    float64
+	TotalTrades    int
+	WinningTrades  int
+	MaxDrawdown    float64
+	PeakEquity     float64
+	DailyPnL       float64
 	LastDailyReset time.Time
 
 	// Order tracking
@@ -68,9 +68,9 @@ type GridState struct {
 	CurrentRegimeLevel string
 
 	// Grid direction adjustment
-	CurrentDirection       market.GridDirection
-	DirectionChangedAt     time.Time
-	DirectionChangeCount   int
+	CurrentDirection     market.GridDirection
+	DirectionChangedAt   time.Time
+	DirectionChangeCount int
 
 	// Trapped position reduction tracking (被套减仓追踪)
 	LastTrappedReduceAt time.Time // time of last batch reduction
@@ -1876,9 +1876,9 @@ type GridRiskInfo struct {
 	BreakoutDirection string `json:"breakout_direction"`
 
 	// Grid direction
-	CurrentGridDirection    string `json:"current_grid_direction"`
-	DirectionChangeCount    int    `json:"direction_change_count"`
-	EnableDirectionAdjust   bool   `json:"enable_direction_adjust"`
+	CurrentGridDirection  string `json:"current_grid_direction"`
+	DirectionChangeCount  int    `json:"direction_change_count"`
+	EnableDirectionAdjust bool   `json:"enable_direction_adjust"`
 }
 
 // GetGridRiskInfo returns current risk information for frontend display
@@ -2370,6 +2370,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		Side:                trappedSide,
 		TotalUnrealizedLoss: trappedData.pnl,
 		LossPct:             lossPct,
+		ThresholdPct:        threshold,
 		TrappedLevelCount:   trappedData.count,
 		TrappedPositionSize: trappedData.size,
 		AvgEntryPrice:       avgEntry,
@@ -2411,10 +2412,10 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 
 	// Collect filled long levels sorted by loss (worst first)
 	type levelLoss struct {
-		index    int
-		size     float64
-		entry    float64
-		lossAmt  float64
+		index   int
+		size    float64
+		entry   float64
+		lossAmt float64
 	}
 	var losses []levelLoss
 

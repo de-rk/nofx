@@ -17,24 +17,24 @@ import (
 
 // GridLevelInfo represents a single grid level's current state
 type GridLevelInfo struct {
-	Index          int     `json:"index"`            // Level index (0 = lowest)
-	Price          float64 `json:"price"`            // Target price for this level
-	State          string  `json:"state"`            // "empty", "pending", "filled"
-	Side           string  `json:"side"`             // "buy" or "sell"
-	OrderID        string  `json:"order_id"`         // Current order ID (if pending)
-	OrderQuantity  float64 `json:"order_quantity"`   // Order quantity
-	PositionSize   float64 `json:"position_size"`    // Position size (if filled)
-	PositionEntry  float64 `json:"position_entry"`   // Entry price (if filled)
-	AllocatedUSD   float64 `json:"allocated_usd"`    // USD allocated to this level
-	UnrealizedPnL  float64 `json:"unrealized_pnl"`   // Unrealized P&L (if filled)
+	Index         int     `json:"index"`          // Level index (0 = lowest)
+	Price         float64 `json:"price"`          // Target price for this level
+	State         string  `json:"state"`          // "empty", "pending", "filled"
+	Side          string  `json:"side"`           // "buy" or "sell"
+	OrderID       string  `json:"order_id"`       // Current order ID (if pending)
+	OrderQuantity float64 `json:"order_quantity"` // Order quantity
+	PositionSize  float64 `json:"position_size"`  // Position size (if filled)
+	PositionEntry float64 `json:"position_entry"` // Entry price (if filled)
+	AllocatedUSD  float64 `json:"allocated_usd"`  // USD allocated to this level
+	UnrealizedPnL float64 `json:"unrealized_pnl"` // Unrealized P&L (if filled)
 }
 
 // GridContext contains all information needed for AI grid decision making
 type GridContext struct {
 	// Basic info
-	Symbol       string    `json:"symbol"`
-	CurrentTime  string    `json:"current_time"`
-	CurrentPrice float64   `json:"current_price"`
+	Symbol       string  `json:"symbol"`
+	CurrentTime  string  `json:"current_time"`
+	CurrentPrice float64 `json:"current_price"`
 
 	// Grid configuration
 	GridCount       int     `json:"grid_count"`
@@ -52,26 +52,26 @@ type GridContext struct {
 	IsPaused         bool            `json:"is_paused"`
 
 	// Market data
-	ATR14          float64 `json:"atr14"`
-	BollingerUpper float64 `json:"bollinger_upper"`
+	ATR14           float64 `json:"atr14"`
+	BollingerUpper  float64 `json:"bollinger_upper"`
 	BollingerMiddle float64 `json:"bollinger_middle"`
-	BollingerLower float64 `json:"bollinger_lower"`
-	BollingerWidth float64 `json:"bollinger_width"` // Percentage
-	EMA20          float64 `json:"ema20"`
-	EMA50          float64 `json:"ema50"`
-	EMADistance    float64 `json:"ema_distance"` // Percentage
-	RSI14          float64 `json:"rsi14"`
-	MACD           float64 `json:"macd"`
-	MACDSignal     float64 `json:"macd_signal"`
-	MACDHistogram  float64 `json:"macd_histogram"`
-	FundingRate    float64 `json:"funding_rate"`
-	Volume24h      float64 `json:"volume_24h"`
-	PriceChange1h  float64 `json:"price_change_1h"`
-	PriceChange4h  float64 `json:"price_change_4h"`
+	BollingerLower  float64 `json:"bollinger_lower"`
+	BollingerWidth  float64 `json:"bollinger_width"` // Percentage
+	EMA20           float64 `json:"ema20"`
+	EMA50           float64 `json:"ema50"`
+	EMADistance     float64 `json:"ema_distance"` // Percentage
+	RSI14           float64 `json:"rsi14"`
+	MACD            float64 `json:"macd"`
+	MACDSignal      float64 `json:"macd_signal"`
+	MACDHistogram   float64 `json:"macd_histogram"`
+	FundingRate     float64 `json:"funding_rate"`
+	Volume24h       float64 `json:"volume_24h"`
+	PriceChange1h   float64 `json:"price_change_1h"`
+	PriceChange4h   float64 `json:"price_change_4h"`
 
 	// Account info
 	TotalEquity      float64 `json:"total_equity"`
-	WalletBalance    float64 `json:"wallet_balance"`    // 余额 = 可用余额 + 持仓保证金 - 浮动收益 (totalWalletBalance)
+	WalletBalance    float64 `json:"wallet_balance"` // 余额 = 可用余额 + 持仓保证金 - 浮动收益 (totalWalletBalance)
 	AvailableBalance float64 `json:"available_balance"`
 	CurrentPosition  float64 `json:"current_position"` // Net position size
 	LongPosition     float64 `json:"long_position"`    // Long position size
@@ -97,17 +97,18 @@ type GridContext struct {
 
 // TrappedPositionInfo contains information about trapped (losing) positions
 type TrappedPositionInfo struct {
-	IsTrapped           bool    `json:"is_trapped"`             // whether currently trapped
-	Side                string  `json:"side"`                   // "buy" (long trapped) or "sell" (short trapped)
-	TotalUnrealizedLoss float64 `json:"total_unrealized_loss"`  // total USD loss
-	LossPct             float64 `json:"loss_pct"`               // loss as % of total investment
-	TrappedLevelCount   int     `json:"trapped_level_count"`    // number of losing levels
-	TrappedPositionSize float64 `json:"trapped_position_size"`  // total size of trapped position
-	AvgEntryPrice       float64 `json:"avg_entry_price"`        // weighted average entry price
-	CurrentPrice        float64 `json:"current_price"`          // current market price
-	PriceDiffPct        float64 `json:"price_diff_pct"`         // (avgEntry - current) / avgEntry * 100
-	SuggestReducePct    float64 `json:"suggest_reduce_pct"`     // suggested reduction percentage
-	LastReduceMinutes   int     `json:"last_reduce_minutes"`    // minutes since last reduction (-1 = never)
+	IsTrapped           bool    `json:"is_trapped"`            // whether currently trapped
+	Side                string  `json:"side"`                  // "buy" (long trapped) or "sell" (short trapped)
+	TotalUnrealizedLoss float64 `json:"total_unrealized_loss"` // total USD loss
+	LossPct             float64 `json:"loss_pct"`              // loss as % of total investment
+	TrappedLevelCount   int     `json:"trapped_level_count"`   // number of losing levels
+	ThresholdPct        float64 `json:"threshold_pct"`         // configured trigger threshold %
+	TrappedPositionSize float64 `json:"trapped_position_size"` // total size of trapped position
+	AvgEntryPrice       float64 `json:"avg_entry_price"`       // weighted average entry price
+	CurrentPrice        float64 `json:"current_price"`         // current market price
+	PriceDiffPct        float64 `json:"price_diff_pct"`        // (avgEntry - current) / avgEntry * 100
+	SuggestReducePct    float64 `json:"suggest_reduce_pct"`    // suggested reduction percentage
+	LastReduceMinutes   int     `json:"last_reduce_minutes"`   // minutes since last reduction (-1 = never)
 	// T-trade state (T字状态)
 	TTradePhase         string  `json:"t_trade_phase"`          // "idle" | "waiting_buy_fill" | "ready_to_reduce"
 	TTradeBuyOrderID    string  `json:"t_trade_buy_order_id"`   // pending T-trade buy order ID (if waiting)
@@ -477,7 +478,7 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		sb.WriteString(fmt.Sprintf("- 被套状态: 是\n"))
 		sb.WriteString(fmt.Sprintf("- 被套方向: %s\n", sideZh))
 		sb.WriteString(fmt.Sprintf("- 未实现亏损: $%.2f\n", t.TotalUnrealizedLoss))
-		sb.WriteString(fmt.Sprintf("- 亏损占比: %.2f%%\n", t.LossPct))
+		sb.WriteString(fmt.Sprintf("- 亏损占比: %.2f%% (阈值: %.1f%%)\\n", t.LossPct, t.ThresholdPct))
 		sb.WriteString(fmt.Sprintf("- 被套层数: %d\n", t.TrappedLevelCount))
 		sb.WriteString(fmt.Sprintf("- 平均开仓价: $%.2f\n", t.AvgEntryPrice))
 		sb.WriteString(fmt.Sprintf("- 当前价格: $%.2f\n", t.CurrentPrice))
@@ -632,7 +633,7 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		}
 		sb.WriteString(fmt.Sprintf("- Trapped Side: %s\n", trappedSideEn))
 		sb.WriteString(fmt.Sprintf("- Unrealized Loss: $%.2f\n", t.TotalUnrealizedLoss))
-		sb.WriteString(fmt.Sprintf("- Loss Percentage: %.2f%%\n", t.LossPct))
+		sb.WriteString(fmt.Sprintf("- Loss Percentage: %.2f%% (threshold: %.1f%%)\\n", t.LossPct, t.ThresholdPct))
 		sb.WriteString(fmt.Sprintf("- Trapped Levels: %d\n", t.TrappedLevelCount))
 		sb.WriteString(fmt.Sprintf("- Avg Entry Price: $%.2f\n", t.AvgEntryPrice))
 		sb.WriteString(fmt.Sprintf("- Current Price: $%.2f\n", t.CurrentPrice))
@@ -777,9 +778,9 @@ func isValidGridAction(action string) bool {
 		"hold":              true,
 		"reduce_position":   true, // batch reduce trapped positions (分批减仓)
 		// Also support standard actions for compatibility
-		"open_long":  true,
-		"open_short": true,
-		"close_long": true,
+		"open_long":   true,
+		"open_short":  true,
+		"close_long":  true,
 		"close_short": true,
 	}
 	return validActions[action]
