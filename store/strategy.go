@@ -88,6 +88,8 @@ type GridStrategyConfig struct {
 	StopLossPct float64 `json:"stop_loss_pct"`
 	// Daily loss limit percentage
 	DailyLossLimitPct float64 `json:"daily_loss_limit_pct"`
+	// Maximum position size as percentage of total investment (default 35%)
+	MaxPositionSizePct float64 `json:"max_position_size_pct"`
 	// Use maker-only orders for lower fees
 	UseMakerOnly bool `json:"use_maker_only"`
 	// Enable automatic grid direction adjustment based on box breakouts
