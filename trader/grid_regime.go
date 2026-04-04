@@ -33,59 +33,46 @@ func classifyRegimeLevel(bollingerWidth, atr14Pct float64) market.RegimeLevel {
 	return market.RegimeLevelVolatile
 }
 
-// getRegimeLeverageLimit returns the effective leverage limit for a regime level
-func getRegimeLeverageLimit(level market.RegimeLevel, config *store.GridConfigModel) int {
-	switch level {
-	case market.RegimeLevelNarrow:
-		if config.NarrowRegimeLeverage > 0 {
-			return config.NarrowRegimeLeverage
-		}
-		return 2
-	case market.RegimeLevelStandard:
-		if config.StandardRegimeLeverage > 0 {
-			return config.StandardRegimeLeverage
-		}
-		return 4
-	case market.RegimeLevelWide:
-		if config.WideRegimeLeverage > 0 {
-			return config.WideRegimeLeverage
-		}
-		return 3
-	case market.RegimeLevelVolatile:
-		if config.VolatileRegimeLeverage > 0 {
-			return config.VolatileRegimeLeverage
-		}
-		return 2
-	default:
-		return 2 // Conservative default
+// interpolate calculates a value based on linear interpolation between two points
+func interpolate(current, low, high, lowVal, highVal float64) float64 {
+	if current <= low {
+		return lowVal
 	}
+	if current >= high {
+		return highVal
+	}
+	return lowVal + (highVal-lowVal)*(current-low)/(high-low)
 }
 
-// getRegimePositionLimit returns the position limit percentage for a regime level
-func getRegimePositionLimit(level market.RegimeLevel, config *store.GridConfigModel) float64 {
-	switch level {
-	case market.RegimeLevelNarrow:
-		if config.NarrowRegimePositionPct > 0 {
-			return config.NarrowRegimePositionPct
-		}
+// getDynamicLeverage returns a continuous leverage limit based on bollinger width
+func getDynamicLeverage(bollingerWidth float64) int {
+	// Define mapping points: {width, leverage}
+	// 2% -> 2x, 4% -> 4x, 6% -> 2x
+	var leverage float64
+	if bollingerWidth < 2.0 {
+		leverage = 2.0
+	} else if bollingerWidth < 4.0 {
+		leverage = interpolate(bollingerWidth, 2.0, 4.0, 2.0, 4.0)
+	} else if bollingerWidth < 6.0 {
+		leverage = interpolate(bollingerWidth, 4.0, 6.0, 4.0, 2.0)
+	} else {
+		leverage = 2.0
+	}
+	return int(math.Round(leverage))
+}
+
+// getDynamicPositionLimit returns a continuous position limit percentage based on bollinger width
+func getDynamicPositionLimit(bollingerWidth float64) float64 {
+	// Define mapping points: {width, limitPct}
+	// 2% -> 40%, 4% -> 70%, 6% -> 40%
+	if bollingerWidth < 2.0 {
 		return 40.0
-	case market.RegimeLevelStandard:
-		if config.StandardRegimePositionPct > 0 {
-			return config.StandardRegimePositionPct
-		}
-		return 70.0
-	case market.RegimeLevelWide:
-		if config.WideRegimePositionPct > 0 {
-			return config.WideRegimePositionPct
-		}
-		return 60.0
-	case market.RegimeLevelVolatile:
-		if config.VolatileRegimePositionPct > 0 {
-			return config.VolatileRegimePositionPct
-		}
+	} else if bollingerWidth < 4.0 {
+		return interpolate(bollingerWidth, 2.0, 4.0, 40.0, 70.0)
+	} else if bollingerWidth < 6.0 {
+		return interpolate(bollingerWidth, 4.0, 6.0, 70.0, 40.0)
+	} else {
 		return 40.0
-	default:
-		return 40.0 // Conservative default
 	}
 }
 

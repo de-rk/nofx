@@ -361,6 +361,17 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 
 	sb.WriteString(fmt.Sprintf("## 当前时间: %s\n\n", ctx.CurrentTime))
 
+	// Decision Memory Section
+	if len(ctx.DecisionHistory) > 0 {
+		sb.WriteString("## 历史决策回顾\n")
+		sb.WriteString("| 时间 | 操作 | 理由 | 价格 |\n")
+		sb.WriteString("|------|------|------|------|\n")
+		for _, d := range ctx.DecisionHistory {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %.2f |\n", d.Timestamp, d.Action, d.Reasoning, d.Price))
+		}
+		sb.WriteString("\n")
+	}
+
 	// Market data section
 	sb.WriteString("## 市场数据\n")
 	sb.WriteString(fmt.Sprintf("- 当前价格: $%.2f\n", ctx.CurrentPrice))
@@ -520,6 +531,17 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("## Current Time: %s\n\n", ctx.CurrentTime))
+
+	// Decision Memory Section
+	if len(ctx.DecisionHistory) > 0 {
+		sb.WriteString("## Decision History Review\n")
+		sb.WriteString("| Time | Action | Reasoning | Price |\n")
+		sb.WriteString("|------|--------|-----------|-------|\n")
+		for _, d := range ctx.DecisionHistory {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %.2f |\n", d.Timestamp, d.Action, d.Reasoning, d.Price))
+		}
+		sb.WriteString("\n")
+	}
 
 	// Market data section
 	sb.WriteString("## Market Data\n")

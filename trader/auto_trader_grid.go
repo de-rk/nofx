@@ -48,6 +48,9 @@ type GridState struct {
 	// Order tracking
 	OrderBook map[string]int // OrderID -> LevelIndex
 
+	// Decision memory (last 5 non-hold decisions)
+	DecisionMemory []kernel.DecisionSummary
+
 	// Box state
 	ShortBoxUpper float64
 	ShortBoxLower float64
@@ -78,10 +81,10 @@ type GridState struct {
 
 	// T-trade state machine (T字操作状态机)
 	// Phase 1: place low buy order → Phase 2: wait for fill → Phase 3: execute reduce
-	TTradeBuyOrderID       string    // order ID of the T-trade prep buy order (waiting for fill)
-	TTradeBuyPrice         float64   // price of the T-trade buy order
-	TTradeBuyQty           float64   // quantity of the T-trade buy order
-	TTradeBuyPlacedAt      time.Time // when the T-trade buy was placed
+	TTradePrepOrderID       string    // order ID of the T-trade prep buy order (waiting for fill)
+	TTradePrepPrice         float64   // price of the T-trade buy order
+	TTradePrepQty           float64   // quantity of the T-trade buy order
+	TTradePrepPlacedAt      time.Time // when the T-trade buy was placed
 	TTradePendingReduceQty float64   // reduce qty deferred until T-trade buy fills (0 = none pending)
 	TTradeReduceOrderID    string    // order ID of the reduce limit order (after buy fills)
 }
@@ -352,7 +355,14 @@ func (at *AutoTrader) checkBoxBreakout() error {
 	// If direction adjustment action, determine the new direction
 	if action == BreakoutActionAdjustDirection {
 		box, _ := market.GetBoxData(gridConfig.Symbol)
-		newDirection := determineGridDirection(box, at.gridState.CurrentDirection, breakoutLevel, direction)
+// Get current EMA for slope confirmation
+		ctx, err := at.buildGridContext()
+		emaSlopePositive := false
+		if err == nil && ctx.EMA20 > 0 {
+			// Simplified slope: if price is above EMA20, we consider slope positive
+			emaSlopePositive = ctx.CurrentPrice > ctx.EMA20
+		}
+		newDirection := determineGridDirection(box, at.gridState.CurrentDirection, breakoutLevel, direction, emaSlopePositive)
 		return at.executeDirectionAdjustment(newDirection)
 	}
 
@@ -894,6 +904,26 @@ func (at *AutoTrader) RunGridCycle() error {
 		}
 	}
 
+	// Update decision memory
+	at.gridState.mu.Lock()
+	for _, d := range decision.Decisions {
+		if d.Action == "hold" {
+			continue
+		}
+		summary := kernel.DecisionSummary{
+			Timestamp: time.Now().Format("15:04:05"),
+			Action:    d.Action,
+			Reasoning: d.Reasoning,
+			Price:     d.Price,
+		}
+		at.gridState.DecisionMemory = append(at.gridState.DecisionMemory, summary)
+	}
+	// Keep only the last 5 decisions
+	if len(at.gridState.DecisionMemory) > 5 {
+		at.gridState.DecisionMemory = at.gridState.DecisionMemory[len(at.gridState.DecisionMemory)-5:]
+	}
+	at.gridState.mu.Unlock()
+
 	// Sync state with exchange
 	at.syncGridState()
 
@@ -928,6 +958,11 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	ctx.WinningTrades = at.gridState.WinningTrades
 	ctx.MaxDrawdown = at.gridState.MaxDrawdown
 	ctx.DailyPnL = at.gridState.DailyPnL
+
+	// Sync decision memory
+	at.gridState.mu.RLock()
+	ctx.DecisionHistory = append([]kernel.DecisionSummary{}, at.gridState.DecisionMemory...)
+	at.gridState.mu.RUnlock()
 
 	// Count active orders and filled levels
 	for _, level := range at.gridState.Levels {
@@ -1280,7 +1315,7 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 
 	// Get T-trade order IDs to protect them
 	at.gridState.mu.RLock()
-	tTradeOrderID := at.gridState.TTradeBuyOrderID
+	tTradePrepOrderID := at.gridState.TTradePrepOrderID
 	tTradeReduceOrderID := at.gridState.TTradeReduceOrderID
 	at.gridState.mu.RUnlock()
 
@@ -1293,7 +1328,7 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 	// Cancel orders one by one, skipping T-trade orders
 	cancelCount := 0
 	for _, order := range openOrders {
-		if order.OrderID == tTradeOrderID && tTradeOrderID != "" {
+		if order.OrderID == tTradePrepOrderID && tTradePrepOrderID != "" {
 			logger.Infof("[Grid] Skipping T-trade prep order %s during cancel all", order.OrderID)
 			continue
 		}
@@ -1313,7 +1348,7 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 	// Reset all pending levels except T-trade
 	at.gridState.mu.Lock()
 	for i := range at.gridState.Levels {
-		if at.gridState.Levels[i].State == "pending" && at.gridState.Levels[i].OrderID != tTradeOrderID {
+		if at.gridState.Levels[i].State == "pending" && at.gridState.Levels[i].OrderID != tTradePrepOrderID {
 			at.gridState.Levels[i].State = "empty"
 			at.gridState.Levels[i].OrderID = ""
 			at.gridState.Levels[i].OrderQuantity = 0
@@ -1440,9 +1475,9 @@ func (at *AutoTrader) syncGridState() {
 					logger.Infof("[Grid] Level %d order filled at $%.2f", i, level.Price)
 
 					// Check if this was a T-trade prep order - if so, execute deferred reduce
-					if level.OrderID == at.gridState.TTradeBuyOrderID && at.gridState.TTradePendingReduceQty > 0 {
+					if level.OrderID == at.gridState.TTradePrepOrderID && at.gridState.TTradePendingReduceQty > 0 {
 						reduceQty := at.gridState.TTradePendingReduceQty
-						at.gridState.TTradeBuyOrderID = ""
+						at.gridState.TTradePrepOrderID = ""
 						at.gridState.TTradePendingReduceQty = 0
 						at.gridState.mu.Unlock()
 						logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f) → executing deferred reduce (%.4f)",
@@ -1453,10 +1488,10 @@ func (at *AutoTrader) syncGridState() {
 				} else {
 					// Position didn't increase as expected, likely cancelled
 					// If this was a T-trade prep order, clear the deferred reduce
-					if level.OrderID == at.gridState.TTradeBuyOrderID {
+					if level.OrderID == at.gridState.TTradePrepOrderID {
 						logger.Infof("[Grid] ⚠️ T-trade prep order cancelled (orderID=%s) - clearing deferred reduce (%.4f)",
 							level.OrderID, at.gridState.TTradePendingReduceQty)
-						at.gridState.TTradeBuyOrderID = ""
+						at.gridState.TTradePrepOrderID = ""
 						at.gridState.TTradePendingReduceQty = 0
 					}
 					level.State = "empty"
@@ -1584,7 +1619,7 @@ func (at *AutoTrader) checkGridSkew() (bool, int, int) {
 func (at *AutoTrader) autoAdjustGrid() {
 	// Don't adjust grid if T-trade is in progress
 	at.gridState.mu.RLock()
-	hasPendingTTrade := at.gridState.TTradeBuyOrderID != ""
+	hasPendingTTrade := at.gridState.TTradePrepOrderID != ""
 	at.gridState.mu.RUnlock()
 	if hasPendingTTrade {
 		logger.Infof("[Grid] Skipping auto-adjust: T-trade order is pending")
@@ -2088,11 +2123,11 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 	}
 
 	at.gridState.mu.RLock()
-	pendingOrderID := at.gridState.TTradeBuyOrderID
+	pendingOrderID := at.gridState.TTradePrepOrderID
 	pendingReduceQty := at.gridState.TTradePendingReduceQty
-	buyPrice := at.gridState.TTradeBuyPrice
-	buyQty := at.gridState.TTradeBuyQty
-	placedAt := at.gridState.TTradeBuyPlacedAt
+	buyPrice := at.gridState.TTradePrepPrice
+	buyQty := at.gridState.TTradePrepQty
+	placedAt := at.gridState.TTradePrepPlacedAt
 	at.gridState.mu.RUnlock()
 
 	// Nothing pending
@@ -2112,10 +2147,10 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 			canceler.CancelOrder(gridConfig.Symbol, pendingOrderID)
 		}
 		at.gridState.mu.Lock()
-		at.gridState.TTradeBuyOrderID = ""
-		at.gridState.TTradeBuyPrice = 0
-		at.gridState.TTradeBuyQty = 0
-		at.gridState.TTradeBuyPlacedAt = time.Time{}
+		at.gridState.TTradePrepOrderID = ""
+		at.gridState.TTradePrepPrice = 0
+		at.gridState.TTradePrepQty = 0
+		at.gridState.TTradePrepPlacedAt = time.Time{}
 		at.gridState.TTradePendingReduceQty = 0
 		at.gridState.mu.Unlock()
 		logger.Infof("[Grid] T-trade state cleared due to timeout. Reduce will be re-evaluated next cycle.")
@@ -2163,10 +2198,10 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 		logger.Warnf("[Grid] T-trade buy order %s disappeared but level not filled — likely cancelled. Clearing T-trade state without reducing.",
 			pendingOrderID)
 		at.gridState.mu.Lock()
-		at.gridState.TTradeBuyOrderID = ""
-		at.gridState.TTradeBuyPrice = 0
-		at.gridState.TTradeBuyQty = 0
-		at.gridState.TTradeBuyPlacedAt = time.Time{}
+		at.gridState.TTradePrepOrderID = ""
+		at.gridState.TTradePrepPrice = 0
+		at.gridState.TTradePrepQty = 0
+		at.gridState.TTradePrepPlacedAt = time.Time{}
 		at.gridState.TTradePendingReduceQty = 0
 		at.gridState.mu.Unlock()
 		return
@@ -2179,10 +2214,10 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 	// Clear the T-trade pending state first
 	at.gridState.mu.Lock()
 	reduceQty := at.gridState.TTradePendingReduceQty
-	at.gridState.TTradeBuyOrderID = ""
-	at.gridState.TTradeBuyPrice = 0
-	at.gridState.TTradeBuyQty = 0
-	at.gridState.TTradeBuyPlacedAt = time.Time{}
+	at.gridState.TTradePrepOrderID = ""
+	at.gridState.TTradePrepPrice = 0
+	at.gridState.TTradePrepQty = 0
+	at.gridState.TTradePrepPlacedAt = time.Time{}
 	at.gridState.TTradePendingReduceQty = 0
 	at.gridState.mu.Unlock()
 
@@ -2358,10 +2393,10 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 	tTradeBuyOrderID := ""
 	tTradeBuyPrice := 0.0
 	tTradePendingReduce := 0.0
-	if at.gridState.TTradeBuyOrderID != "" {
+	if at.gridState.TTradePrepOrderID != "" {
 		tTradePhase = "waiting_buy_fill"
-		tTradeBuyOrderID = at.gridState.TTradeBuyOrderID
-		tTradeBuyPrice = at.gridState.TTradeBuyPrice
+		tTradeBuyOrderID = at.gridState.TTradePrepOrderID
+		tTradeBuyPrice = at.gridState.TTradePrepPrice
 		tTradePendingReduce = at.gridState.TTradePendingReduceQty
 	}
 
@@ -2379,8 +2414,8 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		SuggestReducePct:    suggestReducePct,
 		LastReduceMinutes:   lastReduceMinutes,
 		TTradePhase:         tTradePhase,
-		TTradeBuyOrderID:    tTradeBuyOrderID,
-		TTradeBuyPrice:      tTradeBuyPrice,
+		TTradePrepOrderID:    tTradeBuyOrderID,
+		TTradePrepPrice:      tTradeBuyPrice,
 		TTradePendingReduce: tTradePendingReduce,
 	}
 }
@@ -2499,7 +2534,7 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 
 		// Calculate limit price for reduce order based on T-trade buy price
 		at.gridState.mu.RLock()
-		tTradeBuyPrice := at.gridState.TTradeBuyPrice
+		tTradeBuyPrice := at.gridState.TTradePrepPrice
 		at.gridState.mu.RUnlock()
 
 		var reducePrice float64
@@ -2611,7 +2646,7 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 		var closeErr error
 		// Calculate limit price for reduce order
 		at.gridState.mu.RLock()
-		tTradeBuyPrice := at.gridState.TTradeBuyPrice
+		tTradeBuyPrice := at.gridState.TTradePrepPrice
 		at.gridState.mu.RUnlock()
 
 		var reducePrice float64
