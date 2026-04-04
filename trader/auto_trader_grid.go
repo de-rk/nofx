@@ -362,7 +362,7 @@ func (at *AutoTrader) checkBoxBreakout() error {
 			// Simplified slope: if price is above EMA20, we consider slope positive
 			emaSlopePositive = ctx.CurrentPrice > ctx.EMA20
 		}
-		newDirection := determineGridDirection(box, at.gridState.CurrentDirection, breakoutLevel, direction, emaSlopePositive)
+		newDirection := determineGridDirection(box, at.gridState.CurrentDirection, breakoutLevel, direction)
 		return at.executeDirectionAdjustment(newDirection)
 	}
 

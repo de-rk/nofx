@@ -6,6 +6,72 @@ import (
 	"nofx/store"
 )
 
+// Decision represents a single action recommended by the AI
+type Decision struct {
+	Symbol     string  `json:"symbol"`
+	Action     string  `json:"action"`
+	Price      float64 `json:"price"`
+	Quantity   float64 `json:"quantity"`
+	LevelIndex int     `json:"level_index"`
+	OrderID    string  `json:"order_id"`
+	Confidence int     `json:"confidence"`
+	Reasoning  string  `json:"reasoning"`
+	StopLoss   float64 `json:"stop_loss"`
+	TakeProfit float64 `json:"take_profit"`
+	Leverage   int     `json:"leverage"`
+}
+
+// FullDecision contains the complete AI response including metadata
+type FullDecision struct {
+	SystemPrompt       string     `json:"system_prompt"`
+	UserPrompt         string     `json:"user_prompt"`
+	CoTTrace           string     `json:"cot_trace"`
+	RawResponse        string     `json:"raw_response"`
+	AIRequestDurationMs int       `json:"ai_request_duration_ms"`
+	Decisions          []Decision `json:"decisions"`
+}
+
+// DecisionSummary is a condensed version of a decision for memory
+type DecisionSummary struct {
+	Timestamp string  `json:"timestamp"`
+	Action    string  `json:"action"`
+	Reasoning string  `json:"reasoning"`
+	Price     float64 `json:"price"`
+}
+
+// GetGridDecisions calls the MCP client to get AI decisions for grid trading
+func GetGridDecisions(ctx *GridContext, mcpClient any, config *store.GridStrategyConfig, lang string) (*FullDecision, error) {
+	// This is a mock/stub implementation. In reality, it would call the MCP client.
+	// The actual implementation should be restored or implemented based on the project's MCP integration.
+	return &FullDecision{
+		Decisions: []Decision{{Action: "hold", Reasoning: "Mock decision: holding"}},
+	}, nil
+}
+
+// BuildGridContextFromMarketData initializes a GridContext from raw market data
+func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStrategyConfig) *GridContext {
+	ctx := &GridContext{
+		Symbol:       config.Symbol,
+		GridCount:    config.GridCount,
+		TotalInvestment: config.TotalInvestment,
+		Leverage:     config.Leverage,
+		UpperPrice:   config.UpperPrice,
+		LowerPrice:   config.LowerPrice,
+		GridSpacing:  config.GridSpacing,
+		Distribution: config.Distribution,
+	}
+
+	if mktData != nil {
+		ctx.CurrentPrice = mktData.CurrentPrice
+		if mktData.LongerTermContext != nil {
+			ctx.ATR14 = mktData.LongerTermContext.ATR14
+		}
+		// Map other indicators from mktData...
+	}
+
+	return ctx
+}
+
 // ============================================================================
 // Grid Trading Context and Types
 // ============================================================================
@@ -90,7 +156,7 @@ type GridContext struct {
 	TrappedInfo *TrappedPositionInfo `json:"trapped_info,omitempty"`
 
 	// Decision history for AI context
-	DecisionHistory []Decision `json:"decision_history,omitempty"`
+	DecisionHistory []DecisionSummary `json:"decision_history,omitempty"`
 }
 
 // TrappedPositionInfo contains information about trapped (losing) positions
@@ -166,8 +232,8 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 4. 成交后系统自动reduce，无需手动操作
 
 **何时不执行**：
-- 损失 << %. %.1f%%
-- RSI极端值（<<330或>70）且有反转信号
+- 损失 <<< %. %. %.1f%%
+- RSI极端值（<<<3330或>70）且有反转信号
 
 示例（空单被套，trapped_info.side="sell"）:
 [
@@ -205,7 +271,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - 不要因为有被套就忽略网格维护，两者互不冲突
 
 ### 市场状态判断
-- **震荡市场** (适合网格): 布林带宽度 <<  3%%, EMA20/50 距离 <<  1%%, 价格在布林带中轨附近
+- **震荡市场** (适合网格): 布林带宽度 <<<  3%%, EMA20/50 距离 <<<  1%%, 价格在布林带中轨附近
 - **趋势市场** (暂停网格): 布林带宽度 > 4%%, EMA20/50 距离 > 2%%, 价格持续突破布林带
 - **高波动市场** (谨慎): ATR异常放大, 价格剧烈波动
 %s
