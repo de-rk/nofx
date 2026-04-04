@@ -1,14 +1,9 @@
 package kernel
 
 import (
-	"encoding/json"
 	"fmt"
-	"nofx/logger"
 	"nofx/market"
-	"nofx/mcp"
 	"nofx/store"
-	"strings"
-	"time"
 )
 
 // ============================================================================
