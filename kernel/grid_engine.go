@@ -6,31 +6,6 @@ import (
 	"nofx/store"
 )
 
-// Decision represents a single action recommended by the AI
-type Decision struct {
-	Symbol     string  `json:"symbol"`
-	Action     string  `json:"action"`
-	Price      float64 `json:"price"`
-	Quantity   float64 `json:"quantity"`
-	LevelIndex int     `json:"level_index"`
-	OrderID    string  `json:"order_id"`
-	Confidence int     `json:"confidence"`
-	Reasoning  string  `json:"reasoning"`
-	StopLoss   float64 `json:"stop_loss"`
-	TakeProfit float64 `json:"take_profit"`
-	Leverage   int     `json:"leverage"`
-}
-
-// FullDecision contains the complete AI response including metadata
-type FullDecision struct {
-	SystemPrompt       string     `json:"system_prompt"`
-	UserPrompt         string     `json:"user_prompt"`
-	CoTTrace           string     `json:"cot_trace"`
-	RawResponse        string     `json:"raw_response"`
-	AIRequestDurationMs int       `json:"ai_request_duration_ms"`
-	Decisions          []Decision `json:"decisions"`
-}
-
 // DecisionSummary is a condensed version of a decision for memory
 type DecisionSummary struct {
 	Timestamp string  `json:"timestamp"`
@@ -57,7 +32,12 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 		Leverage:     config.Leverage,
 		UpperPrice:   config.UpperPrice,
 		LowerPrice:   config.LowerPrice,
-		GridSpacing:  config.GridSpacing,
+		GridSpacing:  func() float64 {
+			if config.GridCount > 0 {
+				return (config.UpperPrice - config.LowerPrice) / float64(config.GridCount)
+			}
+			return 0
+		}(),
 		Distribution: config.Distribution,
 	}
 
