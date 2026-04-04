@@ -357,11 +357,8 @@ func (at *AutoTrader) checkBoxBreakout() error {
 		box, _ := market.GetBoxData(gridConfig.Symbol)
 // Get current EMA for slope confirmation
 		ctx, err := at.buildGridContext()
-		emaSlopePositive := false
-		if err == nil && ctx.EMA20 > 0 {
-			// Simplified slope: if price is above EMA20, we consider slope positive
-			emaSlopePositive = ctx.CurrentPrice > ctx.EMA20
-		}
+		_ = err
+		_ = ctx
 		newDirection := determineGridDirection(box, at.gridState.CurrentDirection, breakoutLevel, direction)
 		return at.executeDirectionAdjustment(newDirection)
 	}
@@ -2414,8 +2411,8 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		SuggestReducePct:    suggestReducePct,
 		LastReduceMinutes:   lastReduceMinutes,
 		TTradePhase:         tTradePhase,
-		TTradePrepOrderID:    tTradeBuyOrderID,
-		TTradePrepPrice:      tTradeBuyPrice,
+		TTradeBuyOrderID:    tTradeBuyOrderID,
+		TTradeBuyPrice:      tTradeBuyPrice,
 		TTradePendingReduce: tTradePendingReduce,
 	}
 }
