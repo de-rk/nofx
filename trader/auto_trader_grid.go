@@ -1342,25 +1342,11 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		return fmt.Errorf("total position value $%.2f would exceed limit $%.2f", currentValue+orderValue, maxValue)
 	}
 
-	// Determine ReduceOnly and PositionSide based on actual exchange positions
-	reduceOnly := false
-	positionSide := ""
-	positions, posErr := at.trader.GetPositions()
-	if posErr == nil {
-		for _, pos := range positions {
-			if sym, ok := pos["symbol"].(string); ok && sym == d.Symbol {
-				posSize, _ := pos["positionAmt"].(float64)
-				posSide, _ := pos["side"].(string)
-				absSize := math.Abs(posSize)
-				if side == "SELL" && posSide == "long" && absSize >= quantity {
-					reduceOnly = true
-					positionSide = "LONG"
-				} else if side == "BUY" && posSide == "short" && absSize >= quantity {
-					reduceOnly = true
-					positionSide = "SHORT"
-				}
-			}
-		}
+	// In hedge mode: place_buy_limit always opens long, place_sell_limit always opens short.
+	// Closing positions is handled exclusively by reduce_long / reduce_short actions.
+	positionSide := "LONG"
+	if side == "SELL" {
+		positionSide = "SHORT"
 	}
 
 	req := &LimitOrderRequest{
@@ -1371,7 +1357,7 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		Quantity:     quantity, // Use validated/capped quantity
 		Leverage:   gridConfig.Leverage,
 		PostOnly:   gridConfig.UseMakerOnly,
-		ReduceOnly: reduceOnly,
+		ReduceOnly: false,
 		ClientID:   fmt.Sprintf("grid-%d-%d", d.LevelIndex, time.Now().UnixNano()%1000000),
 	}
 
