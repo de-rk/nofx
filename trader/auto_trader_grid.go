@@ -1236,46 +1236,47 @@ func (at *AutoTrader) refreshTotalInvestment() {
 	}
 }
 
-// checkTotalPositionLimit checks if adding a new position would exceed total limits
+// checkTotalPositionLimit checks if adding a new position would exceed total limits.
+// side: "BUY" checks long position, "SELL" checks short position independently.
 // Returns: (allowed bool, currentPositionValue float64, maxAllowed float64)
-func (at *AutoTrader) checkTotalPositionLimit(symbol string, additionalValue float64) (bool, float64, float64) {
+func (at *AutoTrader) checkTotalPositionLimit(symbol string, side string, additionalValue float64) (bool, float64, float64) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Calculate max allowed total position value
-	// Total position should not exceed: TotalInvestment × Leverage × MaxPositionSizePct%
+	// Each side (long/short) independently gets up to TotalInvestment × Leverage × MaxPositionSizePct%
 	maxPositionSizePct := gridConfig.MaxPositionSizePct
 	if maxPositionSizePct <= 0 {
-		maxPositionSizePct = 100.0 // default: allow full leveraged investment
+		maxPositionSizePct = 100.0
 	}
-	maxTotalPositionValue := gridConfig.TotalInvestment * float64(gridConfig.Leverage) * maxPositionSizePct / 100
+	maxSidePositionValue := gridConfig.TotalInvestment * float64(gridConfig.Leverage) * maxPositionSizePct / 100
 
-	// Get current position value from exchange
+	// Sum position value for the relevant side only
 	currentPositionValue := 0.0
 	positions, err := at.trader.GetPositions()
 	if err == nil {
 		for _, pos := range positions {
-			if sym, ok := pos["symbol"].(string); ok && sym == symbol {
-				if size, ok := pos["positionAmt"].(float64); ok {
-					if price, ok := pos["markPrice"].(float64); ok {
-						currentPositionValue = math.Abs(size) * price
-					} else if entryPrice, ok := pos["entryPrice"].(float64); ok {
-						currentPositionValue = math.Abs(size) * entryPrice
-					}
+			sym, _ := pos["symbol"].(string)
+			if sym != symbol {
+				continue
+			}
+			posSide, _ := pos["side"].(string)
+			posSize, _ := pos["positionAmt"].(float64)
+			// Match side: BUY order adds to long, SELL order adds to short
+			if (side == "BUY" && posSide == "long") || (side == "SELL" && posSide == "short") {
+				markPrice, hasMark := pos["markPrice"].(float64)
+				entryPrice, _ := pos["entryPrice"].(float64)
+				price := markPrice
+				if !hasMark || price == 0 {
+					price = entryPrice
 				}
+				currentPositionValue += math.Abs(posSize) * price
 			}
 		}
 	}
 
-	// Also count pending orders as potential position
-	at.gridState.mu.RLock()
-	pendingValue := 0.0
-	_ = pendingValue // pending orders are not yet filled positions, excluded from limit check
-	at.gridState.mu.RUnlock()
-
 	totalAfterOrder := currentPositionValue + additionalValue
-	allowed := totalAfterOrder <= maxTotalPositionValue
+	allowed := totalAfterOrder <= maxSidePositionValue
 
-	return allowed, currentPositionValue, maxTotalPositionValue
+	return allowed, currentPositionValue, maxSidePositionValue
 }
 
 // placeGridLimitOrder places a limit order for grid trading
@@ -1335,7 +1336,7 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 
 	// CRITICAL: Check total position limit before placing order
 	orderValue := quantity * d.Price
-	allowed, currentValue, maxValue := at.checkTotalPositionLimit(d.Symbol, orderValue)
+	allowed, currentValue, maxValue := at.checkTotalPositionLimit(d.Symbol, side, orderValue)
 	if !allowed {
 		logger.Errorf("[Grid] TOTAL POSITION LIMIT EXCEEDED: current=$%.2f + order=$%.2f > max=$%.2f. Rejecting order.",
 			currentValue, orderValue, maxValue)
