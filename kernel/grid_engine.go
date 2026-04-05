@@ -181,6 +181,7 @@ type GridLevelInfo struct {
 	PositionEntry  float64 `json:"position_entry"`   // Entry price (if filled)
 	AllocatedUSD   float64 `json:"allocated_usd"`   // USD allocated to this level
 	UnrealizedPnL  float64 `json:"unrealized_pnl"`   // Unrealized P&L (if filled)
+	DistancePct    float64 `json:"distance_pct"`    // % distance from current price (+ = above, - = below)
 }
 
 // GridContext contains all information needed for AI grid decision making

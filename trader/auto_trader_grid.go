@@ -984,7 +984,7 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 
 	// Add grid state (single lock for the entire block)
 	at.gridState.mu.RLock()
-	ctx.Levels = at.gridState.Levels
+	ctx.Levels = append([]kernel.GridLevelInfo{}, at.gridState.Levels...)
 	ctx.UpperPrice = at.gridState.UpperPrice
 	ctx.LowerPrice = at.gridState.LowerPrice
 	ctx.GridSpacing = at.gridState.GridSpacing
@@ -1005,6 +1005,13 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		}
 	}
 	at.gridState.mu.RUnlock()
+
+	// Populate distance-to-price for each level so AI can see proximity without calculating
+	if ctx.CurrentPrice > 0 {
+		for i := range ctx.Levels {
+			ctx.Levels[i].DistancePct = (ctx.Levels[i].Price - ctx.CurrentPrice) / ctx.CurrentPrice * 100
+		}
+	}
 
 	// Get account info
 	balance, err := at.trader.GetBalance()
