@@ -891,6 +891,9 @@ func (at *AutoTrader) RunGridCycle() error {
 		at.checkTTradeReduceOrderStatus()
 	}
 
+	// Sync open orders from exchange BEFORE building context so AI sees accurate state
+	at.syncOpenOrdersFromExchange()
+
 	// Build grid context
 	gridCtx, err := at.buildGridContext()
 	if err != nil {
@@ -1508,6 +1511,86 @@ func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
 
 	logger.Infof("[Grid] Adjusted grid bounds around price $%.2f", price)
 	return nil
+}
+
+// syncOpenOrdersFromExchange reconciles grid level states with actual open orders on the exchange.
+// Called before building AI context so the AI always sees up-to-date order state.
+// It does NOT attempt fill detection — that is handled by syncGridState after execution.
+func (at *AutoTrader) syncOpenOrdersFromExchange() {
+	gridConfig := at.config.StrategyConfig.GridConfig
+
+	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
+	if err != nil {
+		logger.Warnf("[Grid] syncOpenOrders: failed to get open orders: %v", err)
+		return
+	}
+
+	// Build set of active order IDs from exchange
+	activeOrderIDs := make(map[string]bool, len(openOrders))
+	for _, o := range openOrders {
+		activeOrderIDs[o.OrderID] = true
+	}
+
+	at.gridState.mu.Lock()
+	defer at.gridState.mu.Unlock()
+
+	for i := range at.gridState.Levels {
+		level := &at.gridState.Levels[i]
+		if level.State != "pending" || level.OrderID == "" {
+			continue
+		}
+		if !activeOrderIDs[level.OrderID] {
+			// Order is gone from exchange — mark empty so AI knows to re-place it.
+			// Fill detection (position accounting) is handled separately in syncGridState.
+			logger.Infof("[Grid] syncOpenOrders: level %d order %s no longer open, marking empty",
+				i, level.OrderID)
+			delete(at.gridState.OrderBook, level.OrderID)
+			level.State = "empty"
+			level.OrderID = ""
+			level.OrderQuantity = 0
+		}
+	}
+
+	// Also register any exchange orders that are not yet tracked in OrderBook
+	// (e.g. orders placed outside this session or after a restart)
+	for _, o := range openOrders {
+		if _, tracked := at.gridState.OrderBook[o.OrderID]; tracked {
+			continue
+		}
+		// Try to match by price to an empty level
+		bestIdx := -1
+		bestDist := math.MaxFloat64
+		for i, level := range at.gridState.Levels {
+			if level.State != "empty" {
+				continue
+			}
+			dist := math.Abs(level.Price - o.Price)
+			if dist < bestDist {
+				bestDist = dist
+				bestIdx = i
+			}
+		}
+		// Only adopt if within half a grid spacing
+		if bestIdx >= 0 && (at.gridState.GridSpacing <= 0 || bestDist <= at.gridState.GridSpacing*0.5) {
+			at.gridState.Levels[bestIdx].State = "pending"
+			at.gridState.Levels[bestIdx].OrderID = o.OrderID
+			at.gridState.Levels[bestIdx].OrderQuantity = o.Quantity
+			at.gridState.OrderBook[o.OrderID] = bestIdx
+			logger.Infof("[Grid] syncOpenOrders: adopted untracked order %s → level %d (price=%.2f)",
+				o.OrderID, bestIdx, o.Price)
+		}
+	}
+
+	logger.Infof("[Grid] syncOpenOrders: exchange has %d open orders, grid has %d pending levels",
+		len(openOrders), func() int {
+			n := 0
+			for _, l := range at.gridState.Levels {
+				if l.State == "pending" {
+					n++
+				}
+			}
+			return n
+		}())
 }
 
 // syncGridState syncs grid state with exchange
