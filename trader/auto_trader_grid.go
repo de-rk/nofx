@@ -886,14 +886,21 @@ func (at *AutoTrader) RunGridCycle() error {
 		lang = "en"
 	}
 
+	// Fetch open orders once per cycle — shared by T-trade checks, state sync, and AI context
+	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
+	if err != nil {
+		logger.Warnf("[Grid] Failed to get open orders: %v", err)
+		openOrders = nil
+	}
+
 	// Check if T-trade buy order has filled → execute deferred reduce if so
 	if gridConfig.EnableTrappedReduce {
-		at.checkTTradeOrderFillAndReduce()
-		at.checkTTradeReduceOrderStatus()
+		at.checkTTradeOrderFillAndReduce(openOrders)
+		at.checkTTradeReduceOrderStatus(openOrders)
 	}
 
 	// Sync open orders from exchange BEFORE building context so AI sees accurate state
-	at.syncOpenOrdersFromExchange()
+	at.syncOpenOrdersFromExchange(openOrders)
 
 	// Build grid context
 	gridCtx, err := at.buildGridContext()
@@ -1522,13 +1529,16 @@ func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
 // syncOpenOrdersFromExchange reconciles grid level states with actual open orders on the exchange.
 // Called before building AI context so the AI always sees up-to-date order state.
 // It does NOT attempt fill detection — that is handled by syncGridState after execution.
-func (at *AutoTrader) syncOpenOrdersFromExchange() {
+func (at *AutoTrader) syncOpenOrdersFromExchange(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
-	if err != nil {
-		logger.Warnf("[Grid] syncOpenOrders: failed to get open orders: %v", err)
-		return
+	if openOrders == nil {
+		var err error
+		openOrders, err = at.trader.GetOpenOrders(gridConfig.Symbol)
+		if err != nil {
+			logger.Warnf("[Grid] syncOpenOrders: failed to get open orders: %v", err)
+			return
+		}
 	}
 
 	// Build set of active order IDs from exchange
@@ -2325,7 +2335,7 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 // checkTTradeOrderFillAndReduce checks if the pending T-trade buy order has been filled.
 // This is called every cycle BEFORE AI decisions.
 // Flow: placeGridLimitOrder (buy) → [wait here each cycle] → fill confirmed → executeTrappedReduce
-func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
+func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
 		return
@@ -2369,15 +2379,18 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 	}
 
 	// Query current open orders to see if the T-trade buy order is still pending
-	orders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
-	if err != nil {
-		logger.Warnf("[Grid] T-trade check: failed to get open orders: %v", err)
-		return
+	if openOrders == nil {
+		var err error
+		openOrders, err = at.trader.GetOpenOrders(gridConfig.Symbol)
+		if err != nil {
+			logger.Warnf("[Grid] T-trade check: failed to get open orders: %v", err)
+			return
+		}
 	}
 
 	// Check if the order is still open
 	stillOpen := false
-	for _, o := range orders {
+	for _, o := range openOrders {
 		if o.OrderID == pendingOrderID {
 			stillOpen = true
 			break
@@ -2448,7 +2461,7 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 }
 
 // checkTTradeReduceOrderStatus checks if reduce order was cancelled and retries
-func (at *AutoTrader) checkTTradeReduceOrderStatus() {
+func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
 		return
@@ -2463,13 +2476,16 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus() {
 	}
 
 	// Check if reduce order still exists
-	orders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
-	if err != nil {
-		return
+	if openOrders == nil {
+		var err error
+		openOrders, err = at.trader.GetOpenOrders(gridConfig.Symbol)
+		if err != nil {
+			return
+		}
 	}
 
 	stillOpen := false
-	for _, o := range orders {
+	for _, o := range openOrders {
 		if o.OrderID == reduceOrderID {
 			stillOpen = true
 			break
