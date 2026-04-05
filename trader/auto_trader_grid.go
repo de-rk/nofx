@@ -1227,7 +1227,11 @@ func (at *AutoTrader) checkTotalPositionLimit(symbol string, additionalValue flo
 
 	// Calculate max allowed total position value
 	// Total position should not exceed: TotalInvestment × Leverage × MaxPositionSizePct%
-	maxTotalPositionValue := gridConfig.TotalInvestment * float64(gridConfig.Leverage) * gridConfig.MaxPositionSizePct / 100
+	maxPositionSizePct := gridConfig.MaxPositionSizePct
+	if maxPositionSizePct <= 0 {
+		maxPositionSizePct = 100.0 // default: allow full leveraged investment
+	}
+	maxTotalPositionValue := gridConfig.TotalInvestment * float64(gridConfig.Leverage) * maxPositionSizePct / 100
 
 	// Get current position value from exchange
 	currentPositionValue := 0.0
@@ -1322,6 +1326,23 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		return fmt.Errorf("total position value $%.2f would exceed limit $%.2f", currentValue+orderValue, maxValue)
 	}
 
+	// Determine ReduceOnly: sell orders reduce existing long positions; buy orders reduce existing short positions
+	reduceOnly := false
+	positions, posErr := at.trader.GetPositions()
+	if posErr == nil {
+		for _, pos := range positions {
+			if sym, ok := pos["symbol"].(string); ok && sym == d.Symbol {
+				posSize, _ := pos["positionAmt"].(float64)
+				posSide, _ := pos["side"].(string)
+				if side == "SELL" && posSide == "long" && posSize >= quantity {
+					reduceOnly = true
+				} else if side == "BUY" && posSide == "short" && posSize >= quantity {
+					reduceOnly = true
+				}
+			}
+		}
+	}
+
 	req := &LimitOrderRequest{
 		Symbol:     d.Symbol,
 		Side:       side,
@@ -1329,7 +1350,7 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		Quantity:   quantity, // Use validated/capped quantity
 		Leverage:   gridConfig.Leverage,
 		PostOnly:   gridConfig.UseMakerOnly,
-		ReduceOnly: false,
+		ReduceOnly: reduceOnly,
 		ClientID:   fmt.Sprintf("grid-%d-%d", d.LevelIndex, time.Now().UnixNano()%1000000),
 	}
 
