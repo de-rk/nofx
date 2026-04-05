@@ -1,9 +1,13 @@
 package kernel
 
 import (
+	"encoding/json"
 	"fmt"
+	"nofx/logger"
 	"nofx/market"
+	"nofx/mcp"
 	"nofx/store"
+	"time"
 )
 
 // DecisionSummary is a condensed version of a decision for memory
@@ -14,25 +18,104 @@ type DecisionSummary struct {
 	Price     float64 `json:"price"`
 }
 
-// GetGridDecisions calls the MCP client to get AI decisions for grid trading
-func GetGridDecisions(ctx *GridContext, mcpClient any, config *store.GridStrategyConfig, lang string) (*FullDecision, error) {
-	// This is a mock/stub implementation. In reality, it would call the MCP client.
-	// The actual implementation should be restored or implemented based on the project's MCP integration.
+// GetGridDecisions calls the AI client to get decisions for grid trading
+func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, config *store.GridStrategyConfig, lang string) (*FullDecision, error) {
+	startTime := time.Now()
+
+	systemPrompt := BuildGridSystemPrompt(config, lang)
+	userPrompt := BuildGridUserPrompt(ctx, lang)
+
+	logger.Infof("🤖 [Grid] Calling AI for grid decisions...")
+
+	response, err := mcpClient.CallWithMessages(systemPrompt, userPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("AI call failed: %w", err)
+	}
+
+	decisions, err := parseGridDecisions(response, ctx.Symbol)
+	if err != nil {
+		logger.Warnf("Failed to parse grid decisions: %v", err)
+		decisions = []Decision{{
+			Symbol:     ctx.Symbol,
+			Action:     "hold",
+			Confidence: 50,
+			Reasoning:  "Failed to parse AI response, holding current state",
+		}}
+	}
+
+	duration := time.Since(startTime).Milliseconds()
+	logger.Infof("⏱️ [Grid] AI call duration: %d ms, decisions: %d", duration, len(decisions))
+
+	cotTrace := extractCoTTrace(response)
+
 	return &FullDecision{
-		Decisions: []Decision{{Action: "hold", Reasoning: "Mock decision: holding"}},
+		SystemPrompt:        systemPrompt,
+		UserPrompt:          userPrompt,
+		CoTTrace:            cotTrace,
+		Decisions:           decisions,
+		RawResponse:         response,
+		AIRequestDurationMs: duration,
+		Timestamp:           time.Now(),
 	}, nil
+}
+
+// parseGridDecisions parses AI response into grid decisions
+func parseGridDecisions(response string, symbol string) ([]Decision, error) {
+	jsonStr := extractJSONArray(response)
+	if jsonStr == "" {
+		return nil, fmt.Errorf("no JSON array found in response")
+	}
+
+	var decisions []Decision
+	if err := json.Unmarshal([]byte(jsonStr), &decisions); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	for i := range decisions {
+		if decisions[i].Symbol == "" {
+			decisions[i].Symbol = symbol
+		}
+		if !isValidGridAction(decisions[i].Action) {
+			logger.Warnf("Invalid grid action: %s", decisions[i].Action)
+		}
+	}
+
+	return decisions, nil
+}
+
+// isValidGridAction checks if action is a valid grid action
+func isValidGridAction(action string) bool {
+	validActions := map[string]bool{
+		"place_buy_limit":   true,
+		"place_sell_limit":  true,
+		"cancel_order":      true,
+		"cancel_all_orders": true,
+		"pause_grid":        true,
+		"resume_grid":       true,
+		"adjust_grid":       true,
+		"hold":              true,
+		"reduce_long":       true,
+		"reduce_short":      true,
+		"reduce_position":   true,
+		"open_long":         true,
+		"open_short":        true,
+		"close_long":        true,
+		"close_short":       true,
+	}
+	return validActions[action]
 }
 
 // BuildGridContextFromMarketData initializes a GridContext from raw market data
 func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStrategyConfig) *GridContext {
 	ctx := &GridContext{
-		Symbol:       config.Symbol,
-		GridCount:    config.GridCount,
+		Symbol:          config.Symbol,
+		CurrentTime:     time.Now().Format("2006-01-02 15:04:05"),
+		GridCount:       config.GridCount,
 		TotalInvestment: config.TotalInvestment,
-		Leverage:     config.Leverage,
-		UpperPrice:   config.UpperPrice,
-		LowerPrice:   config.LowerPrice,
-		GridSpacing:  func() float64 {
+		Leverage:        config.Leverage,
+		UpperPrice:      config.UpperPrice,
+		LowerPrice:      config.LowerPrice,
+		GridSpacing: func() float64 {
 			if config.GridCount > 0 {
 				return (config.UpperPrice - config.LowerPrice) / float64(config.GridCount)
 			}
@@ -43,10 +126,39 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 
 	if mktData != nil {
 		ctx.CurrentPrice = mktData.CurrentPrice
-		if mktData.LongerTermContext != nil {
-			ctx.ATR14 = mktData.LongerTermContext.ATR14
+		ctx.PriceChange1h = mktData.PriceChange1h
+		ctx.PriceChange4h = mktData.PriceChange4h
+		ctx.FundingRate = mktData.FundingRate
+		ctx.EMA20 = mktData.CurrentEMA20
+		ctx.MACD = mktData.CurrentMACD
+
+		if mktData.TimeframeData != nil {
+			if tf5m, ok := mktData.TimeframeData["5m"]; ok {
+				if len(tf5m.BOLLUpper) > 0 {
+					ctx.BollingerUpper = tf5m.BOLLUpper[len(tf5m.BOLLUpper)-1]
+					ctx.BollingerMiddle = tf5m.BOLLMiddle[len(tf5m.BOLLMiddle)-1]
+					ctx.BollingerLower = tf5m.BOLLLower[len(tf5m.BOLLLower)-1]
+					if ctx.BollingerMiddle > 0 {
+						ctx.BollingerWidth = (ctx.BollingerUpper - ctx.BollingerLower) / ctx.BollingerMiddle * 100
+					}
+				}
+				ctx.ATR14 = tf5m.ATR14
+				if len(tf5m.RSI14Values) > 0 {
+					ctx.RSI14 = tf5m.RSI14Values[len(tf5m.RSI14Values)-1]
+				}
+			}
 		}
-		// Map other indicators from mktData...
+
+		if mktData.LongerTermContext != nil {
+			if ctx.ATR14 == 0 {
+				ctx.ATR14 = mktData.LongerTermContext.ATR14
+			}
+			ctx.EMA50 = mktData.LongerTermContext.EMA50
+		}
+
+		if ctx.EMA50 > 0 {
+			ctx.EMADistance = (ctx.EMA20 - ctx.EMA50) / ctx.EMA50 * 100
+		}
 	}
 
 	return ctx
