@@ -87,6 +87,7 @@ type GridState struct {
 	TTradePrepPlacedAt     time.Time // when the T-trade buy was placed
 	TTradePendingReduceQty float64   // reduce qty deferred until T-trade buy fills (0 = none pending)
 	TTradeReduceOrderID    string    // order ID of the reduce limit order (after buy fills)
+	TTradeReducePlacedAt   time.Time // when the reduce order was placed (for timeout)
 	TTradePrepSide         string    // "buy" = long trapped prep, "sell" = short trapped prep
 	TTradePrepExecuted     bool      // true once deferred reduce has been dispatched (prevents double-execution)
 }
@@ -2469,9 +2470,27 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 
 	at.gridState.mu.RLock()
 	reduceOrderID := at.gridState.TTradeReduceOrderID
+	reducePlacedAt := at.gridState.TTradeReducePlacedAt
 	at.gridState.mu.RUnlock()
 
 	if reduceOrderID == "" {
+		return
+	}
+
+	// Timeout: cancel reduce order if unfilled for too long (price moved away)
+	maxWait := 2 * time.Hour
+	if !reducePlacedAt.IsZero() && time.Since(reducePlacedAt) > maxWait {
+		logger.Warnf("[Grid] ⚠️ T-trade reduce order %s timed out after %.0f min — cancelling",
+			reduceOrderID, time.Since(reducePlacedAt).Minutes())
+		if canceler, ok := at.trader.(interface {
+			CancelOrder(symbol, orderID string) error
+		}); ok {
+			canceler.CancelOrder(gridConfig.Symbol, reduceOrderID)
+		}
+		at.gridState.mu.Lock()
+		at.gridState.TTradeReduceOrderID = ""
+		at.gridState.TTradeReducePlacedAt = time.Time{}
+		at.gridState.mu.Unlock()
 		return
 	}
 
@@ -2496,6 +2515,7 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 		// Reduce order was cancelled or filled, clear it
 		at.gridState.mu.Lock()
 		at.gridState.TTradeReduceOrderID = ""
+		at.gridState.TTradeReducePlacedAt = time.Time{}
 		at.gridState.mu.Unlock()
 		logger.Infof("[Grid] T-trade reduce order %s no longer open (filled or cancelled)", reduceOrderID)
 	}
@@ -2756,6 +2776,7 @@ func (at *AutoTrader) executeTrappedReduceShort(quantity float64) error {
 	at.gridState.mu.Lock()
 	if result != nil {
 		at.gridState.TTradeReduceOrderID = result.OrderID
+		at.gridState.TTradeReducePlacedAt = time.Now()
 	}
 	at.gridState.LastTrappedReduceAt = time.Now()
 	at.gridState.TrappedReduceCount++
@@ -2937,6 +2958,7 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 
 		at.gridState.mu.Lock()
 		at.gridState.TTradeReduceOrderID = reduceOrderID
+		at.gridState.TTradeReducePlacedAt = time.Now()
 		at.gridState.LastTrappedReduceAt = time.Now()
 		at.gridState.TrappedReduceCount++
 		at.gridState.DailyPnL += mostLossPnL * (closeQty / mostLossSize)
