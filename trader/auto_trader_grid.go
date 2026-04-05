@@ -970,7 +970,7 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	// Build base context from market data
 	ctx := kernel.BuildGridContextFromMarketData(mktData, gridConfig)
 
-	// Add grid state
+	// Add grid state (single lock for the entire block)
 	at.gridState.mu.RLock()
 	ctx.Levels = at.gridState.Levels
 	ctx.UpperPrice = at.gridState.UpperPrice
@@ -982,11 +982,7 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	ctx.WinningTrades = at.gridState.WinningTrades
 	ctx.MaxDrawdown = at.gridState.MaxDrawdown
 	ctx.DailyPnL = at.gridState.DailyPnL
-
-	// Sync decision memory
-	at.gridState.mu.RLock()
 	ctx.DecisionHistory = append([]kernel.DecisionSummary{}, at.gridState.DecisionMemory...)
-	at.gridState.mu.RUnlock()
 
 	// Count active orders and filled levels
 	for _, level := range at.gridState.Levels {
@@ -1034,8 +1030,9 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		}
 	}
 
-	// Build trapped position info (if feature enabled)
-	if gridConfig.EnableTrappedReduce && ctx.CurrentPrice > 0 {
+	// Build trapped position info — always populate so AI sees position/loss context.
+	// T-trade auto-execution only fires when EnableTrappedReduce is true.
+	if ctx.CurrentPrice > 0 {
 		ctx.TrappedInfo = at.buildTrappedPositionInfo(ctx.CurrentPrice)
 	}
 
@@ -2487,6 +2484,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		suggestReducePct = batchPct
 	}
 
+	at.gridState.mu.RLock()
 	lastReduceMinutes := -1
 	if !at.gridState.LastTrappedReduceAt.IsZero() {
 		lastReduceMinutes = int(time.Since(at.gridState.LastTrappedReduceAt).Minutes())
@@ -2502,6 +2500,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		tTradeBuyPrice = at.gridState.TTradePrepPrice
 		tTradePendingReduce = at.gridState.TTradePendingReduceQty
 	}
+	at.gridState.mu.RUnlock()
 
 	return &kernel.TrappedPositionInfo{
 		IsTrapped:           isTrapped,
