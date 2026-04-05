@@ -1023,9 +1023,9 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 					ctx.CurrentPosition += size
 					if side, ok := pos["side"].(string); ok {
 						if side == "long" {
-							ctx.LongPosition = size
+							ctx.LongPosition += size
 						} else if side == "short" {
-							ctx.ShortPosition = size
+							ctx.ShortPosition += math.Abs(size)
 						}
 					}
 				}
