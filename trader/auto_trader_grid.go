@@ -1326,28 +1326,33 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		return fmt.Errorf("total position value $%.2f would exceed limit $%.2f", currentValue+orderValue, maxValue)
 	}
 
-	// Determine ReduceOnly: sell orders reduce existing long positions; buy orders reduce existing short positions
+	// Determine ReduceOnly and PositionSide based on actual exchange positions
 	reduceOnly := false
+	positionSide := ""
 	positions, posErr := at.trader.GetPositions()
 	if posErr == nil {
 		for _, pos := range positions {
 			if sym, ok := pos["symbol"].(string); ok && sym == d.Symbol {
 				posSize, _ := pos["positionAmt"].(float64)
 				posSide, _ := pos["side"].(string)
-				if side == "SELL" && posSide == "long" && posSize >= quantity {
+				absSize := math.Abs(posSize)
+				if side == "SELL" && posSide == "long" && absSize >= quantity {
 					reduceOnly = true
-				} else if side == "BUY" && posSide == "short" && posSize >= quantity {
+					positionSide = "LONG"
+				} else if side == "BUY" && posSide == "short" && absSize >= quantity {
 					reduceOnly = true
+					positionSide = "SHORT"
 				}
 			}
 		}
 	}
 
 	req := &LimitOrderRequest{
-		Symbol:     d.Symbol,
-		Side:       side,
-		Price:      d.Price,
-		Quantity:   quantity, // Use validated/capped quantity
+		Symbol:       d.Symbol,
+		Side:         side,
+		PositionSide: positionSide,
+		Price:        d.Price,
+		Quantity:     quantity, // Use validated/capped quantity
 		Leverage:   gridConfig.Leverage,
 		PostOnly:   gridConfig.UseMakerOnly,
 		ReduceOnly: reduceOnly,
