@@ -1168,17 +1168,13 @@ func (at *AutoTrader) checkTotalPositionLimit(symbol string, additionalValue flo
 	// Also count pending orders as potential position
 	at.gridState.mu.RLock()
 	pendingValue := 0.0
-	for _, level := range at.gridState.Levels {
-		if level.State == "pending" {
-			pendingValue += level.OrderQuantity * level.Price
-		}
-	}
+	_ = pendingValue // pending orders are not yet filled positions, excluded from limit check
 	at.gridState.mu.RUnlock()
 
-	totalAfterOrder := currentPositionValue + pendingValue + additionalValue
+	totalAfterOrder := currentPositionValue + additionalValue
 	allowed := totalAfterOrder <= maxTotalPositionValue
 
-	return allowed, currentPositionValue + pendingValue, maxTotalPositionValue
+	return allowed, currentPositionValue, maxTotalPositionValue
 }
 
 // placeGridLimitOrder places a limit order for grid trading

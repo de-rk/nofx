@@ -369,6 +369,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - **高波动市场** (谨慎): ATR异常放大, 价格剧烈波动
 %s
 ### 可执行的操作
+**重要：下单时 quantity 必须使用网格层级详情表中的「建议数量」字段，不要自行估算。**
 - place_buy_limit: 在指定价格下买入限价单（开多仓或补网格）
 - place_sell_limit: 在指定价格下卖出限价单（开空仓或补网格）
 - reduce_long: 平多仓/减多仓，price字段指定限价，quantity字段指定减仓数量
@@ -488,11 +489,16 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	sb.WriteString("\n")
 
 	sb.WriteString("## 网格层级详情\n")
-	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 订单数量 | 持仓数量 | 未实现盈亏 |\n")
-	sb.WriteString("|------|------|------|------|----------|----------|------------|\n")
+	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 分配USD | 建议数量 | 订单数量 | 持仓数量 | 未实现盈亏 |\n")
+	sb.WriteString("|------|------|------|------|---------|----------|----------|----------|------------|\n")
 	for _, level := range ctx.Levels {
-		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | %.4f | %.4f | $%.2f |\n",
-			level.Index, level.Price, level.State, level.Side, level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
+		suggestedQty := 0.0
+		if level.Price > 0 && level.AllocatedUSD > 0 {
+			suggestedQty = level.AllocatedUSD * float64(ctx.Leverage) / level.Price
+		}
+		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
+			level.Index, level.Price, level.State, level.Side, level.AllocatedUSD, suggestedQty,
+			level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
 	}
 	sb.WriteString("\n")
 
@@ -630,11 +636,16 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	sb.WriteString("\n")
 
 	sb.WriteString("## Grid Levels Detail\n")
-	sb.WriteString("| Level | Price | State | Side | Order Qty | Position | Unrealized PnL |\n")
-	sb.WriteString("|-------|-------|-------|------|-----------|----------|----------------|\n")
+	sb.WriteString("| Level | Price | State | Side | Allocated USD | Suggested Qty | Order Qty | Position | Unrealized PnL |\n")
+	sb.WriteString("|-------|-------|-------|------|---------------|---------------|-----------|----------|----------------|\n")
 	for _, level := range ctx.Levels {
-		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | %.4f | %.4f | $%.2f |\n",
-			level.Index, level.Price, level.State, level.Side, level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
+		suggestedQty := 0.0
+		if level.Price > 0 && level.AllocatedUSD > 0 {
+			suggestedQty = level.AllocatedUSD * float64(ctx.Leverage) / level.Price
+		}
+		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
+			level.Index, level.Price, level.State, level.Side, level.AllocatedUSD, suggestedQty,
+			level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
 	}
 	sb.WriteString("\n")
 
