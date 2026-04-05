@@ -106,6 +106,8 @@ type GridStrategyConfig struct {
 	TrappedReduceBatchPct float64 `json:"trapped_reduce_batch_pct"`
 	// Minimum interval between trapped reductions in minutes (default 30)
 	TrappedReduceIntervalMin int `json:"trapped_reduce_interval_min"`
+	// Minimum minutes between direction changes to prevent oscillation (default 30, 0 = disabled)
+	DirectionHysteresisMin int `json:"direction_hysteresis_min"`
 }
 
 // PromptSectionsConfig editable sections of System Prompt

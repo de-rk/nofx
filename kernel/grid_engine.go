@@ -291,53 +291,43 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 	if config.EnableTrappedReduce {
 		trappedSection = fmt.Sprintf(`
 ### 被套时的T字操作规则（分批减仓）
-当 trapped_info.is_trapped = true 时，你需要评估是否执行T字操作：
+当 trapped_info.is_trapped = true 时，系统支持双向T字操作：
 
 **多单被套（side=buy，价格下跌亏损）**：
-- 目标：让平均入场价越低越好，降低成本
-- T字顺序：先用 place_buy_limit 在**更低价**挂买单 → 再执行 reduce_position
-- 示例：原均价$100，价格跌到$95，先在$93挂买单，再减仓50%%，新均价降至$96.5
-- **直接减仓**：如不使用T字，可用 reduce_long 卖出平仓，价格应在**当前价或略高**争取更好价格（例如当前价$41.36，挂$41.40或$41.45）
+- T字顺序：用 place_buy_limit 在**更低价**挂买单 → 系统自动执行 reduce_long
+- 挂单价格：当前价下方 0.3~0.5 个ATR
+- 示例：原均价$100，价格跌到$95，在$93挂买单，系统成交后自动减仓50%%
 
 **空单被套（side=sell，价格上涨亏损）**：
-- ⚠️ **空单被套不适合T字操作**，因为在高价再次做空会增加风险
-- 建议：使用 reduce_short 在合理价格平仓减仓
-- **价格设置**：reduce_short 是买入平仓，应在**当前价或略低**争取更好价格（例如当前价$41.36，挂$41.30或$41.35）
-- 如果亏损严重（>%.1f%%），可以在当前价格附近挂 reduce_short 限价单逐步减仓
-
-**何时执行T字**：
-- **仅对多单被套**：损失超过单仓仓位的 %.1f%% 且价格仍在下跌趋势
-
-**T字操作策略**（仅适用于多单被套）：
+- T字顺序：用 place_sell_limit 在**更高价**挂卖单 → 系统自动执行 reduce_short
+- 挂单价格：当前价上方 0.3~0.5 个ATR
+- 示例：原均价$100，价格涨到$105，在$107挂卖单，系统成交后自动减仓50%%
 
 **关键规则**：
-- **仅对多单被套执行T字操作**
-- **空单被套直接减仓，不做T字**
-- trapped_info.side = "buy" → 多单被套 → place_buy_limit在低位
-- trapped_info.side = "sell" → 空单被套 → 直接减仓或等待
+- trapped_info.side = "buy" → 多单被套 → place_buy_limit 在低位（quantity = 建议数量）
+- trapped_info.side = "sell" → 空单被套 → place_sell_limit 在高位（quantity = 建议数量）
 - 挂单数量 = trapped_position_size × suggest_reduce_pct / 100
-- 本周期只挂单，下周期等待成交，系统自动执行reduce
+- 本周期只挂单，系统自动监控成交并执行reduce，无需手动操作
+- 如果 t_trade_phase = "waiting_buy_fill" 或 "waiting_sell_fill"，本轮**不要重复下单**
 
-**执行步骤**：
-1. 检查trapped_info.side确定被套方向
-2. 如果side="buy"（多单被套）：周期1挂place_buy_limit低位，周期2等待
-3. 如果side="sell"（空单被套）：直接输出hold或考虑减仓
-4. 成交后系统自动reduce，无需手动操作
+**何时执行T字**：
+- 损失超过 %.1f%% 且价格仍在不利方向运动
 
 **何时不执行**：
-- 损失 <<< %. %. %.1f%%
-- RSI极端值（<<<3330或>70）且有反转信号
-
-示例（空单被套，trapped_info.side="sell"）:
-[
-{"action": "reduce_short", "price": 41.30, "quantity": 7.5, "confidence": 75, "reasoning": "trapped_info.side=sell，空单被套亏损严重，使用reduce_short在41.30（略低于当前价41.36）挂限价单减仓10%"}
-]
+- 损失 < %.1f%%
+- RSI极端值（<30或>70）且有反转信号
+- t_trade_phase 不是 "idle"
 
 示例（多单被套，trapped_info.side="buy"）:
 [
-{"action": "place_buy_limit", "price": 93000, "quantity": 0.005, "reasoning": "trapped_info.side=buy，多单被套，低位93000挂买单"}
+{"action": "place_buy_limit", "price": 93000, "quantity": 0.005, "reasoning": "trapped_info.side=buy，多单被套，低位93000挂买单，系统自动reduce_long"}
 ]
-`, config.TrappedReduceThresholdPct, config.TrappedReduceBatchPct, config.TrappedReduceThresholdPct)
+
+示例（空单被套，trapped_info.side="sell"）:
+[
+{"action": "place_sell_limit", "price": 107000, "quantity": 0.005, "reasoning": "trapped_info.side=sell，空单被套，高位107000挂卖单，系统自动reduce_short"}
+]
+`, config.TrappedReduceThresholdPct, config.TrappedReduceThresholdPct)
 	}
 
 	return fmt.Sprintf(`# 你是一个专业的网格交易AI

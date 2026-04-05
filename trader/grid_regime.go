@@ -294,6 +294,12 @@ func shouldRecoverDirection(box *market.BoxData, currentDirection market.GridDir
 	}
 
 	price := box.CurrentPrice
-	// Check if price is back inside the short box
-	return price >= box.ShortLower && price <= box.ShortUpper
+	boxHeight := box.ShortUpper - box.ShortLower
+	if boxHeight <= 0 {
+		return false
+	}
+	// Require price to be at least 0.5% of box height inside the boundary
+	// to prevent flip-flopping at the exact breakout edge
+	depthThreshold := boxHeight * 0.005
+	return price >= box.ShortLower+depthThreshold && price <= box.ShortUpper-depthThreshold
 }
