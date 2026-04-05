@@ -2294,7 +2294,7 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 	// Clear the T-trade pending state first
 	at.gridState.mu.Lock()
 	reduceQty := at.gridState.TTradePendingReduceQty
-	prepSide := at.gridState.TTradePrepSide
+	prepSide = at.gridState.TTradePrepSide
 	at.gridState.TTradePrepOrderID = ""
 	at.gridState.TTradePrepPrice = 0
 	at.gridState.TTradePrepQty = 0
