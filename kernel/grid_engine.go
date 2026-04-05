@@ -20,10 +20,10 @@ type DecisionSummary struct {
 }
 
 // GetGridDecisions calls the AI client to get decisions for grid trading
-func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, config *store.GridStrategyConfig, lang string) (*FullDecision, error) {
+func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *store.StrategyConfig, lang string) (*FullDecision, error) {
 	startTime := time.Now()
 
-	systemPrompt := BuildGridSystemPrompt(config, lang)
+	systemPrompt := BuildGridSystemPrompt(strategyConfig, lang)
 	userPrompt := BuildGridUserPrompt(ctx, lang)
 
 	logger.Infof("🤖 [Grid] Calling AI for grid decisions...")
@@ -278,12 +278,19 @@ type TrappedPositionInfo struct {
 // ============================================================================
 
 // BuildGridSystemPrompt builds the system prompt for grid trading AI
-func BuildGridSystemPrompt(config *store.GridStrategyConfig, lang string) string {
+func BuildGridSystemPrompt(strategyConfig *store.StrategyConfig, lang string) string {
+	config := strategyConfig.GridConfig
+	var prompt string
 	if lang == "zh" {
-		return buildGridSystemPromptZh(config)
+		prompt = buildGridSystemPromptZh(config)
+	} else {
+		prompt = buildGridSystemPromptEn(config)
 	}
-
-	return buildGridSystemPromptEn(config)
+	// Append custom prompt from strategy config if set
+	if strategyConfig.CustomPrompt != "" {
+		prompt += "\n\n## 自定义策略补充\n" + strategyConfig.CustomPrompt
+	}
+	return prompt
 }
 
 func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
