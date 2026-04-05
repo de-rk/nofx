@@ -81,13 +81,14 @@ type GridState struct {
 
 	// T-trade state machine (T字操作状态机)
 	// Phase 1: place low buy order → Phase 2: wait for fill → Phase 3: execute reduce
-	TTradePrepOrderID       string    // order ID of the T-trade prep buy order (waiting for fill)
-	TTradePrepPrice         float64   // price of the T-trade buy order
-	TTradePrepQty           float64   // quantity of the T-trade buy order
-	TTradePrepPlacedAt      time.Time // when the T-trade buy was placed
+	TTradePrepOrderID      string    // order ID of the T-trade prep buy order (waiting for fill)
+	TTradePrepPrice        float64   // price of the T-trade buy order
+	TTradePrepQty          float64   // quantity of the T-trade buy order
+	TTradePrepPlacedAt     time.Time // when the T-trade buy was placed
 	TTradePendingReduceQty float64   // reduce qty deferred until T-trade buy fills (0 = none pending)
 	TTradeReduceOrderID    string    // order ID of the reduce limit order (after buy fills)
 	TTradePrepSide         string    // "buy" = long trapped prep, "sell" = short trapped prep
+	TTradePrepExecuted     bool      // true once deferred reduce has been dispatched (prevents double-execution)
 }
 
 // NewGridState creates a new grid state
@@ -1655,9 +1656,10 @@ func (at *AutoTrader) syncGridState() {
 					logger.Infof("[Grid] Level %d order filled at $%.2f", i, level.Price)
 
 					// Check if this was a T-trade prep order - if so, execute deferred reduce
-					if level.OrderID == at.gridState.TTradePrepOrderID && at.gridState.TTradePendingReduceQty > 0 {
+					if level.OrderID == at.gridState.TTradePrepOrderID && at.gridState.TTradePendingReduceQty > 0 && !at.gridState.TTradePrepExecuted {
 						reduceQty := at.gridState.TTradePendingReduceQty
 						prepSide := at.gridState.TTradePrepSide
+						at.gridState.TTradePrepExecuted = true
 						at.gridState.TTradePrepOrderID = ""
 						at.gridState.TTradePendingReduceQty = 0
 						at.gridState.TTradePrepSide = ""
@@ -2397,10 +2399,16 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce() {
 	logger.Infof("[Grid] ✅ T-trade buy order %s FILLED at price=%.2f qty=%.4f — NOW executing deferred reduce of %.4f",
 		pendingOrderID, buyPrice, buyQty, pendingReduceQty)
 
-	// Clear the T-trade pending state first
+	// Clear the T-trade pending state first, guard against double-execution
 	at.gridState.mu.Lock()
+	if at.gridState.TTradePrepExecuted {
+		at.gridState.mu.Unlock()
+		logger.Warnf("[Grid] T-trade reduce already executed for order %s, skipping duplicate", pendingOrderID)
+		return
+	}
 	reduceQty := at.gridState.TTradePendingReduceQty
 	prepSide = at.gridState.TTradePrepSide
+	at.gridState.TTradePrepExecuted = true
 	at.gridState.TTradePrepOrderID = ""
 	at.gridState.TTradePrepPrice = 0
 	at.gridState.TTradePrepQty = 0
