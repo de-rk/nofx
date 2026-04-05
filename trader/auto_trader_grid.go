@@ -1631,6 +1631,25 @@ func (at *AutoTrader) syncGridState() {
 		}
 	}
 
+	// Pre-fetch order status for disappeared pending orders (outside lock, network calls)
+	type orderFillInfo struct {
+		avgPrice float64
+		isFilled bool
+	}
+	fillInfoByOrderID := make(map[string]orderFillInfo)
+	at.gridState.mu.RLock()
+	for _, level := range at.gridState.Levels {
+		if level.State == "pending" && level.OrderID != "" && !activeOrderIDs[level.OrderID] {
+			status, err := at.trader.GetOrderStatus(gridConfig.Symbol, level.OrderID)
+			if err == nil {
+				s, _ := status["status"].(string)
+				avg, _ := status["avgPrice"].(float64)
+				fillInfoByOrderID[level.OrderID] = orderFillInfo{avgPrice: avg, isFilled: s == "FILLED"}
+			}
+		}
+	}
+	at.gridState.mu.RUnlock()
+
 	// Update levels based on order status
 	at.gridState.mu.Lock()
 	expectedPositionSize := 0.0
@@ -1644,16 +1663,21 @@ func (at *AutoTrader) syncGridState() {
 		level := &at.gridState.Levels[i]
 		if level.State == "pending" && level.OrderID != "" {
 			if !activeOrderIDs[level.OrderID] {
-				// Order no longer exists - check if position changed to determine fill vs cancel
-				// This is a heuristic - ideally we'd query order history
-				// If current position is larger than expected filled positions, this order was likely filled
-				if math.Abs(currentPositionSize) > math.Abs(expectedPositionSize) {
+				// Determine fill vs cancel: prefer GetOrderStatus result, fall back to position heuristic
+				info := fillInfoByOrderID[level.OrderID]
+				wasFilled := info.isFilled || math.Abs(currentPositionSize) > math.Abs(expectedPositionSize)
+				if wasFilled {
+					// Use actual fill price from exchange; fall back to level price if unavailable
+					entryPrice := info.avgPrice
+					if entryPrice <= 0 {
+						entryPrice = level.Price
+					}
 					// Position increased, likely filled
 					level.State = "filled"
-					level.PositionEntry = level.Price
+					level.PositionEntry = entryPrice
 					level.PositionSize = level.OrderQuantity
 					at.gridState.TotalTrades++
-					logger.Infof("[Grid] Level %d order filled at $%.2f", i, level.Price)
+					logger.Infof("[Grid] Level %d order filled at $%.2f (level=$%.2f)", i, entryPrice, level.Price)
 
 					// Check if this was a T-trade prep order - if so, execute deferred reduce
 					if level.OrderID == at.gridState.TTradePrepOrderID && at.gridState.TTradePendingReduceQty > 0 && !at.gridState.TTradePrepExecuted {
@@ -1665,7 +1689,7 @@ func (at *AutoTrader) syncGridState() {
 						at.gridState.TTradePrepSide = ""
 						at.gridState.mu.Unlock()
 						logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f) → executing deferred reduce (%.4f)",
-							level.OrderQuantity, level.Price, reduceQty)
+							level.OrderQuantity, entryPrice, reduceQty)
 						at.executeTrappedReduceSide(reduceQty, prepSide)
 						at.gridState.mu.Lock()
 					}
