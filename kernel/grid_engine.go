@@ -36,7 +36,7 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *
 
 	decisions, err := parseGridDecisions(response, ctx.Symbol)
 	if err != nil {
-		logger.Warnf("Failed to parse grid decisions: %v", err)
+		logger.Warnf("Failed to parse grid decisions: %v\nRaw response: %s", err, response)
 		decisions = []Decision{{
 			Symbol:     ctx.Symbol,
 			Action:     "hold",
