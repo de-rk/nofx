@@ -61,8 +61,11 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *
 	}, nil
 }
 
-// reTrailingQuote matches a stray quote after a number value: e.g. "price":36.75"
-var reTrailingQuote = regexp.MustCompile(`(\d)"(\s*[,}\]])`)
+// reTrailingQuoteNum matches a stray quote after a number value: e.g. "price":36.75"
+var reTrailingQuoteNum = regexp.MustCompile(`(\d)"(\s*[,}\]])`)
+
+// reTrailingQuoteStr matches a stray extra quote after a string value: e.g. "action":"hold""
+var reTrailingQuoteStr = regexp.MustCompile(`([^\\])""\s*([,}\]])`)
 
 // sanitizeGridJSON cleans common AI JSON formatting errors
 func sanitizeGridJSON(s string) string {
@@ -70,7 +73,9 @@ func sanitizeGridJSON(s string) string {
 	s = strings.ReplaceAll(s, "\u201c", "\"")
 	s = strings.ReplaceAll(s, "\u201d", "\"")
 	// Fix stray trailing quote after a number: 36.75" → 36.75
-	s = reTrailingQuote.ReplaceAllString(s, `$1$2`)
+	s = reTrailingQuoteNum.ReplaceAllString(s, `$1$2`)
+	// Fix double closing quote after string value: "hold"" → "hold"
+	s = reTrailingQuoteStr.ReplaceAllString(s, `$1"$2`)
 	return s
 }
 

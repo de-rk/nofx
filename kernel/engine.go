@@ -149,7 +149,7 @@ type Decision struct {
 	Side       string  `json:"side,omitempty"`        // Position side: "long" or "short" (for reduce_position)
 
 	// Common parameters
-	Confidence int     `json:"confidence,omitempty"` // Confidence level (0-100)
+	Confidence float64 `json:"confidence,omitempty"` // Confidence level (0-100 or 0.0-1.0)
 	RiskUSD    float64 `json:"risk_usd,omitempty"`   // Maximum USD risk
 	Reasoning  string  `json:"reasoning"`
 }

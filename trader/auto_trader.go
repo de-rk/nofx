@@ -753,7 +753,7 @@ func (at *AutoTrader) runCycle() error {
 			Price:      0,
 			StopLoss:   d.StopLoss,
 			TakeProfit: d.TakeProfit,
-			Confidence: d.Confidence,
+			Confidence: int(d.Confidence),
 			Reasoning:  d.Reasoning,
 			Timestamp:  time.Now().UTC(),
 			Success:    false,
@@ -1106,7 +1106,7 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 		Leverage:   d.Leverage,
 		StopLoss:   d.StopLoss,
 		TakeProfit: d.TakeProfit,
-		Confidence: d.Confidence,
+		Confidence: int(d.Confidence),
 		Reasoning:  d.Reasoning,
 	}
 
