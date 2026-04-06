@@ -171,17 +171,18 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 
 // GridLevelInfo represents a single grid level's current state
 type GridLevelInfo struct {
-	Index          int     `json:"index"`           // Level index (0 = lowest)
-	Price          float64 `json:"price"`           // Target price for this level
-	State          string  `json:"state"`           // "empty", "pending", "filled"
-	Side           string  `json:"side"`            // "buy" or "sell"
-	OrderID        string  `json:"order_id"`         // Current order ID (if pending)
-	OrderQuantity  float64 `json:"order_quantity"`   // Order quantity
-	PositionSize   float64 `json:"position_size"`   // Position size (if filled)
-	PositionEntry  float64 `json:"position_entry"`   // Entry price (if filled)
-	AllocatedUSD   float64 `json:"allocated_usd"`   // USD allocated to this level
-	UnrealizedPnL  float64 `json:"unrealized_pnl"`   // Unrealized P&L (if filled)
-	DistancePct    float64 `json:"distance_pct"`    // % distance from current price (+ = above, - = below)
+	Index          int       `json:"index"`           // Level index (0 = lowest)
+	Price          float64   `json:"price"`           // Target price for this level
+	State          string    `json:"state"`           // "empty", "pending", "filled"
+	Side           string    `json:"side"`            // "buy" or "sell"
+	OrderID        string    `json:"order_id"`         // Current order ID (if pending)
+	OrderQuantity  float64   `json:"order_quantity"`   // Order quantity
+	PositionSize   float64   `json:"position_size"`   // Position size (if filled)
+	PositionEntry  float64   `json:"position_entry"`   // Entry price (if filled)
+	AllocatedUSD   float64   `json:"allocated_usd"`   // USD allocated to this level
+	UnrealizedPnL  float64   `json:"unrealized_pnl"`   // Unrealized P&L (if filled)
+	DistancePct    float64   `json:"distance_pct"`    // % distance from current price (+ = above, - = below)
+	OrderPlacedAt  time.Time `json:"order_placed_at"` // When the current order was placed (for grace period)
 }
 
 // GridContext contains all information needed for AI grid decision making
@@ -334,6 +335,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - place_buy_limit：在买方空层开多仓
 - place_sell_limit：在卖方空层开空仓
 - **quantity 必须使用层级表中的「建议数量」，不要自行估算**
+- **state = "pending" 的层级已有挂单，不要重复下单**
 
 ### 仓位管理
 - reduce_long：平多仓/减多仓（限价单）
@@ -393,6 +395,7 @@ You are a bidirectional grid trading expert. Each cycle you must:
 - place_buy_limit: open long at an empty buy-side level
 - place_sell_limit: open short at an empty sell-side level
 - **quantity must use "Suggested Qty" from the level table — do not estimate**
+- **levels with state = "pending" already have an order — do NOT place another**
 
 ### Position Management
 - reduce_long: close/reduce long position (limit order)

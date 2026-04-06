@@ -1373,6 +1373,7 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		at.gridState.Levels[d.LevelIndex].State = "pending"
 		at.gridState.Levels[d.LevelIndex].OrderID = result.OrderID
 		at.gridState.Levels[d.LevelIndex].OrderQuantity = d.Quantity
+		at.gridState.Levels[d.LevelIndex].OrderPlacedAt = time.Now()
 		at.gridState.OrderBook[result.OrderID] = d.LevelIndex
 	}
 	// T-trade tagging is handled at reduce_position interception time.
@@ -1403,6 +1404,7 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 			at.gridState.Levels[levelIdx].State = "empty"
 			at.gridState.Levels[levelIdx].OrderID = ""
 			at.gridState.Levels[levelIdx].OrderQuantity = 0
+			at.gridState.Levels[levelIdx].OrderPlacedAt = time.Time{}
 		}
 		delete(at.gridState.OrderBook, d.OrderID)
 	}
@@ -1455,6 +1457,7 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 			at.gridState.Levels[i].State = "empty"
 			at.gridState.Levels[i].OrderID = ""
 			at.gridState.Levels[i].OrderQuantity = 0
+			at.gridState.Levels[i].OrderPlacedAt = time.Time{}
 		}
 	}
 	// Rebuild OrderBook, keeping T-trade order
@@ -1551,6 +1554,13 @@ func (at *AutoTrader) syncOpenOrdersFromExchange(openOrders []types.OpenOrder) {
 			continue
 		}
 		if !activeOrderIDs[level.OrderID] {
+			// Grace period: if order was placed very recently, exchange API may not reflect it yet.
+			// Skip marking empty for 30 seconds after placement to avoid false resets.
+			if !level.OrderPlacedAt.IsZero() && time.Since(level.OrderPlacedAt) < 30*time.Second {
+				logger.Debugf("[Grid] syncOpenOrders: level %d order %s not yet visible on exchange (placed %.0fs ago), skipping",
+					i, level.OrderID, time.Since(level.OrderPlacedAt).Seconds())
+				continue
+			}
 			// Order is gone from exchange — mark empty so AI knows to re-place it.
 			// Fill detection (position accounting) is handled separately in syncGridState.
 			logger.Infof("[Grid] syncOpenOrders: level %d order %s no longer open, marking empty",
@@ -1559,6 +1569,7 @@ func (at *AutoTrader) syncOpenOrdersFromExchange(openOrders []types.OpenOrder) {
 			level.State = "empty"
 			level.OrderID = ""
 			level.OrderQuantity = 0
+			level.OrderPlacedAt = time.Time{}
 		}
 	}
 
@@ -1711,6 +1722,7 @@ func (at *AutoTrader) syncGridState() {
 					level.State = "empty"
 					level.OrderID = ""
 					level.OrderQuantity = 0
+					level.OrderPlacedAt = time.Time{}
 					logger.Infof("[Grid] Level %d order cancelled/expired", i)
 				}
 				delete(at.gridState.OrderBook, level.OrderID)
