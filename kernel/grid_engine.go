@@ -368,16 +368,22 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 %s
 ### 可执行的操作
 **重要：下单时 quantity 必须使用网格层级详情表中的「建议数量」字段，不要自行估算。**
-- place_buy_limit: 在指定价格下买入限价单（开多仓或补网格）
-- place_sell_limit: 在指定价格下卖出限价单（开空仓或补网格）
-- reduce_long: 平多仓/减多仓，price字段指定限价，quantity字段指定减仓数量
-- reduce_short: 平空仓/减空仓，price字段指定限价，quantity字段指定减仓数量
+- place_buy_limit: 在指定价格下**开多仓**（补买方网格层级）
+- place_sell_limit: 在指定价格下**开空仓**（补卖方网格层级）
+- reduce_long: **平多仓/减多仓**（限价单），用于止盈或减少多头敞口
+- reduce_short: **平空仓/减空仓**（限价单），用于止盈或减少空头敞口
 - cancel_order: 取消指定订单
 - cancel_all_orders: 取消所有订单
 - pause_grid: 暂停网格交易（趋势市场时）
 - resume_grid: 恢复网格交易（震荡市场时）
 - adjust_grid: 调整网格边界
-- hold: 保持当前状态%s
+- hold: 保持当前状态
+
+### 操作选择规则（重要）
+- **补网格空层** → place_buy_limit（买方层级）或 place_sell_limit（卖方层级）
+- **想减少多头敞口/平多止盈** → reduce_long，**不要用 place_sell_limit**
+- **想减少空头敞口/平空止盈** → reduce_short，**不要用 place_buy_limit**
+- place_buy_limit 和 place_sell_limit **只用于补空的网格层级**，不用于主动平仓%s
 
 ## 输出格式
 输出JSON数组，每个决策包含:
