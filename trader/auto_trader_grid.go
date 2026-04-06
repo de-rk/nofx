@@ -1774,7 +1774,7 @@ func (at *AutoTrader) saveGridDecisionRecord(decision *kernel.FullDecision) {
 				Price:      d.Price,
 				StopLoss:   d.StopLoss,
 				TakeProfit: d.TakeProfit,
-				Confidence: d.Confidence,
+				Confidence: int(d.Confidence),
 				Reasoning:  d.Reasoning,
 				Timestamp:  time.Now().UTC(),
 				Success:    true, // Grid decisions are executed inline

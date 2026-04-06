@@ -1024,7 +1024,7 @@ func (e *DebateEngine) ExecuteConsensus(sessionID string, executor TraderExecuto
 		PositionSizeUSD: positionSizeUSD,
 		StopLoss:        stopLossPrice,
 		TakeProfit:      takeProfitPrice,
-		Confidence:      session.FinalDecision.Confidence,
+		Confidence:      float64(session.FinalDecision.Confidence),
 		Reasoning:       fmt.Sprintf("Debate consensus: %s", session.FinalDecision.Reasoning),
 	}
 
