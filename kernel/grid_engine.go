@@ -7,6 +7,7 @@ import (
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/store"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -60,12 +61,27 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *
 	}, nil
 }
 
+// reTrailingQuote matches a stray quote after a number value: e.g. "price":36.75"
+var reTrailingQuote = regexp.MustCompile(`(\d)"(\s*[,}\]])`)
+
+// sanitizeGridJSON cleans common AI JSON formatting errors
+func sanitizeGridJSON(s string) string {
+	// Fix curly/smart quotes
+	s = strings.ReplaceAll(s, "\u201c", "\"")
+	s = strings.ReplaceAll(s, "\u201d", "\"")
+	// Fix stray trailing quote after a number: 36.75" → 36.75
+	s = reTrailingQuote.ReplaceAllString(s, `$1$2`)
+	return s
+}
+
 // parseGridDecisions parses AI response into grid decisions
 func parseGridDecisions(response string, symbol string) ([]Decision, error) {
 	jsonStr := extractJSONArray(response)
 	if jsonStr == "" {
 		return nil, fmt.Errorf("no JSON array found in response")
 	}
+
+	jsonStr = sanitizeGridJSON(jsonStr)
 
 	var decisions []Decision
 	if err := json.Unmarshal([]byte(jsonStr), &decisions); err != nil {
