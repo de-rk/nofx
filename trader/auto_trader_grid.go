@@ -1018,11 +1018,16 @@ func (at *AutoTrader) checkProfitReduce() {
 		sides[posSide] = &sideInfo{size: size, entryPrice: entry, markPrice: mark, side: posSide}
 	}
 
+	gridTrader, ok := at.trader.(GridTrader)
+	if !ok {
+		gridTrader = NewGridTraderAdapter(at.trader)
+	}
+
 	at.gridState.mu.Lock()
 	defer at.gridState.mu.Unlock()
 
 	for _, info := range sides {
-		if info.entryPrice == 0 {
+		if info.entryPrice == 0 || info.markPrice == 0 {
 			continue
 		}
 
@@ -1034,7 +1039,6 @@ func (at *AutoTrader) checkProfitReduce() {
 		}
 
 		if profitPct <= 0 {
-			// Reset tracker when profit drops back to 0
 			if info.side == "long" {
 				at.gridState.LongProfitReducedPct = 0
 			} else {
@@ -1045,25 +1049,31 @@ func (at *AutoTrader) checkProfitReduce() {
 
 		positionValue := info.size * info.markPrice
 
+		orderSide := "SELL"
+		posSide := "LONG"
+		if info.side == "short" {
+			orderSide = "BUY"
+			posSide = "SHORT"
+		}
+
+		placeReduce := func(qty float64) error {
+			_, err := gridTrader.PlaceLimitOrder(&LimitOrderRequest{
+				Symbol:       symbol,
+				Side:         orderSide,
+				PositionSide: posSide,
+				Price:        info.markPrice,
+				Quantity:     qty,
+				Leverage:     gridConfig.Leverage,
+				ReduceOnly:   true,
+			})
+			return err
+		}
+
 		// Close entirely if profit > 12% and position value < 100 USD
 		if profitPct > 12 && positionValue < 100 {
 			logger.Infof("[Grid] Profit-reduce: closing entire %s position (profit=%.2f%%, value=$%.2f)",
 				info.side, profitPct, positionValue)
-			reduceOrderSide := "SELL"
-			posSide := "LONG"
-			if info.side == "short" {
-				reduceOrderSide = "BUY"
-				posSide = "SHORT"
-			}
-			_, err := at.trader.PlaceOrder(types.Order{
-				Symbol:       symbol,
-				Side:         reduceOrderSide,
-				Type:         "MARKET",
-				Quantity:     info.size,
-				ReduceOnly:   true,
-				PositionSide: posSide,
-			})
-			if err != nil {
+			if err := placeReduce(info.size); err != nil {
 				logger.Warnf("[Grid] Profit-reduce close %s failed: %v", info.side, err)
 			} else {
 				if info.side == "long" {
@@ -1094,21 +1104,7 @@ func (at *AutoTrader) checkProfitReduce() {
 		logger.Infof("[Grid] Profit-reduce: %s profit=%.2f%% → reducing %.4f (%.0f%% steps)",
 			info.side, profitPct, reduceQty, reduceSteps*10)
 
-		reduceOrderSide := "SELL"
-		posSide := "LONG"
-		if info.side == "short" {
-			reduceOrderSide = "BUY"
-			posSide = "SHORT"
-		}
-		_, err := at.trader.PlaceOrder(types.Order{
-			Symbol:       symbol,
-			Side:         reduceOrderSide,
-			Type:         "MARKET",
-			Quantity:     reduceQty,
-			ReduceOnly:   true,
-			PositionSide: posSide,
-		})
-		if err != nil {
+		if err := placeReduce(reduceQty); err != nil {
 			logger.Warnf("[Grid] Profit-reduce %s failed: %v", info.side, err)
 		} else {
 			if info.side == "long" {
