@@ -1023,69 +1023,40 @@ func (at *AutoTrader) checkProfitReduce() {
 		gridTrader = NewGridTraderAdapter(at.trader)
 	}
 
-	at.gridState.mu.Lock()
-	defer at.gridState.mu.Unlock()
+	// Compute what actions to take (read lock only)
+	type reduceAction struct {
+		info            sideInfo
+		qty             float64
+		closeAll        bool
+		targetReducePct float64
+	}
+	var actions []reduceAction
 
+	at.gridState.mu.RLock()
 	for _, info := range sides {
 		if info.entryPrice == 0 || info.markPrice == 0 {
 			continue
 		}
-
 		var profitPct float64
 		if info.side == "long" {
 			profitPct = (info.markPrice - info.entryPrice) / info.entryPrice * 100
 		} else {
 			profitPct = (info.entryPrice - info.markPrice) / info.entryPrice * 100
 		}
+		logger.Infof("[Grid] Profit-reduce check: %s entry=%.4f mark=%.4f profit=%.2f%%",
+			info.side, info.entryPrice, info.markPrice, profitPct)
 
 		if profitPct <= 0 {
-			if info.side == "long" {
-				at.gridState.LongProfitReducedPct = 0
-			} else {
-				at.gridState.ShortProfitReducedPct = 0
-			}
+			actions = append(actions, reduceAction{info: *info, qty: 0, closeAll: false, targetReducePct: -1})
 			continue
 		}
 
 		positionValue := info.size * info.markPrice
-
-		orderSide := "SELL"
-		posSide := "LONG"
-		if info.side == "short" {
-			orderSide = "BUY"
-			posSide = "SHORT"
-		}
-
-		placeReduce := func(qty float64) error {
-			_, err := gridTrader.PlaceLimitOrder(&LimitOrderRequest{
-				Symbol:       symbol,
-				Side:         orderSide,
-				PositionSide: posSide,
-				Price:        info.markPrice,
-				Quantity:     qty,
-				Leverage:     gridConfig.Leverage,
-				ReduceOnly:   true,
-			})
-			return err
-		}
-
-		// Close entirely if profit > 12% and position value < 100 USD
 		if profitPct > 12 && positionValue < 100 {
-			logger.Infof("[Grid] Profit-reduce: closing entire %s position (profit=%.2f%%, value=$%.2f)",
-				info.side, profitPct, positionValue)
-			if err := placeReduce(info.size); err != nil {
-				logger.Warnf("[Grid] Profit-reduce close %s failed: %v", info.side, err)
-			} else {
-				if info.side == "long" {
-					at.gridState.LongProfitReducedPct = 0
-				} else {
-					at.gridState.ShortProfitReducedPct = 0
-				}
-			}
+			actions = append(actions, reduceAction{info: *info, qty: info.size, closeAll: true})
 			continue
 		}
 
-		// Every 10% profit increment → reduce 10%
 		alreadyReduced := at.gridState.LongProfitReducedPct
 		if info.side == "short" {
 			alreadyReduced = at.gridState.ShortProfitReducedPct
@@ -1094,25 +1065,71 @@ func (at *AutoTrader) checkProfitReduce() {
 		if targetReducePct <= alreadyReduced {
 			continue
 		}
-
 		reduceSteps := (targetReducePct - alreadyReduced) / 10
 		reduceQty := info.size * (reduceSteps * 0.10)
-		if reduceQty <= 0 {
+		if reduceQty > 0 {
+			actions = append(actions, reduceAction{info: *info, qty: reduceQty, targetReducePct: targetReducePct})
+		}
+	}
+	at.gridState.mu.RUnlock()
+
+	// Execute orders outside the lock
+	for _, a := range actions {
+		info := a.info
+		if a.targetReducePct == -1 {
+			// Reset tracker
+			at.gridState.mu.Lock()
+			if info.side == "long" {
+				at.gridState.LongProfitReducedPct = 0
+			} else {
+				at.gridState.ShortProfitReducedPct = 0
+			}
+			at.gridState.mu.Unlock()
 			continue
 		}
 
-		logger.Infof("[Grid] Profit-reduce: %s profit=%.2f%% → reducing %.4f (%.0f%% steps)",
-			info.side, profitPct, reduceQty, reduceSteps*10)
+		orderSide := "SELL"
+		posSide := "LONG"
+		if info.side == "short" {
+			orderSide = "BUY"
+			posSide = "SHORT"
+		}
 
-		if err := placeReduce(reduceQty); err != nil {
+		if a.closeAll {
+			logger.Infof("[Grid] Profit-reduce: closing entire %s position (value=$%.2f)", info.side, info.size*info.markPrice)
+		} else {
+			logger.Infof("[Grid] Profit-reduce: %s reducing %.4f (target=%.0f%%)", info.side, a.qty, a.targetReducePct)
+		}
+
+		_, err := gridTrader.PlaceLimitOrder(&LimitOrderRequest{
+			Symbol:       symbol,
+			Side:         orderSide,
+			PositionSide: posSide,
+			Price:        info.markPrice,
+			Quantity:     a.qty,
+			Leverage:     gridConfig.Leverage,
+			ReduceOnly:   true,
+		})
+		if err != nil {
 			logger.Warnf("[Grid] Profit-reduce %s failed: %v", info.side, err)
+			continue
+		}
+
+		at.gridState.mu.Lock()
+		if a.closeAll {
+			if info.side == "long" {
+				at.gridState.LongProfitReducedPct = 0
+			} else {
+				at.gridState.ShortProfitReducedPct = 0
+			}
 		} else {
 			if info.side == "long" {
-				at.gridState.LongProfitReducedPct = targetReducePct
+				at.gridState.LongProfitReducedPct = a.targetReducePct
 			} else {
-				at.gridState.ShortProfitReducedPct = targetReducePct
+				at.gridState.ShortProfitReducedPct = a.targetReducePct
 			}
 		}
+		at.gridState.mu.Unlock()
 	}
 }
 
