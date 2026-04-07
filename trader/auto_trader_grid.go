@@ -989,10 +989,11 @@ func (at *AutoTrader) checkProfitReduce() {
 	}
 
 	type sideInfo struct {
-		size       float64
-		entryPrice float64
-		markPrice  float64
-		side       string // "long" or "short"
+		size            float64
+		entryPrice      float64
+		markPrice       float64
+		unrealizedProfit float64
+		side            string // "long" or "short"
 	}
 
 	sides := map[string]*sideInfo{}
@@ -1015,7 +1016,8 @@ func (at *AutoTrader) checkProfitReduce() {
 		if mark == 0 {
 			mark = entry
 		}
-		sides[posSide] = &sideInfo{size: size, entryPrice: entry, markPrice: mark, side: posSide}
+		upl, _ := pos["unRealizedProfit"].(float64)
+		sides[posSide] = &sideInfo{size: size, entryPrice: entry, markPrice: mark, unrealizedProfit: upl, side: posSide}
 	}
 
 	gridTrader, ok := at.trader.(GridTrader)
@@ -1037,14 +1039,14 @@ func (at *AutoTrader) checkProfitReduce() {
 		if info.entryPrice == 0 || info.markPrice == 0 {
 			continue
 		}
-		var profitPct float64
-		if info.side == "long" {
-			profitPct = (info.markPrice - info.entryPrice) / info.entryPrice * 100
-		} else {
-			profitPct = (info.entryPrice - info.markPrice) / info.entryPrice * 100
+		// Margin-based profit: unrealizedProfit / (positionValue / leverage)
+		margin := info.size * info.entryPrice / float64(gridConfig.Leverage)
+		if margin == 0 {
+			continue
 		}
-		logger.Infof("[Grid] Profit-reduce check: %s entry=%.4f mark=%.4f profit=%.2f%%",
-			info.side, info.entryPrice, info.markPrice, profitPct)
+		profitPct := info.unrealizedProfit / margin * 100
+		logger.Infof("[Grid] Profit-reduce check: %s entry=%.4f mark=%.4f upl=%.2f margin=%.2f profit=%.2f%%",
+			info.side, info.entryPrice, info.markPrice, info.unrealizedProfit, margin, profitPct)
 
 		if profitPct <= 0 {
 			actions = append(actions, reduceAction{info: *info, qty: 0, closeAll: false, targetReducePct: -1})
