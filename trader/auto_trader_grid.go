@@ -90,6 +90,10 @@ type GridState struct {
 	TTradeReducePlacedAt   time.Time // when the reduce order was placed (for timeout)
 	TTradePrepSide         string    // "buy" = long trapped prep, "sell" = short trapped prep
 	TTradePrepExecuted     bool      // true once deferred reduce has been dispatched (prevents double-execution)
+
+	// Profit-based reduce tracking (per side)
+	LongProfitReducedPct  float64 // cumulative % already reduced for long (multiples of 10)
+	ShortProfitReducedPct float64 // cumulative % already reduced for short (multiples of 10)
 }
 
 // NewGridState creates a new grid state
@@ -900,6 +904,9 @@ func (at *AutoTrader) RunGridCycle() error {
 		at.checkTTradeReduceOrderStatus(openOrders)
 	}
 
+	// Check profit-based position reduction
+	at.checkProfitReduce()
+
 	// Sync open orders from exchange BEFORE building context so AI sees accurate state
 	at.syncOpenOrdersFromExchange(openOrders)
 
@@ -967,6 +974,150 @@ func (at *AutoTrader) RunGridCycle() error {
 	at.saveGridDecisionRecord(decision)
 
 	return nil
+}
+
+// checkProfitReduce checks per-side unrealized profit and reduces position accordingly:
+// - Every 10% profit increment → reduce 10% of current position
+// - If profit > 12% AND position value < 100 USD → close entire side
+func (at *AutoTrader) checkProfitReduce() {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	symbol := gridConfig.Symbol
+
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return
+	}
+
+	type sideInfo struct {
+		size       float64
+		entryPrice float64
+		markPrice  float64
+		side       string // "long" or "short"
+	}
+
+	sides := map[string]*sideInfo{}
+	for _, pos := range positions {
+		sym, _ := pos["symbol"].(string)
+		if sym != symbol {
+			continue
+		}
+		posSide, _ := pos["side"].(string)
+		if posSide != "long" && posSide != "short" {
+			continue
+		}
+		rawSize, _ := pos["positionAmt"].(float64)
+		size := math.Abs(rawSize)
+		if size == 0 {
+			continue
+		}
+		entry, _ := pos["entryPrice"].(float64)
+		mark, _ := pos["markPrice"].(float64)
+		if mark == 0 {
+			mark = entry
+		}
+		sides[posSide] = &sideInfo{size: size, entryPrice: entry, markPrice: mark, side: posSide}
+	}
+
+	at.gridState.mu.Lock()
+	defer at.gridState.mu.Unlock()
+
+	for _, info := range sides {
+		if info.entryPrice == 0 {
+			continue
+		}
+
+		var profitPct float64
+		if info.side == "long" {
+			profitPct = (info.markPrice - info.entryPrice) / info.entryPrice * 100
+		} else {
+			profitPct = (info.entryPrice - info.markPrice) / info.entryPrice * 100
+		}
+
+		if profitPct <= 0 {
+			// Reset tracker when profit drops back to 0
+			if info.side == "long" {
+				at.gridState.LongProfitReducedPct = 0
+			} else {
+				at.gridState.ShortProfitReducedPct = 0
+			}
+			continue
+		}
+
+		positionValue := info.size * info.markPrice
+
+		// Close entirely if profit > 12% and position value < 100 USD
+		if profitPct > 12 && positionValue < 100 {
+			logger.Infof("[Grid] Profit-reduce: closing entire %s position (profit=%.2f%%, value=$%.2f)",
+				info.side, profitPct, positionValue)
+			reduceOrderSide := "SELL"
+			posSide := "LONG"
+			if info.side == "short" {
+				reduceOrderSide = "BUY"
+				posSide = "SHORT"
+			}
+			_, err := at.trader.PlaceOrder(types.Order{
+				Symbol:       symbol,
+				Side:         reduceOrderSide,
+				Type:         "MARKET",
+				Quantity:     info.size,
+				ReduceOnly:   true,
+				PositionSide: posSide,
+			})
+			if err != nil {
+				logger.Warnf("[Grid] Profit-reduce close %s failed: %v", info.side, err)
+			} else {
+				if info.side == "long" {
+					at.gridState.LongProfitReducedPct = 0
+				} else {
+					at.gridState.ShortProfitReducedPct = 0
+				}
+			}
+			continue
+		}
+
+		// Every 10% profit increment → reduce 10%
+		alreadyReduced := at.gridState.LongProfitReducedPct
+		if info.side == "short" {
+			alreadyReduced = at.gridState.ShortProfitReducedPct
+		}
+		targetReducePct := math.Floor(profitPct/10) * 10
+		if targetReducePct <= alreadyReduced {
+			continue
+		}
+
+		reduceSteps := (targetReducePct - alreadyReduced) / 10
+		reduceQty := info.size * (reduceSteps * 0.10)
+		if reduceQty <= 0 {
+			continue
+		}
+
+		logger.Infof("[Grid] Profit-reduce: %s profit=%.2f%% → reducing %.4f (%.0f%% steps)",
+			info.side, profitPct, reduceQty, reduceSteps*10)
+
+		reduceOrderSide := "SELL"
+		posSide := "LONG"
+		if info.side == "short" {
+			reduceOrderSide = "BUY"
+			posSide = "SHORT"
+		}
+		_, err := at.trader.PlaceOrder(types.Order{
+			Symbol:       symbol,
+			Side:         reduceOrderSide,
+			Type:         "MARKET",
+			Quantity:     reduceQty,
+			ReduceOnly:   true,
+			PositionSide: posSide,
+		})
+		if err != nil {
+			logger.Warnf("[Grid] Profit-reduce %s failed: %v", info.side, err)
+		} else {
+			if info.side == "long" {
+				at.gridState.LongProfitReducedPct = targetReducePct
+			} else {
+				at.gridState.ShortProfitReducedPct = targetReducePct
+			}
+		}
+	}
 }
 
 // buildGridContext builds the context for AI grid decisions
