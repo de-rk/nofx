@@ -1067,8 +1067,16 @@ func (at *AutoTrader) checkProfitReduce() {
 		if targetReducePct <= alreadyReduced {
 			continue
 		}
-		reduceSteps := (targetReducePct - alreadyReduced) / 10
-		reduceQty := info.size * (reduceSteps * 0.10)
+		// Escalating reduce: at each 10% step, reduce that step's % of current size
+		// Step 1 (10%→20%): reduce 10%, Step 2 (20%→30%): reduce 20%, etc.
+		var reduceQty float64
+		for step := alreadyReduced + 10; step <= targetReducePct; step += 10 {
+			stepPct := step / 10 * 0.10 // step=10→10%, step=20→20%, step=30→30%...
+			reduceQty += info.size * stepPct
+		}
+		if reduceQty > info.size {
+			reduceQty = info.size
+		}
 		if reduceQty > 0 {
 			actions = append(actions, reduceAction{info: *info, qty: reduceQty, targetReducePct: targetReducePct})
 		}
