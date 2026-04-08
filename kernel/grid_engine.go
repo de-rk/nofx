@@ -49,6 +49,16 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *
 	logger.Infof("⏱️ [Grid] AI call duration: %d ms, decisions: %d", duration, len(decisions))
 
 	cotTrace := extractCoTTrace(response)
+	// Fallback: if no CoT prefix, build trace from each decision's reasoning field
+	if cotTrace == "" && len(decisions) > 0 {
+		var sb strings.Builder
+		for _, d := range decisions {
+			if d.Reasoning != "" {
+				sb.WriteString(fmt.Sprintf("[%s] %s\n\n", d.Action, d.Reasoning))
+			}
+		}
+		cotTrace = strings.TrimSpace(sb.String())
+	}
 
 	return &FullDecision{
 		SystemPrompt:        systemPrompt,

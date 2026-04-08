@@ -1843,7 +1843,8 @@ func extractCoTTrace(response string) string {
 		return strings.TrimSpace(response[:jsonStart])
 	}
 
-	return strings.TrimSpace(response)
+	// JSON starts at position 0 — no CoT prefix, use the reasoning fields from decisions
+	return ""
 }
 
 func extractDecisions(response string) ([]Decision, error) {
