@@ -1811,6 +1811,8 @@ func (at *AutoTrader) syncGridState() {
 	// Get current positions to verify fills
 	positions, err := at.trader.GetPositions()
 	currentPositionSize := 0.0
+	actualLongSize := 0.0
+	actualShortSize := 0.0
 	if err != nil {
 		logger.Warnf("[Grid] Failed to get positions for state sync: %v", err)
 	} else {
@@ -1818,6 +1820,14 @@ func (at *AutoTrader) syncGridState() {
 			if sym, ok := pos["symbol"].(string); ok && sym == gridConfig.Symbol {
 				if size, ok := pos["positionAmt"].(float64); ok {
 					currentPositionSize = size
+				}
+				side, _ := pos["side"].(string)
+				rawSize, _ := pos["positionAmt"].(float64)
+				absSize := math.Abs(rawSize)
+				if side == "long" {
+					actualLongSize = absSize
+				} else if side == "short" {
+					actualShortSize = absSize
 				}
 			}
 		}
@@ -1905,6 +1915,68 @@ func (at *AutoTrader) syncGridState() {
 			}
 		}
 	}
+
+	// Reconcile filled levels against actual exchange positions.
+	// If actual long/short size is less than what filled levels claim,
+	// reduce level PositionSize proportionally (handles reduce_long/reduce_short fills).
+	if actualLongSize >= 0 || actualShortSize >= 0 {
+		expectedLong := 0.0
+		expectedShort := 0.0
+		for _, level := range at.gridState.Levels {
+			if level.State == "filled" {
+				if level.Side == "buy" {
+					expectedLong += level.PositionSize
+				} else {
+					expectedShort += level.PositionSize
+				}
+			}
+		}
+
+		if expectedLong > 0 && actualLongSize < expectedLong-0.001 {
+			ratio := actualLongSize / expectedLong
+			logger.Infof("[Grid] Reconcile long: expected=%.4f actual=%.4f ratio=%.4f — scaling down filled levels",
+				expectedLong, actualLongSize, ratio)
+			for i := range at.gridState.Levels {
+				level := &at.gridState.Levels[i]
+				if level.State == "filled" && level.Side == "buy" {
+					newSize := level.PositionSize * ratio
+					if newSize < 0.001 {
+						level.State = "empty"
+						level.PositionSize = 0
+						level.PositionEntry = 0
+						level.OrderID = ""
+						level.OrderQuantity = 0
+						level.OrderPlacedAt = time.Time{}
+					} else {
+						level.PositionSize = newSize
+					}
+				}
+			}
+		}
+
+		if expectedShort > 0 && actualShortSize < expectedShort-0.001 {
+			ratio := actualShortSize / expectedShort
+			logger.Infof("[Grid] Reconcile short: expected=%.4f actual=%.4f ratio=%.4f — scaling down filled levels",
+				expectedShort, actualShortSize, ratio)
+			for i := range at.gridState.Levels {
+				level := &at.gridState.Levels[i]
+				if level.State == "filled" && level.Side == "sell" {
+					newSize := level.PositionSize * ratio
+					if newSize < 0.001 {
+						level.State = "empty"
+						level.PositionSize = 0
+						level.PositionEntry = 0
+						level.OrderID = ""
+						level.OrderQuantity = 0
+						level.OrderPlacedAt = time.Time{}
+					} else {
+						level.PositionSize = newSize
+					}
+				}
+			}
+		}
+	}
+
 	at.gridState.mu.Unlock()
 
 	logger.Debugf("[Grid] Synced state: position=%.4f, orders=%d", currentPositionSize, len(openOrders))
