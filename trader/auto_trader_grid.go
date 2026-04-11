@@ -900,6 +900,7 @@ func (at *AutoTrader) RunGridCycle() error {
 
 	// Check if T-trade buy order has filled → execute deferred reduce if so
 	if gridConfig.EnableTrappedReduce {
+		at.autoTagTTradeFromExistingOrders(openOrders) // auto-tag nearest grid order as T-trade prep
 		at.checkTTradeOrderFillAndReduce(openOrders)
 		at.checkTTradeReduceOrderStatus(openOrders)
 	}
@@ -1241,58 +1242,10 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		if err := at.placeGridLimitOrder(d, "BUY"); err != nil {
 			return err
 		}
-		// Tag as T-trade prep if long trapped and no existing prep
-		if ctx != nil && ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped &&
-			ctx.TrappedInfo.Side == "buy" {
-			at.gridState.mu.RLock()
-			noPrepPending := at.gridState.TTradePrepOrderID == ""
-			var orderID string
-			if d.LevelIndex >= 0 && d.LevelIndex < len(at.gridState.Levels) {
-				orderID = at.gridState.Levels[d.LevelIndex].OrderID
-			}
-			at.gridState.mu.RUnlock()
-			if noPrepPending && orderID != "" {
-				reduceQty := ctx.TrappedInfo.TrappedPositionSize * ctx.TrappedInfo.SuggestReducePct / 100
-				at.gridState.mu.Lock()
-				at.gridState.TTradePrepOrderID = orderID
-				at.gridState.TTradePrepPrice = d.Price
-				at.gridState.TTradePrepQty = d.Quantity
-				at.gridState.TTradePrepPlacedAt = time.Now()
-				at.gridState.TTradePendingReduceQty = reduceQty
-				at.gridState.TTradePrepSide = "buy"
-				at.gridState.mu.Unlock()
-				logger.Infof("[Grid] ✅ T-trade prep tagged (LONG): orderID=%s price=%.2f pendingReduce=%.4f",
-					orderID, d.Price, reduceQty)
-			}
-		}
 		return nil
 	case "place_sell_limit":
 		if err := at.placeGridLimitOrder(d, "SELL"); err != nil {
 			return err
-		}
-		// Tag as T-trade prep if short trapped and no existing prep
-		if ctx != nil && ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped &&
-			ctx.TrappedInfo.Side == "sell" {
-			at.gridState.mu.RLock()
-			noPrepPending := at.gridState.TTradePrepOrderID == ""
-			var orderID string
-			if d.LevelIndex >= 0 && d.LevelIndex < len(at.gridState.Levels) {
-				orderID = at.gridState.Levels[d.LevelIndex].OrderID
-			}
-			at.gridState.mu.RUnlock()
-			if noPrepPending && orderID != "" {
-				reduceQty := ctx.TrappedInfo.TrappedPositionSize * ctx.TrappedInfo.SuggestReducePct / 100
-				at.gridState.mu.Lock()
-				at.gridState.TTradePrepOrderID = orderID
-				at.gridState.TTradePrepPrice = d.Price
-				at.gridState.TTradePrepQty = d.Quantity
-				at.gridState.TTradePrepPlacedAt = time.Now()
-				at.gridState.TTradePendingReduceQty = reduceQty
-				at.gridState.TTradePrepSide = "sell"
-				at.gridState.mu.Unlock()
-				logger.Infof("[Grid] ✅ T-trade prep tagged (SHORT): orderID=%s price=%.2f pendingReduce=%.4f",
-					orderID, d.Price, reduceQty)
-			}
 		}
 		return nil
 	case "cancel_order":
@@ -2590,6 +2543,105 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 // checkTTradeOrderFillAndReduce checks if the pending T-trade buy order has been filled.
 // This is called every cycle BEFORE AI decisions.
 // Flow: placeGridLimitOrder (buy) → [wait here each cycle] → fill confirmed → executeTrappedReduce
+// autoTagTTradeFromExistingOrders automatically tags the nearest existing grid order as T-trade prep.
+// Long trapped → find nearest pending sell order (closest above current price)
+// Short trapped → find nearest pending buy order (closest below current price)
+// When that order fills naturally, we reduce the trapped position by batchPct.
+func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrder) {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	if !gridConfig.EnableTrappedReduce {
+		return
+	}
+
+	// Skip if T-trade already pending
+	at.gridState.mu.RLock()
+	alreadyPending := at.gridState.TTradePrepOrderID != ""
+	at.gridState.mu.RUnlock()
+	if alreadyPending {
+		return
+	}
+
+	// Check interval
+	intervalMin := gridConfig.TrappedReduceIntervalMin
+	if intervalMin <= 0 {
+		intervalMin = 60
+	}
+	at.gridState.mu.RLock()
+	lastReduce := at.gridState.LastTrappedReduceAt
+	at.gridState.mu.RUnlock()
+	if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
+		return
+	}
+
+	// Build trapped info
+	ctx, err := at.buildGridContext()
+	if err != nil || ctx == nil || ctx.TrappedInfo == nil || !ctx.TrappedInfo.IsTrapped {
+		return
+	}
+	trapped := ctx.TrappedInfo
+
+	batchPct := gridConfig.TrappedReduceBatchPct
+	if batchPct <= 0 {
+		batchPct = 10.0
+	}
+	reduceQty := trapped.TrappedPositionSize * batchPct / 100
+
+	currentPrice := ctx.CurrentPrice
+
+	// Find nearest pending grid order on the appropriate side
+	// Long trapped → nearest pending sell order (above current price, will add new short — use for reduce_long after fill)
+	// Short trapped → nearest pending buy order (below current price, will add new long — use for reduce_short after fill)
+	at.gridState.mu.RLock()
+	var bestOrderID string
+	var bestPrice float64
+	var bestSide string
+
+	for _, level := range at.gridState.Levels {
+		if level.State != "pending" || level.OrderID == "" {
+			continue
+		}
+		if trapped.Side == "buy" && level.Side == "sell" {
+			// Long trapped: nearest sell above current price
+			if level.Price > currentPrice {
+				if bestOrderID == "" || level.Price < bestPrice {
+					bestOrderID = level.OrderID
+					bestPrice = level.Price
+					bestSide = "buy"
+				}
+			}
+		} else if trapped.Side == "sell" && level.Side == "buy" {
+			// Short trapped: nearest buy below current price
+			if level.Price < currentPrice {
+				if bestOrderID == "" || level.Price > bestPrice {
+					bestOrderID = level.OrderID
+					bestPrice = level.Price
+					bestSide = "sell"
+				}
+			}
+		}
+	}
+	at.gridState.mu.RUnlock()
+
+	if bestOrderID == "" {
+		logger.Infof("[Grid] T-trade: trapped (%s, loss=%.2f%%) but no suitable pending grid order found",
+			trapped.Side, trapped.LossPct)
+		return
+	}
+
+	at.gridState.mu.Lock()
+	at.gridState.TTradePrepOrderID = bestOrderID
+	at.gridState.TTradePrepPrice = bestPrice
+	at.gridState.TTradePrepQty = reduceQty
+	at.gridState.TTradePrepPlacedAt = time.Now()
+	at.gridState.TTradePendingReduceQty = reduceQty
+	at.gridState.TTradePrepSide = bestSide
+	at.gridState.TTradePrepExecuted = false
+	at.gridState.mu.Unlock()
+
+	logger.Infof("[Grid] ✅ T-trade auto-tagged: %s trapped (loss=%.2f%%) → watching order %s @ %.2f, will reduce %.4f on fill",
+		trapped.Side, trapped.LossPct, bestOrderID, bestPrice, reduceQty)
+}
+
 func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
@@ -2610,17 +2662,12 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 		return
 	}
 
-	// Check if order has timed out (e.g. > 4 hours unfilled) — cancel and clear state
+	// Check if order has timed out — just clear T-trade state, do NOT cancel
+	// (the order is a real grid order, cancelling it would break the grid)
 	maxWait := 4 * time.Hour
 	if !placedAt.IsZero() && time.Since(placedAt) > maxWait {
-		logger.Warnf("[Grid] ⚠️ T-trade buy order %s timed out after %.0f min (price=%.2f qty=%.4f). Cancelling and clearing.",
-			pendingOrderID, time.Since(placedAt).Minutes(), buyPrice, buyQty)
-		// Try to cancel the stale order (if trader supports it)
-		if canceler, ok := at.trader.(interface {
-			CancelOrder(symbol, orderID string) error
-		}); ok {
-			canceler.CancelOrder(gridConfig.Symbol, pendingOrderID)
-		}
+		logger.Warnf("[Grid] ⚠️ T-trade order %s timed out after %.0f min — clearing T-trade state (order kept alive).",
+			pendingOrderID, time.Since(placedAt).Minutes())
 		at.gridState.mu.Lock()
 		at.gridState.TTradePrepOrderID = ""
 		at.gridState.TTradePrepPrice = 0

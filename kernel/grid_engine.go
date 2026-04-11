@@ -331,13 +331,9 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 	if config.EnableTrappedReduce {
 		trappedSection = fmt.Sprintf(`
 ## 被套减仓（T字操作）
-当 trapped_info.is_trapped = true 且 t_trade_phase = "idle" 时，执行T字操作：
-- 多单被套（side=buy）→ place_buy_limit 在当前价下方 0.3~0.5 ATR 挂买单
-- 空单被套（side=sell）→ place_sell_limit 在当前价上方 0.3~0.5 ATR 挂卖单
-- 数量 = trapped_position_size × suggest_reduce_pct / 100
-- 挂单后系统自动监控成交并执行减仓，本周期无需其他操作
-- t_trade_phase 不是 "idle" 时，**不要重复下单**
-- 触发条件：损失超过 %.1f%%
+系统已自动处理T字操作：当损失超过 %.1f%% 时，系统会自动监控最近的网格挂单，成交后自动减仓。
+**你无需下 place_buy_limit / place_sell_limit 来触发T字操作，也不要重复下单。**
+当 t_trade_phase ≠ "idle" 时，T字操作已在进行中，忽略被套信号。
 `, config.TrappedReduceThresholdPct)
 	}
 
@@ -391,13 +387,9 @@ func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
 	if config.EnableTrappedReduce {
 		trappedSection = fmt.Sprintf(`
 ## Trapped Position Recovery (T-Trade)
-When trapped_info.is_trapped = true and t_trade_phase = "idle":
-- Long trapped (side=buy) → place_buy_limit 0.3~0.5 ATR below current price
-- Short trapped (side=sell) → place_sell_limit 0.3~0.5 ATR above current price
-- Quantity = trapped_position_size × suggest_reduce_pct / 100
-- Place the order only — system auto-executes the reduce after fill
-- If t_trade_phase ≠ "idle": **do NOT place another order**
-- Trigger: loss exceeds %.1f%%
+The system handles T-trade automatically: when loss exceeds %.1f%%, the system watches the nearest pending grid order and reduces the trapped position after it fills.
+**Do NOT place place_buy_limit / place_sell_limit to trigger T-trade — the system does this automatically.**
+When t_trade_phase ≠ "idle", T-trade is already in progress — ignore the trapped signal.
 `, config.TrappedReduceThresholdPct)
 	}
 
