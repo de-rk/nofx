@@ -302,6 +302,7 @@ type TrappedPositionInfo struct {
 	// T-trade state (T字状态)
 	TTradePhase          string  `json:"t_trade_phase"`           // "idle" | "waiting_buy_fill" | "ready_to_reduce"
 	TTradeReadySide      string  `json:"t_trade_ready_side"`      // "buy"=reduce_long, "sell"=reduce_short (when ready_to_reduce)
+	TTradeReadyPrepPrice float64 `json:"t_trade_ready_prep_price"` // fill price of prep order (reduce must be better)
 	TTradeBuyOrderID     string  `json:"t_trade_buy_order_id"`     // pending T-trade buy order ID (if waiting)
 	TTradeBuyPrice       float64 `json:"t_trade_buy_price"`        // price of pending T-trade buy
 	TTradePendingReduce  float64 `json:"t_trade_pending_reduce"`   // qty waiting to be reduced after buy fills
@@ -585,12 +586,16 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		case "ready_to_reduce":
 			action := "reduce_long"
 			desc := "多单"
+			priceHint := "低于"
 			if t.TTradeReadySide == "sell" {
 				action = "reduce_short"
 				desc = "空单"
+				priceHint = "高于"
 			}
-			sb.WriteString(fmt.Sprintf("- **🟢 T字状态: 准备减仓** — 挂单已成交，现在请执行 %s 减仓 %.4f（%s），选择当前价附近合理的限价\n",
-				action, t.TTradePendingReduce, desc))
+			sb.WriteString(fmt.Sprintf("- **🟢 T字状态: 准备减仓** — 网格挂单已成交（价格=%.2f），现在请执行 %s 减仓 %.4f（%s）\n",
+				t.TTradeReadyPrepPrice, action, t.TTradePendingReduce, desc))
+			sb.WriteString(fmt.Sprintf("- ⚡ 减仓限价必须**%s %.2f**（比成交价更优），才能实现T字套利效果\n",
+				priceHint, t.TTradeReadyPrepPrice))
 		default:
 			sb.WriteString("- T字状态: 空闲\n")
 		}
@@ -735,12 +740,16 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		case "ready_to_reduce":
 			action := "reduce_long"
 			desc := "long"
+			priceHint := "below"
 			if t.TTradeReadySide == "sell" {
 				action = "reduce_short"
 				desc = "short"
+				priceHint = "above"
 			}
-			sb.WriteString(fmt.Sprintf("- **🟢 T-Trade State: READY TO REDUCE** — prep order filled, now place %s for %.4f (%s position) at a favorable limit price near current price\n",
-				action, t.TTradePendingReduce, desc))
+			sb.WriteString(fmt.Sprintf("- **🟢 T-Trade State: READY TO REDUCE** — prep order filled at %.2f, now place %s for %.4f (%s position)\n",
+				t.TTradeReadyPrepPrice, action, t.TTradePendingReduce, desc))
+			sb.WriteString(fmt.Sprintf("- ⚡ Reduce limit price MUST be **%s %.2f** (better than prep fill price) to realize T-trade profit\n",
+				priceHint, t.TTradeReadyPrepPrice))
 		default:
 			sb.WriteString("- T-Trade State: IDLE\n")
 		}

@@ -99,6 +99,7 @@ type GridState struct {
 	TTradeReadyToReduce     bool    // true = prep filled, AI should now place reduce order
 	TTradeReadyReduceQty    float64 // qty to reduce
 	TTradeReadyReduceSide   string  // "buy" (was long trapped) or "sell" (was short trapped)
+	TTradeReadyPrepPrice    float64 // fill price of the prep order (reduce price must be better than this)
 }
 
 // NewGridState creates a new grid state
@@ -1317,6 +1318,7 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 				at.gridState.TTradeReadyToReduce = false
 				at.gridState.TTradeReadyReduceQty = 0
 				at.gridState.TTradeReadyReduceSide = ""
+				at.gridState.TTradeReadyPrepPrice = 0
 				at.gridState.mu.Unlock()
 			}
 			return err
@@ -1360,6 +1362,7 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 				at.gridState.TTradeReadyToReduce = false
 				at.gridState.TTradeReadyReduceQty = 0
 				at.gridState.TTradeReadyReduceSide = ""
+				at.gridState.TTradeReadyPrepPrice = 0
 				at.gridState.mu.Unlock()
 			}
 			return err
@@ -2739,10 +2742,10 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 	at.gridState.mu.RUnlock()
 
 	if !filled {
-		// Order disappeared but level not marked filled yet — it may be cancelled
-		// Check via exchange position: if position grew, it was likely filled
-		// As a safe fallback: clear the pending state without reducing
-		logger.Warnf("[Grid] T-trade buy order %s disappeared but level not filled — likely cancelled. Clearing T-trade state without reducing.",
+		// Order disappeared but level not filled — was cancelled (user or system)
+		// Clear T-trade state WITHOUT updating LastTrappedReduceAt so re-tagging
+		// happens immediately on the next cycle
+		logger.Warnf("[Grid] T-trade prep order %s was cancelled — clearing state, will re-tag next cycle",
 			pendingOrderID)
 		at.gridState.mu.Lock()
 		at.gridState.TTradePrepOrderID = ""
@@ -2751,6 +2754,7 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 		at.gridState.TTradePrepPlacedAt = time.Time{}
 		at.gridState.TTradePendingReduceQty = 0
 		at.gridState.TTradePrepSide = ""
+		at.gridState.TTradePrepExecuted = false
 		at.gridState.mu.Unlock()
 		return
 	}
@@ -2778,6 +2782,7 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 	at.gridState.TTradeReadyToReduce = true
 	at.gridState.TTradeReadyReduceQty = reduceQty
 	at.gridState.TTradeReadyReduceSide = prepSide
+	at.gridState.TTradeReadyPrepPrice = buyPrice // AI must place reduce at a better price than this
 	at.gridState.mu.Unlock()
 }
 
@@ -2980,6 +2985,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		tTradePendingReduce = at.gridState.TTradePendingReduceQty
 	}
 	tTradeReadySide := at.gridState.TTradeReadyReduceSide
+	tTradeReadyPrepPrice := at.gridState.TTradeReadyPrepPrice
 	at.gridState.mu.RUnlock()
 
 	return &kernel.TrappedPositionInfo{
@@ -2997,6 +3003,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		LastReduceMinutes:   lastReduceMinutes,
 		TTradePhase:         tTradePhase,
 		TTradeReadySide:     tTradeReadySide,
+		TTradeReadyPrepPrice: tTradeReadyPrepPrice,
 		TTradeBuyOrderID:    tTradeBuyOrderID,
 		TTradeBuyPrice:      tTradeBuyPrice,
 		TTradePendingReduce: tTradePendingReduce,
