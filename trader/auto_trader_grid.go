@@ -100,6 +100,11 @@ type GridState struct {
 	TTradeReadyReduceQty    float64 // qty to reduce
 	TTradeReadyReduceSide   string  // "buy" (was long trapped) or "sell" (was short trapped)
 	TTradeReadyPrepPrice    float64 // fill price of the prep order (reduce price must be better than this)
+
+	// T-trade placed reduce order tracking (for cancel detection and re-place)
+	TTradeReduceQty   float64 // qty of the placed reduce order (for re-place on cancel)
+	TTradeReducePrice float64 // price of the placed reduce order (for re-place on cancel)
+	TTradeReduceSide  string  // "sell" (reduce_long) or "buy" (reduce_short)
 }
 
 // NewGridState creates a new grid state
@@ -1281,10 +1286,15 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		}
 		return err
 	case "reduce_long":
-		// Skip interval check if T-trade ready (act immediately)
+		// Block if a reduce order is already pending (waiting to fill or cancel)
 		at.gridState.mu.RLock()
+		pendingReduceID := at.gridState.TTradeReduceOrderID
 		tTradeReady := at.gridState.TTradeReadyToReduce
 		at.gridState.mu.RUnlock()
+		if pendingReduceID != "" {
+			logger.Infof("[Grid] reduce_long skipped: reduce order %s already pending", pendingReduceID)
+			return nil
+		}
 		if !tTradeReady {
 			intervalMin := at.config.StrategyConfig.GridConfig.TrappedReduceIntervalMin
 			if intervalMin <= 0 {
@@ -1303,7 +1313,7 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		// Close long position with sell limit order
 		logger.Infof("[Grid] AI decision: reduce_long qty=%.4f price=%.2f reason=%s", d.Quantity, d.Price, d.Reasoning)
 		if gridTrader, ok := at.trader.(GridTrader); ok {
-			_, err := gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
+			result, err := gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
 				Symbol:       d.Symbol,
 				Side:         "sell",
 				PositionSide: "LONG",
@@ -1315,21 +1325,30 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			if err == nil {
 				at.gridState.mu.Lock()
 				at.gridState.LastTrappedReduceAt = time.Now()
-				at.gridState.TTradeReadyToReduce = false
-				at.gridState.TTradeReadyReduceQty = 0
-				at.gridState.TTradeReadyReduceSide = ""
-				at.gridState.TTradeReadyPrepPrice = 0
+				// Track reduce order; keep TTradeReadyToReduce=true until fill confirmed
+				if result != nil {
+					at.gridState.TTradeReduceOrderID = result.OrderID
+					at.gridState.TTradeReducePlacedAt = time.Now()
+					at.gridState.TTradeReduceQty = d.Quantity
+					at.gridState.TTradeReducePrice = d.Price
+					at.gridState.TTradeReduceSide = "sell"
+				}
 				at.gridState.mu.Unlock()
 			}
 			return err
 		}
 		return fmt.Errorf("trader does not support limit orders")
 	case "reduce_short":
-		// Skip interval check if T-trade ready (act immediately)
+		// Block if a reduce order is already pending (waiting to fill or cancel)
 		at.gridState.mu.RLock()
-		tTradeReady := at.gridState.TTradeReadyToReduce
+		pendingReduceID2 := at.gridState.TTradeReduceOrderID
+		tTradeReady2 := at.gridState.TTradeReadyToReduce
 		at.gridState.mu.RUnlock()
-		if !tTradeReady {
+		if pendingReduceID2 != "" {
+			logger.Infof("[Grid] reduce_short skipped: reduce order %s already pending", pendingReduceID2)
+			return nil
+		}
+		if !tTradeReady2 {
 			intervalMin := at.config.StrategyConfig.GridConfig.TrappedReduceIntervalMin
 			if intervalMin <= 0 {
 				intervalMin = 30
@@ -1347,7 +1366,7 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		// Close short position with buy limit order
 		logger.Infof("[Grid] AI decision: reduce_short qty=%.4f price=%.2f reason=%s", d.Quantity, d.Price, d.Reasoning)
 		if gridTrader, ok := at.trader.(GridTrader); ok {
-			_, err := gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
+			result, err := gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
 				Symbol:       d.Symbol,
 				Side:         "buy",
 				PositionSide: "SHORT",
@@ -1359,10 +1378,14 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			if err == nil {
 				at.gridState.mu.Lock()
 				at.gridState.LastTrappedReduceAt = time.Now()
-				at.gridState.TTradeReadyToReduce = false
-				at.gridState.TTradeReadyReduceQty = 0
-				at.gridState.TTradeReadyReduceSide = ""
-				at.gridState.TTradeReadyPrepPrice = 0
+				// Track reduce order; keep TTradeReadyToReduce=true until fill confirmed
+				if result != nil {
+					at.gridState.TTradeReduceOrderID = result.OrderID
+					at.gridState.TTradeReducePlacedAt = time.Now()
+					at.gridState.TTradeReduceQty = d.Quantity
+					at.gridState.TTradeReducePrice = d.Price
+					at.gridState.TTradeReduceSide = "buy"
+				}
 				at.gridState.mu.Unlock()
 			}
 			return err
@@ -2815,6 +2838,10 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 		at.gridState.mu.Lock()
 		at.gridState.TTradeReduceOrderID = ""
 		at.gridState.TTradeReducePlacedAt = time.Time{}
+		at.gridState.TTradeReduceQty = 0
+		at.gridState.TTradeReducePrice = 0
+		at.gridState.TTradeReduceSide = ""
+		// Keep TTradeReadyToReduce=true so AI re-places at fresh price next cycle
 		at.gridState.mu.Unlock()
 		return
 	}
@@ -2837,12 +2864,29 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 	}
 
 	if !stillOpen {
-		// Reduce order was cancelled or filled, clear it
+		// Distinguish fill vs cancel via GetOrderStatus
+		status, err := at.trader.GetOrderStatus(gridConfig.Symbol, reduceOrderID)
 		at.gridState.mu.Lock()
+		if err == nil && (status == "CANCELED" || status == "EXPIRED") {
+			// Order was cancelled -- re-arm TTradeReadyToReduce so AI replaces it next cycle
+			logger.Warnf("[Grid] T-trade reduce order %s was cancelled (status=%s) -- will re-place next cycle",
+				reduceOrderID, status)
+			at.gridState.TTradeReadyToReduce = true
+			at.gridState.TTradeReadyReduceQty = at.gridState.TTradeReduceQty
+		} else {
+			// Filled (or unknown) -- clear all T-trade state
+			logger.Infof("[Grid] T-trade reduce order %s filled (status=%s) -- clearing T-trade state", reduceOrderID, status)
+			at.gridState.TTradeReadyToReduce = false
+			at.gridState.TTradeReadyReduceQty = 0
+			at.gridState.TTradeReadyReduceSide = ""
+			at.gridState.TTradeReadyPrepPrice = 0
+			at.gridState.TTradeReduceQty = 0
+			at.gridState.TTradeReducePrice = 0
+			at.gridState.TTradeReduceSide = ""
+		}
 		at.gridState.TTradeReduceOrderID = ""
 		at.gridState.TTradeReducePlacedAt = time.Time{}
 		at.gridState.mu.Unlock()
-		logger.Infof("[Grid] T-trade reduce order %s no longer open (filled or cancelled)", reduceOrderID)
 	}
 }
 
