@@ -1289,7 +1289,6 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		// Block if a reduce order is already pending (waiting to fill or cancel)
 		at.gridState.mu.RLock()
 		pendingReduceID := at.gridState.TTradeReduceOrderID
-		tTradeReady := at.gridState.TTradeReadyToReduce
 		at.gridState.mu.RUnlock()
 		if pendingReduceID != "" {
 			logger.Infof("[Grid] reduce_long skipped: reduce order %s already pending", pendingReduceID)
@@ -1328,7 +1327,6 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		// Block if a reduce order is already pending (waiting to fill or cancel)
 		at.gridState.mu.RLock()
 		pendingReduceID2 := at.gridState.TTradeReduceOrderID
-		tTradeReady2 := at.gridState.TTradeReadyToReduce
 		at.gridState.mu.RUnlock()
 		if pendingReduceID2 != "" {
 			logger.Infof("[Grid] reduce_short skipped: reduce order %s already pending", pendingReduceID2)
@@ -2655,7 +2653,6 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 	pendingOrderID := at.gridState.TTradePrepOrderID
 	pendingReduceQty := at.gridState.TTradePendingReduceQty
 	buyPrice := at.gridState.TTradePrepPrice
-	buyQty := at.gridState.TTradePrepQty
 	placedAt := at.gridState.TTradePrepPlacedAt
 	prepSide := at.gridState.TTradePrepSide
 	at.gridState.mu.RUnlock()
@@ -2821,17 +2818,18 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 
 	if !stillOpen {
 		// Distinguish fill vs cancel via GetOrderStatus
-		status, err := at.trader.GetOrderStatus(gridConfig.Symbol, reduceOrderID)
+		statusMap, err := at.trader.GetOrderStatus(gridConfig.Symbol, reduceOrderID)
+		statusStr, _ := statusMap["status"].(string)
 		at.gridState.mu.Lock()
-		if err == nil && (status == "CANCELED" || status == "EXPIRED") {
+		if err == nil && (statusStr == "CANCELED" || statusStr == "EXPIRED") {
 			// Order was cancelled -- re-arm TTradeReadyToReduce so AI replaces it next cycle
 			logger.Warnf("[Grid] T-trade reduce order %s was cancelled (status=%s) -- will re-place next cycle",
-				reduceOrderID, status)
+				reduceOrderID, statusStr)
 			at.gridState.TTradeReadyToReduce = true
 			at.gridState.TTradeReadyReduceQty = at.gridState.TTradeReduceQty
 		} else {
 			// Filled (or unknown) -- clear all T-trade state
-			logger.Infof("[Grid] T-trade reduce order %s filled (status=%s) -- clearing T-trade state", reduceOrderID, status)
+			logger.Infof("[Grid] T-trade reduce order %s filled (status=%s) -- clearing T-trade state", reduceOrderID, statusStr)
 			at.gridState.TTradeReadyToReduce = false
 			at.gridState.TTradeReadyReduceQty = 0
 			at.gridState.TTradeReadyReduceSide = ""
@@ -3268,8 +3266,12 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 		}
 	}
 
-	// If quantity not specified, calculate from batch percentage
+	// If quantity not specified, use full trapped position size
 	if quantity <= 0 {
+		totalSize := 0.0
+		for _, l := range losses {
+			totalSize += l.size
+		}
 		quantity = totalSize
 	}
 
