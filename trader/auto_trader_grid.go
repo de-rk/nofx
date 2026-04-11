@@ -94,6 +94,11 @@ type GridState struct {
 	// Profit-based reduce tracking (per side)
 	LongProfitReducedPct  float64 // cumulative % already reduced for long (multiples of 10)
 	ShortProfitReducedPct float64 // cumulative % already reduced for short (multiples of 10)
+
+	// T-trade ready-to-reduce state (set after prep order fills, cleared after AI reduce order placed)
+	TTradeReadyToReduce     bool    // true = prep filled, AI should now place reduce order
+	TTradeReadyReduceQty    float64 // qty to reduce
+	TTradeReadyReduceSide   string  // "buy" (was long trapped) or "sell" (was short trapped)
 }
 
 // NewGridState creates a new grid state
@@ -1275,18 +1280,23 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		}
 		return err
 	case "reduce_long":
-		// Check reduce interval
-		intervalMin := at.config.StrategyConfig.GridConfig.TrappedReduceIntervalMin
-		if intervalMin <= 0 {
-			intervalMin = 30
-		}
+		// Skip interval check if T-trade ready (act immediately)
 		at.gridState.mu.RLock()
-		lastReduce := at.gridState.LastTrappedReduceAt
+		tTradeReady := at.gridState.TTradeReadyToReduce
 		at.gridState.mu.RUnlock()
-		if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
-			logger.Infof("[Grid] reduce_long skipped: last reduction was %.0f min ago (min interval: %d min)",
-				time.Since(lastReduce).Minutes(), intervalMin)
-			return nil
+		if !tTradeReady {
+			intervalMin := at.config.StrategyConfig.GridConfig.TrappedReduceIntervalMin
+			if intervalMin <= 0 {
+				intervalMin = 30
+			}
+			at.gridState.mu.RLock()
+			lastReduce := at.gridState.LastTrappedReduceAt
+			at.gridState.mu.RUnlock()
+			if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
+				logger.Infof("[Grid] reduce_long skipped: last reduction was %.0f min ago (min interval: %d min)",
+					time.Since(lastReduce).Minutes(), intervalMin)
+				return nil
+			}
 		}
 
 		// Close long position with sell limit order
@@ -1304,24 +1314,32 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			if err == nil {
 				at.gridState.mu.Lock()
 				at.gridState.LastTrappedReduceAt = time.Now()
+				at.gridState.TTradeReadyToReduce = false
+				at.gridState.TTradeReadyReduceQty = 0
+				at.gridState.TTradeReadyReduceSide = ""
 				at.gridState.mu.Unlock()
 			}
 			return err
 		}
 		return fmt.Errorf("trader does not support limit orders")
 	case "reduce_short":
-		// Check reduce interval
-		intervalMin := at.config.StrategyConfig.GridConfig.TrappedReduceIntervalMin
-		if intervalMin <= 0 {
-			intervalMin = 30
-		}
+		// Skip interval check if T-trade ready (act immediately)
 		at.gridState.mu.RLock()
-		lastReduce := at.gridState.LastTrappedReduceAt
+		tTradeReady := at.gridState.TTradeReadyToReduce
 		at.gridState.mu.RUnlock()
-		if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
-			logger.Infof("[Grid] reduce_short skipped: last reduction was %.0f min ago (min interval: %d min)",
-				time.Since(lastReduce).Minutes(), intervalMin)
-			return nil
+		if !tTradeReady {
+			intervalMin := at.config.StrategyConfig.GridConfig.TrappedReduceIntervalMin
+			if intervalMin <= 0 {
+				intervalMin = 30
+			}
+			at.gridState.mu.RLock()
+			lastReduce := at.gridState.LastTrappedReduceAt
+			at.gridState.mu.RUnlock()
+			if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
+				logger.Infof("[Grid] reduce_short skipped: last reduction was %.0f min ago (min interval: %d min)",
+					time.Since(lastReduce).Minutes(), intervalMin)
+				return nil
+			}
 		}
 
 		// Close short position with buy limit order
@@ -1339,6 +1357,9 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			if err == nil {
 				at.gridState.mu.Lock()
 				at.gridState.LastTrappedReduceAt = time.Now()
+				at.gridState.TTradeReadyToReduce = false
+				at.gridState.TTradeReadyReduceQty = 0
+				at.gridState.TTradeReadyReduceSide = ""
 				at.gridState.mu.Unlock()
 			}
 			return err
@@ -2734,11 +2755,10 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 		return
 	}
 
-	// ✅ T-trade buy order is CONFIRMED FILLED — now safe to execute the reduce
-	logger.Infof("[Grid] ✅ T-trade buy order %s FILLED at price=%.2f qty=%.4f — NOW executing deferred reduce of %.4f",
-		pendingOrderID, buyPrice, buyQty, pendingReduceQty)
+	// ✅ T-trade prep order is CONFIRMED FILLED — signal AI to place reduce order
+	logger.Infof("[Grid] ✅ T-trade prep order %s FILLED @ %.2f — setting ready_to_reduce (qty=%.4f side=%s)",
+		pendingOrderID, buyPrice, pendingReduceQty, prepSide)
 
-	// Clear the T-trade pending state first, guard against double-execution
 	at.gridState.mu.Lock()
 	if at.gridState.TTradePrepExecuted {
 		at.gridState.mu.Unlock()
@@ -2754,12 +2774,11 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 	at.gridState.TTradePrepPlacedAt = time.Time{}
 	at.gridState.TTradePendingReduceQty = 0
 	at.gridState.TTradePrepSide = ""
+	// Signal AI to place reduce order next cycle
+	at.gridState.TTradeReadyToReduce = true
+	at.gridState.TTradeReadyReduceQty = reduceQty
+	at.gridState.TTradeReadyReduceSide = prepSide
 	at.gridState.mu.Unlock()
-
-	// Execute the deferred reduce (side-aware)
-	if err := at.executeTrappedReduceSide(reduceQty, prepSide); err != nil {
-		logger.Errorf("[Grid] T-trade deferred reduce failed: %v", err)
-	}
 }
 
 // checkTTradeReduceOrderStatus checks if reduce order was cancelled and retries
@@ -2951,12 +2970,16 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 	tTradeBuyOrderID := ""
 	tTradeBuyPrice := 0.0
 	tTradePendingReduce := 0.0
-	if at.gridState.TTradePrepOrderID != "" {
+	if at.gridState.TTradeReadyToReduce {
+		tTradePhase = "ready_to_reduce"
+		tTradePendingReduce = at.gridState.TTradeReadyReduceQty
+	} else if at.gridState.TTradePrepOrderID != "" {
 		tTradePhase = "waiting_buy_fill"
 		tTradeBuyOrderID = at.gridState.TTradePrepOrderID
 		tTradeBuyPrice = at.gridState.TTradePrepPrice
 		tTradePendingReduce = at.gridState.TTradePendingReduceQty
 	}
+	tTradeReadySide := at.gridState.TTradeReadyReduceSide
 	at.gridState.mu.RUnlock()
 
 	return &kernel.TrappedPositionInfo{
@@ -2973,6 +2996,7 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		SuggestReducePct:    suggestReducePct,
 		LastReduceMinutes:   lastReduceMinutes,
 		TTradePhase:         tTradePhase,
+		TTradeReadySide:     tTradeReadySide,
 		TTradeBuyOrderID:    tTradeBuyOrderID,
 		TTradeBuyPrice:      tTradeBuyPrice,
 		TTradePendingReduce: tTradePendingReduce,

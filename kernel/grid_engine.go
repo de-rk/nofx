@@ -301,6 +301,7 @@ type TrappedPositionInfo struct {
 	LastReduceMinutes    int     `json:"last_reduce_minutes"`    // minutes since last reduction (-1 = never)
 	// T-trade state (T字状态)
 	TTradePhase          string  `json:"t_trade_phase"`           // "idle" | "waiting_buy_fill" | "ready_to_reduce"
+	TTradeReadySide      string  `json:"t_trade_ready_side"`      // "buy"=reduce_long, "sell"=reduce_short (when ready_to_reduce)
 	TTradeBuyOrderID     string  `json:"t_trade_buy_order_id"`     // pending T-trade buy order ID (if waiting)
 	TTradeBuyPrice       float64 `json:"t_trade_buy_price"`        // price of pending T-trade buy
 	TTradePendingReduce  float64 `json:"t_trade_pending_reduce"`   // qty waiting to be reduced after buy fills
@@ -580,14 +581,18 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 			}
 			sb.WriteString(fmt.Sprintf("- **T字状态: 等待%s成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
 				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ **系统正在等待T字挂单成交后自动执行减仓，本轮请勿重复下单或 reduce_position**\n")
-		default:
-			sb.WriteString("- T字状态: 空闲 (可执行T字操作)\n")
-			if t.Side == "sell" {
-				sb.WriteString("**⚡ 空单被套建议：使用 reduce_short 在当前价格附近挂限价单逐步减仓（不建议T字操作）**\n")
-			} else {
-				sb.WriteString("**⚡ 多单被套T字提示：先用 place_buy_limit 在【低位】挂买单，再执行 reduce_position 减仓（降低平均入场价）**\n")
+			sb.WriteString("- ⛔ **T字挂单尚未成交，本轮请勿重复下单**\n")
+		case "ready_to_reduce":
+			action := "reduce_long"
+			desc := "多单"
+			if t.TTradeReadySide == "sell" {
+				action = "reduce_short"
+				desc = "空单"
 			}
+			sb.WriteString(fmt.Sprintf("- **🟢 T字状态: 准备减仓** — 挂单已成交，现在请执行 %s 减仓 %.4f（%s），选择当前价附近合理的限价\n",
+				action, t.TTradePendingReduce, desc))
+		default:
+			sb.WriteString("- T字状态: 空闲\n")
 		}
 		sb.WriteString("\n")
 	}
@@ -726,14 +731,18 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 			}
 			sb.WriteString(fmt.Sprintf("- **T-Trade State: WAITING FOR %s FILL** (orderID=%s, price=%.2f, pending reduce=%.4f)\n",
 				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ **System is waiting for T-trade order to fill. DO NOT issue additional orders or reduce_position this cycle.**\n")
-		default:
-			sb.WriteString("- T-Trade State: IDLE (ready for T-trade)\n")
-			if t.Side == "sell" {
-				sb.WriteString("**⚡ SHORT trapped: Use place_sell_limit at HIGH price, system auto-executes reduce_short after fill**\n")
-			} else {
-				sb.WriteString("**⚡ LONG trapped: Use place_buy_limit at LOW price, system auto-executes reduce_long after fill**\n")
+			sb.WriteString("- ⛔ **T-trade order not yet filled. DO NOT place additional orders this cycle.**\n")
+		case "ready_to_reduce":
+			action := "reduce_long"
+			desc := "long"
+			if t.TTradeReadySide == "sell" {
+				action = "reduce_short"
+				desc = "short"
 			}
+			sb.WriteString(fmt.Sprintf("- **🟢 T-Trade State: READY TO REDUCE** — prep order filled, now place %s for %.4f (%s position) at a favorable limit price near current price\n",
+				action, t.TTradePendingReduce, desc))
+		default:
+			sb.WriteString("- T-Trade State: IDLE\n")
 		}
 		sb.WriteString("\n")
 	}
