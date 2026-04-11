@@ -71,8 +71,6 @@ type GridConfigModel struct {
 	// Trapped position batch reduction settings (被套分批减仓)
 	EnableTrappedReduce       bool    `json:"enable_trapped_reduce" gorm:"default:false"`
 	TrappedReduceThresholdPct float64 `json:"trapped_reduce_threshold_pct" gorm:"default:3.0"`
-	TrappedReduceBatchPct     float64 `json:"trapped_reduce_batch_pct" gorm:"default:25.0"`
-	TrappedReduceIntervalMin  int     `json:"trapped_reduce_interval_min" gorm:"default:30"`
 }
 
 func (GridConfigModel) TableName() string {
