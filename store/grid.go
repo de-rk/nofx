@@ -654,8 +654,14 @@ func (s *GridStore) GetGridPerformanceMetrics(instanceID string, from, to time.T
 // ==================== Grid Trade Log ====================
 
 // LogGridTrade records a trading action to grid_trade_logs for analysis.
+// It also purges entries older than 10 days to keep the table size bounded.
 func (s *GridStore) LogGridTrade(entry *GridTradeLogModel) error {
-	return s.db.Create(entry).Error
+	if err := s.db.Create(entry).Error; err != nil {
+		return err
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -10)
+	s.db.Where("created_at < ?", cutoff).Delete(&GridTradeLogModel{})
+	return nil
 }
 
 // GetGridTradeLogs returns trade log entries for an instance, newest first.
