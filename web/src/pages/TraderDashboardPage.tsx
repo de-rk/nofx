@@ -19,6 +19,7 @@ import type {
     Statistics,
     TraderInfo,
     Exchange,
+    GridTradeLog,
 } from '../types'
 
 // --- Helper Functions ---
@@ -106,6 +107,7 @@ interface TraderDashboardPageProps {
     decisions?: DecisionRecord[]
     decisionsLimit: number
     onDecisionsLimitChange: (limit: number) => void
+    gridTradeLogs?: GridTradeLog[]
     stats?: Statistics
     lastUpdate: string
     language: Language
@@ -120,6 +122,7 @@ export function TraderDashboardPage({
     decisions,
     decisionsLimit,
     onDecisionsLimitChange,
+    gridTradeLogs,
     lastUpdate,
     language,
     traders,
@@ -130,6 +133,7 @@ export function TraderDashboardPage({
     exchanges,
 }: TraderDashboardPageProps) {
     const [closingPosition, setClosingPosition] = useState<string | null>(null)
+    const [rightTab, setRightTab] = useState<'decisions' | 'tradelog'>('decisions')
     const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | undefined>(undefined)
     const [chartUpdateKey, setChartUpdateKey] = useState<number>(0)
     const chartSectionRef = useRef<HTMLDivElement>(null)
@@ -753,64 +757,68 @@ export function TraderDashboardPage({
                         </div>
                     </div>
 
-                    {/* Right Column: Recent Decisions */}
+                    {/* Right Column: Decisions / Trade Log */}
                     <div
                         className="nofx-glass p-6 animate-slide-in h-fit lg:sticky lg:top-24 lg:max-h-[calc(100vh-120px)] flex flex-col"
                         style={{ animationDelay: '0.2s' }}
                     >
-                        {/* Header */}
-                        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/5 shrink-0">
-                            <div
-                                className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-[0_4px_14px_rgba(99,102,241,0.4)]"
-                                style={{
-                                    background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
-                                }}
+                        {/* Tab Header */}
+                        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-white/5 shrink-0">
+                            <button
+                                onClick={() => setRightTab('decisions')}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${rightTab === 'decisions' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'text-nofx-text-muted hover:text-nofx-text-main border border-transparent'}`}
                             >
-                                🧠
-                            </div>
-                            <div className="flex-1">
-                                <h2 className="text-xl font-bold text-nofx-text-main">
-                                    {t('recentDecisions', language)}
-                                </h2>
-                                {decisions && decisions.length > 0 && (
-                                    <div className="text-xs text-nofx-text-muted">
-                                        {t('lastCycles', language, { count: decisions.length })}
-                                    </div>
+                                🧠 {language === 'zh' ? 'AI 决策' : 'Decisions'}
+                            </button>
+                            <button
+                                onClick={() => setRightTab('tradelog')}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${rightTab === 'tradelog' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'text-nofx-text-muted hover:text-nofx-text-main border border-transparent'}`}
+                            >
+                                📋 {language === 'zh' ? '交易日志' : 'Trade Log'}
+                                {gridTradeLogs && gridTradeLogs.length > 0 && (
+                                    <span className="text-xs bg-white/10 px-1.5 py-0.5 rounded-full">{gridTradeLogs.length}</span>
                                 )}
-                            </div>
-                            {/* Limit Selector */}
-                            <select
-                                value={decisionsLimit}
-                                onChange={(e) => onDecisionsLimitChange(Number(e.target.value))}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent focus:outline-none"
-                            >
-                                <option value={5}>5</option>
-                                <option value={10}>10</option>
-                                <option value={20}>20</option>
-                                <option value={50}>50</option>
-                                <option value={100}>100</option>
-                            </select>
+                            </button>
+                            {rightTab === 'decisions' && (
+                                <select
+                                    value={decisionsLimit}
+                                    onChange={(e) => onDecisionsLimitChange(Number(e.target.value))}
+                                    className="ml-auto px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent focus:outline-none"
+                                >
+                                    <option value={5}>5</option>
+                                    <option value={10}>10</option>
+                                    <option value={20}>20</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                            )}
                         </div>
 
-                        {/* Decisions List - Scrollable */}
+                        {/* Scrollable Content */}
                         <div
-                            className="space-y-4 overflow-y-auto pr-2 custom-scrollbar"
+                            className="overflow-y-auto pr-2 custom-scrollbar"
                             style={{ maxHeight: 'calc(100vh - 280px)' }}
                         >
-                            {decisions && decisions.length > 0 ? (
-                                decisions.map((decision, i) => (
-                                    <DecisionCard key={i} decision={decision} language={language} onSymbolClick={handleSymbolClick} />
-                                ))
-                            ) : (
-                                <div className="py-16 text-center text-nofx-text-muted opacity-60">
-                                    <div className="text-6xl mb-4 opacity-30 grayscale">🧠</div>
-                                    <div className="text-lg font-semibold mb-2 text-nofx-text-main">
-                                        {t('noDecisionsYet', language)}
-                                    </div>
-                                    <div className="text-sm">
-                                        {t('aiDecisionsWillAppear', language)}
-                                    </div>
+                            {rightTab === 'decisions' ? (
+                                <div className="space-y-4">
+                                    {decisions && decisions.length > 0 ? (
+                                        decisions.map((decision, i) => (
+                                            <DecisionCard key={i} decision={decision} language={language} onSymbolClick={handleSymbolClick} />
+                                        ))
+                                    ) : (
+                                        <div className="py-16 text-center text-nofx-text-muted opacity-60">
+                                            <div className="text-6xl mb-4 opacity-30 grayscale">🧠</div>
+                                            <div className="text-lg font-semibold mb-2 text-nofx-text-main">
+                                                {t('noDecisionsYet', language)}
+                                            </div>
+                                            <div className="text-sm">
+                                                {t('aiDecisionsWillAppear', language)}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
+                            ) : (
+                                <GridTradeLogList logs={gridTradeLogs} language={language} />
                             )}
                         </div>
                     </div>
@@ -884,6 +892,128 @@ function StatCard({
                     {subtitle}
                 </div>
             )}
+        </div>
+    )
+}
+
+// --- Grid Trade Log List ---
+
+const SOURCE_COLORS: Record<string, string> = {
+    ai: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    ttrade: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    profit_reduce: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+}
+
+const ACTION_ICONS: Record<string, string> = {
+    hold: '⏸',
+    place_buy_limit: '📥',
+    place_sell_limit: '📤',
+    reduce_long: '📉',
+    reduce_short: '📈',
+    close_long: '🔴',
+    close_short: '🔴',
+    cancel_order: '❌',
+    adjust_grid: '⚙️',
+    pause_grid: '⏸',
+    resume_grid: '▶️',
+    ttrade_tag: '🏷',
+    ttrade_fill: '✅',
+    profit_reduce: '💰',
+    profit_reduce_close: '💰',
+}
+
+function GridTradeLogList({ logs, language }: { logs?: GridTradeLog[]; language: string }) {
+    if (!logs || logs.length === 0) {
+        return (
+            <div className="py-16 text-center text-nofx-text-muted opacity-60">
+                <div className="text-5xl mb-4 opacity-30">📋</div>
+                <div className="text-base font-semibold text-nofx-text-main mb-1">
+                    {language === 'zh' ? '暂无交易日志' : 'No trade logs yet'}
+                </div>
+                <div className="text-sm">
+                    {language === 'zh' ? '交易动作将在这里显示' : 'Trading actions will appear here'}
+                </div>
+            </div>
+        )
+    }
+
+    // Group by date
+    const groups: Record<string, GridTradeLog[]> = {}
+    for (const log of logs) {
+        const date = new Date(log.created_at).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US', {
+            month: 'short', day: 'numeric',
+        })
+        if (!groups[date]) groups[date] = []
+        groups[date].push(log)
+    }
+
+    return (
+        <div className="space-y-4">
+            {Object.entries(groups).map(([date, entries]) => (
+                <div key={date}>
+                    <div className="text-xs text-nofx-text-muted font-semibold uppercase tracking-wider mb-2 px-1">
+                        {date}
+                    </div>
+                    <div className="space-y-1.5">
+                        {entries.map((log) => {
+                            const colorClass = SOURCE_COLORS[log.source] ?? 'text-gray-400 bg-white/5 border-white/10'
+                            const icon = ACTION_ICONS[log.action] ?? '•'
+                            const time = new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                            const isHold = log.action === 'hold'
+                            if (isHold) return null
+                            return (
+                                <div
+                                    key={log.id}
+                                    className={`flex items-start gap-2.5 px-3 py-2 rounded-lg border ${log.success ? 'border-white/5 bg-white/3' : 'border-red-500/20 bg-red-500/5'}`}
+                                >
+                                    <span className="text-base mt-0.5 shrink-0">{icon}</span>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${colorClass}`}>
+                                                {log.source}
+                                            </span>
+                                            <span className="text-xs font-mono text-nofx-text-main">{log.action}</span>
+                                            {log.symbol && (
+                                                <span className="text-xs text-nofx-text-muted">{log.symbol}</span>
+                                            )}
+                                            {log.side && (
+                                                <span className={`text-xs font-semibold ${log.side === 'long' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                    {log.side.toUpperCase()}
+                                                </span>
+                                            )}
+                                            {!log.success && (
+                                                <span className="text-xs text-red-400 font-semibold">FAILED</span>
+                                            )}
+                                        </div>
+                                        {(log.quantity > 0 || log.price > 0) && (
+                                            <div className="text-xs text-nofx-text-muted mt-0.5 font-mono">
+                                                {log.quantity > 0 && <span>qty {log.quantity}</span>}
+                                                {log.price > 0 && <span className="ml-2">@ {log.price}</span>}
+                                                {log.margin_profit !== 0 && (
+                                                    <span className={`ml-2 ${log.margin_profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                        {log.margin_profit >= 0 ? '+' : ''}{log.margin_profit.toFixed(1)}%
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                        {log.reason && (
+                                            <div className="text-xs text-nofx-text-muted/70 mt-0.5 truncate" title={log.reason}>
+                                                {log.reason}
+                                            </div>
+                                        )}
+                                        {!log.success && log.error_msg && (
+                                            <div className="text-xs text-red-400/80 mt-0.5 truncate" title={log.error_msg}>
+                                                {log.error_msg}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span className="text-xs text-nofx-text-muted/50 shrink-0 font-mono">{time}</span>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            ))}
         </div>
     )
 }

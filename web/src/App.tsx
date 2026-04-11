@@ -32,6 +32,7 @@ import type {
   Statistics,
   TraderInfo,
   Exchange,
+  GridTradeLog,
 } from './types'
 
 type Page =
@@ -135,6 +136,7 @@ function App() {
   }
   const [lastUpdate, setLastUpdate] = useState<string>('--:--:--')
   const [decisionsLimit, setDecisionsLimit] = useState<number>(5)
+  const [tradeLogsLimit] = useState<number>(200)
 
   // 监听URL变化，同步页面状态
   useEffect(() => {
@@ -269,7 +271,19 @@ function App() {
       : null,
     () => api.getLatestDecisions(selectedTraderId, decisionsLimit),
     {
-      refreshInterval: 30000, // 30秒刷新（决策更新频率较低）
+      refreshInterval: 30000,
+      revalidateOnFocus: false,
+      dedupingInterval: 20000,
+    }
+  )
+
+  const { data: gridTradeLogs } = useSWR<GridTradeLog[]>(
+    currentPage === 'trader' && selectedTraderId
+      ? `grid-trade-logs-${selectedTraderId}-${tradeLogsLimit}`
+      : null,
+    () => api.getGridTradeLogs(selectedTraderId!, tradeLogsLimit),
+    {
+      refreshInterval: 30000,
       revalidateOnFocus: false,
       dedupingInterval: 20000,
     }
@@ -434,6 +448,7 @@ function App() {
                 decisions={decisions}
                 decisionsLimit={decisionsLimit}
                 onDecisionsLimitChange={setDecisionsLimit}
+                gridTradeLogs={gridTradeLogs}
                 stats={stats}
                 lastUpdate={lastUpdate}
                 language={language}

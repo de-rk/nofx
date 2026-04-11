@@ -837,3 +837,23 @@ export interface GridRiskInfo {
   breakout_level: string
   breakout_direction: string
 }
+
+export interface GridTradeLog {
+  id: number
+  instance_id: string
+  created_at: string
+  source: string       // "ai" | "ttrade" | "profit_reduce"
+  action: string       // "hold" | "reduce_long" | "close_long" | "ttrade_tag" | "ttrade_fill" | "profit_reduce" | "profit_reduce_close" | ...
+  symbol: string
+  side: string         // "long" | "short"
+  quantity: number
+  price: number
+  entry_price: number
+  mark_price: number
+  margin_profit: number
+  unrealized_pl: number
+  reason: string
+  order_id: string
+  success: boolean
+  error_msg: string
+}

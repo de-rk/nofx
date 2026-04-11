@@ -30,6 +30,7 @@ import type {
   DebateVote,
   DebatePersonalityInfo,
   PositionHistoryResponse,
+  GridTradeLog,
 } from '../types'
 import { CryptoService } from './crypto'
 import { httpClient } from './httpClient'
@@ -387,6 +388,15 @@ export const api = {
       `${API_BASE}/decisions/latest?${params}`
     )
     if (!result.success) throw new Error('获取最新决策失败')
+    return result.data!
+  },
+
+  // 获取网格交易动作日志
+  async getGridTradeLogs(traderId: string, limit: number = 100): Promise<GridTradeLog[]> {
+    const result = await httpClient.get<GridTradeLog[]>(
+      `${API_BASE}/traders/${traderId}/trade-logs?limit=${limit}`
+    )
+    if (!result.success) throw new Error('获取交易日志失败')
     return result.data!
   },
 

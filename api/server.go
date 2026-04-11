@@ -166,6 +166,7 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
 			protected.POST("/traders/:id/close-position", s.handleClosePosition)
 			protected.GET("/traders/:id/grid-risk", s.handleGetGridRiskInfo)
+			protected.GET("/traders/:id/trade-logs", s.handleGetGridTradeLogs)
 
 			// AI model configuration
 			protected.GET("/models", s.handleGetModelConfigs)
@@ -1081,6 +1082,23 @@ func (s *Server) handleGetGridRiskInfo(c *gin.Context) {
 
 	riskInfo := autoTrader.GetGridRiskInfo()
 	c.JSON(http.StatusOK, riskInfo)
+}
+
+// handleGetGridTradeLogs returns grid_trade_logs for a trader instance.
+func (s *Server) handleGetGridTradeLogs(c *gin.Context) {
+	traderID := c.Param("id")
+	limit := 100
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	logs, err := s.store.Grid().GetGridTradeLogs(traderID, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, logs)
 }
 
 // handleSyncBalance Sync exchange balance to initial_balance (Option B: Manual Sync + Option C: Smart Detection)
