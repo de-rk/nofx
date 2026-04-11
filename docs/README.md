@@ -37,6 +37,7 @@ Welcome to the NOFX documentation! This page helps you find the right documentat
 | [User Guides Index (中文)](guides/README.zh-CN.md) | 所有使用指南和技巧 | All usage guides and tips |
 | [FAQ (English)](guides/faq.en.md) | Frequently asked questions | 常见问题解答 |
 | [FAQ (中文)](guides/faq.zh-CN.md) | 常见问题解答 | Frequently asked questions |
+| [网格交易记录分析](guides/grid-trade-log.zh-CN.md) | `grid_trade_logs` 表查询分析指南 | Grid trade log analysis guide |
 | Troubleshooting *(coming soon)* | Common issues and solutions | 故障排查 |
 | Configuration Guide *(coming soon)* | Advanced configuration options | 高级配置选项 |
 | Trading Strategies *(coming soon)* | AI trading strategy examples | AI 交易策略示例 |
