@@ -1295,17 +1295,6 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			logger.Infof("[Grid] reduce_long skipped: reduce order %s already pending", pendingReduceID)
 			return nil
 		}
-		if !tTradeReady {
-			intervalMin := 60
-			at.gridState.mu.RLock()
-			lastReduce := at.gridState.LastTrappedReduceAt
-			at.gridState.mu.RUnlock()
-			if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
-				logger.Infof("[Grid] reduce_long skipped: last reduction was %.0f min ago (min interval: %d min)",
-					time.Since(lastReduce).Minutes(), intervalMin)
-				return nil
-			}
-		}
 
 		// Close long position with sell limit order
 		logger.Infof("[Grid] AI decision: reduce_long qty=%.4f price=%.2f reason=%s", d.Quantity, d.Price, d.Reasoning)
@@ -1344,17 +1333,6 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		if pendingReduceID2 != "" {
 			logger.Infof("[Grid] reduce_short skipped: reduce order %s already pending", pendingReduceID2)
 			return nil
-		}
-		if !tTradeReady2 {
-			intervalMin := 60
-			at.gridState.mu.RLock()
-			lastReduce := at.gridState.LastTrappedReduceAt
-			at.gridState.mu.RUnlock()
-			if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
-				logger.Infof("[Grid] reduce_short skipped: last reduction was %.0f min ago (min interval: %d min)",
-					time.Since(lastReduce).Minutes(), intervalMin)
-				return nil
-			}
 		}
 
 		// Close short position with buy limit order
@@ -2587,7 +2565,7 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 // autoTagTTradeFromExistingOrders automatically tags the nearest existing grid order as T-trade prep.
 // Long trapped → find nearest pending sell order (closest above current price)
 // Short trapped → find nearest pending buy order (closest below current price)
-// When that order fills naturally, we reduce the trapped position by batchPct.
+// When that order fills naturally, AI places a reduce order to capture the spread.
 func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
@@ -2602,15 +2580,6 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		return
 	}
 
-	// Check interval
-	intervalMin := 60
-	at.gridState.mu.RLock()
-	lastReduce := at.gridState.LastTrappedReduceAt
-	at.gridState.mu.RUnlock()
-	if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
-		return
-	}
-
 	// Build trapped info
 	ctx, err := at.buildGridContext()
 	if err != nil || ctx == nil || ctx.TrappedInfo == nil || !ctx.TrappedInfo.IsTrapped {
@@ -2618,8 +2587,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	}
 	trapped := ctx.TrappedInfo
 
-	batchPct := 10.0
-	reduceQty := trapped.TrappedPositionSize * batchPct / 100
+	reduceQty := trapped.TrappedPositionSize
 
 	currentPrice := ctx.CurrentPrice
 
@@ -2886,8 +2854,6 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 	if threshold <= 0 {
 		threshold = 3.0
 	}
-	batchPct := 10.0
-
 	// Use exchange positions as the primary source of truth
 	exchangePositions, err := at.trader.GetPositions()
 	if err != nil || len(exchangePositions) == 0 {
@@ -2990,9 +2956,6 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		trappedSide, lossPct, threshold, isTrapped)
 
 	suggestReducePct := 0.0
-	if isTrapped {
-		suggestReducePct = batchPct
-	}
 
 	at.gridState.mu.RLock()
 	lastReduceMinutes := -1
@@ -3058,17 +3021,9 @@ func (at *AutoTrader) executeTrappedReduceShort(quantity float64) error {
 		return fmt.Errorf("failed to get market price for short trapped reduce: %w", err)
 	}
 
-	intervalMin := 60
 	at.gridState.mu.RLock()
-	lastReduce := at.gridState.LastTrappedReduceAt
 	tTradeSellPrice := at.gridState.TTradePrepPrice
 	at.gridState.mu.RUnlock()
-
-	if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
-		logger.Infof("[Grid] Short trapped reduce skipped: last reduction was %.0f min ago (min interval: %d min)",
-			time.Since(lastReduce).Minutes(), intervalMin)
-		return nil
-	}
 
 	exchangePositions, err := at.trader.GetPositions()
 	if err != nil {
@@ -3095,7 +3050,7 @@ func (at *AutoTrader) executeTrappedReduceShort(quantity float64) error {
 
 	closeQty := quantity
 	if closeQty <= 0 {
-		batchPct := 10.0	closeQty = shortSize
+		closeQty = shortSize
 	}
 
 	// Buy lower than the T-trade sell price to capture the spread
@@ -3147,17 +3102,6 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 		return fmt.Errorf("failed to get market price for trapped reduce: %w", err)
 	}
 
-	// Check interval between reductions
-	intervalMin := 60
-	at.gridState.mu.RLock()
-	lastReduce := at.gridState.LastTrappedReduceAt
-	at.gridState.mu.RUnlock()
-
-	if !lastReduce.IsZero() && time.Since(lastReduce) < time.Duration(intervalMin)*time.Minute {
-		logger.Infof("[Grid] Trapped reduce skipped: last reduction was %.0f min ago (min interval: %d min)",
-			time.Since(lastReduce).Minutes(), intervalMin)
-		return nil
-	}
 
 	// Collect filled long levels sorted by loss (worst first)
 	type levelLoss struct {
@@ -3233,8 +3177,7 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 
 		closeQty := quantity
 		if closeQty <= 0 {
-			batchPct := 10.0
-			closeQty = mostLossSize * batchPct / 100
+			closeQty = mostLossSize
 		}
 		if closeQty > mostLossSize {
 			closeQty = mostLossSize
@@ -3327,8 +3270,7 @@ func (at *AutoTrader) executeTrappedReduce(quantity float64) error {
 
 	// If quantity not specified, calculate from batch percentage
 	if quantity <= 0 {
-		batchPct := 10.0		}
-		quantity = totalSize * batchPct / 100
+		quantity = totalSize
 	}
 
 	// Close positions worst-first until quantity is fulfilled
