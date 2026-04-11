@@ -586,11 +586,11 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		case "ready_to_reduce":
 			action := "reduce_long"
 			desc := "多单"
-			priceHint := "低于"
+			priceHint := "高于"
 			if t.TTradeReadySide == "sell" {
 				action = "reduce_short"
 				desc = "空单"
-				priceHint = "高于"
+				priceHint = "低于"
 			}
 			sb.WriteString(fmt.Sprintf("- **🟢 T字状态: 准备减仓** — 网格挂单已成交（价格=%.2f），现在请执行 %s 减仓 %.4f（%s）\n",
 				t.TTradeReadyPrepPrice, action, t.TTradePendingReduce, desc))
@@ -740,11 +740,11 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		case "ready_to_reduce":
 			action := "reduce_long"
 			desc := "long"
-			priceHint := "below"
+			priceHint := "above"
 			if t.TTradeReadySide == "sell" {
 				action = "reduce_short"
 				desc = "short"
-				priceHint = "above"
+				priceHint = "below"
 			}
 			sb.WriteString(fmt.Sprintf("- **🟢 T-Trade State: READY TO REDUCE** — prep order filled at %.2f, now place %s for %.4f (%s position)\n",
 				t.TTradeReadyPrepPrice, action, t.TTradePendingReduce, desc))
