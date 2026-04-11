@@ -1125,7 +1125,7 @@ func (at *AutoTrader) checkProfitReduce() {
 			logger.Infof("[Grid] Profit-reduce: %s reducing %.4f (target=%.0f%%)", info.side, a.qty, a.targetReducePct)
 		}
 
-		_, err := gridTrader.PlaceLimitOrder(&LimitOrderRequest{
+		result, err := gridTrader.PlaceLimitOrder(&LimitOrderRequest{
 			Symbol:       symbol,
 			Side:         orderSide,
 			PositionSide: posSide,
@@ -1134,6 +1134,27 @@ func (at *AutoTrader) checkProfitReduce() {
 			Leverage:     gridConfig.Leverage,
 			ReduceOnly:   true,
 		})
+		orderID := ""
+		if result != nil {
+			orderID = result.OrderID
+		}
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+		action := "profit_reduce"
+		if a.closeAll {
+			action = "profit_reduce_close"
+		}
+		margin := info.size * info.entryPrice / float64(gridConfig.Leverage)
+		profitPct := 0.0
+		if margin > 0 {
+			profitPct = info.unrealizedProfit / margin * 100
+		}
+		at.logGridTrade("profit_reduce", action, info.side, symbol,
+			fmt.Sprintf("target=%.0f%% closeAll=%v", a.targetReducePct, a.closeAll),
+			orderID, a.qty, info.markPrice, info.entryPrice, info.markPrice,
+			profitPct, info.unrealizedProfit, err == nil, errMsg)
 		if err != nil {
 			logger.Warnf("[Grid] Profit-reduce %s failed: %v", info.side, err)
 			continue
@@ -1250,6 +1271,9 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridContext) error {
 	logger.Infof("[Grid] AI action: %s | qty=%.4f price=%.2f | reason: %s",
 		d.Action, d.Quantity, d.Price, d.Reasoning)
+	symbol := at.config.StrategyConfig.GridConfig.Symbol
+	at.logGridTrade("ai", d.Action, "", symbol, d.Reasoning, "",
+		d.Quantity, d.Price, 0, 0, 0, 0, true, "")
 	switch d.Action {
 	case "place_buy_limit":
 		if err := at.placeGridLimitOrder(d, "BUY"); err != nil {
@@ -2559,6 +2583,35 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 // Trapped Position Detection & Batch Reduction (被套分批减仓)
 // ============================================================================
 
+// logGridTrade writes a structured trade action record to grid_trade_logs.
+// source: "ai" | "ttrade" | "profit_reduce" | "profit_drawdown"
+func (at *AutoTrader) logGridTrade(source, action, side, symbol, reason, orderID string,
+	qty, price, entryPrice, markPrice, marginProfit, unrealizedPL float64, success bool, errMsg string) {
+	if at.store == nil {
+		return
+	}
+	entry := &store.GridTradeLogModel{
+		InstanceID:   at.id,
+		Source:       source,
+		Action:       action,
+		Symbol:       symbol,
+		Side:         side,
+		Quantity:     qty,
+		Price:        price,
+		EntryPrice:   entryPrice,
+		MarkPrice:    markPrice,
+		MarginProfit: marginProfit,
+		UnrealizedPL: unrealizedPL,
+		Reason:       reason,
+		OrderID:      orderID,
+		Success:      success,
+		ErrorMsg:     errMsg,
+	}
+	if err := at.store.Grid().LogGridTrade(entry); err != nil {
+		logger.Warnf("[Grid] Failed to write trade log: %v", err)
+	}
+}
+
 // checkTTradeOrderFillAndReduce checks if the pending T-trade buy order has been filled.
 // This is called every cycle BEFORE AI decisions.
 // Flow: placeGridLimitOrder (buy) → [wait here each cycle] → fill confirmed → executeTrappedReduce
@@ -2645,6 +2698,9 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 
 	logger.Infof("[Grid] ✅ T-trade auto-tagged: %s trapped (loss=%.2f%%) → watching order %s @ %.2f, will reduce %.4f on fill",
 		trapped.Side, trapped.LossPct, bestOrderID, bestPrice, reduceQty)
+	at.logGridTrade("ttrade", "ttrade_tag", trapped.Side, gridConfig.Symbol,
+		fmt.Sprintf("tagged order %s @ %.2f, loss=%.2f%%", bestOrderID, bestPrice, trapped.LossPct),
+		bestOrderID, reduceQty, bestPrice, 0, 0, 0, trapped.PriceDiffPct, true, "")
 }
 
 func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder) {
@@ -2764,6 +2820,10 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 	at.gridState.TTradeReadyReduceSide = prepSide
 	at.gridState.TTradeReadyPrepPrice = buyPrice // AI must place reduce at a better price than this
 	at.gridState.mu.Unlock()
+
+	at.logGridTrade("ttrade", "ttrade_fill", prepSide, gridConfig.Symbol,
+		fmt.Sprintf("prep order %s filled @ %.2f, waiting for AI to reduce %.4f", pendingOrderID, buyPrice, reduceQty),
+		pendingOrderID, reduceQty, buyPrice, 0, 0, 0, 0, true, "")
 }
 
 // checkTTradeReduceOrderStatus checks if reduce order was cancelled and retries

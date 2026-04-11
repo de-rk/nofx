@@ -210,6 +210,32 @@ func (GridRegimeAssessmentModel) TableName() string {
 	return "grid_regime_assessments"
 }
 
+// GridTradeLogModel records every significant trading action for post-analysis.
+// Source values: "ai", "ttrade", "profit_reduce", "profit_drawdown"
+type GridTradeLogModel struct {
+	ID           uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	InstanceID   string    `json:"instance_id" gorm:"index;not null"`
+	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime;index"`
+	Source       string    `json:"source" gorm:"not null;index"` // "ai" | "ttrade" | "profit_reduce" | "profit_drawdown"
+	Action       string    `json:"action" gorm:"not null"`       // reduce_long, close_long, ttrade_tag, ttrade_fill, etc.
+	Symbol       string    `json:"symbol" gorm:"not null"`
+	Side         string    `json:"side"`         // "long" | "short"
+	Quantity     float64   `json:"quantity"`     // order quantity
+	Price        float64   `json:"price"`        // order price (0 = market)
+	EntryPrice   float64   `json:"entry_price"`  // position entry price at time of action
+	MarkPrice    float64   `json:"mark_price"`   // mark price at time of action
+	MarginProfit float64   `json:"margin_profit"` // margin profit % at time of action
+	UnrealizedPL float64   `json:"unrealized_pl"` // unrealized P&L at time of action
+	Reason       string    `json:"reason" gorm:"type:text"` // AI reasoning or system note
+	OrderID      string    `json:"order_id"`     // exchange order ID (if available)
+	Success      bool      `json:"success"`      // whether the action succeeded
+	ErrorMsg     string    `json:"error_msg"`    // error message if failed
+}
+
+func (GridTradeLogModel) TableName() string {
+	return "grid_trade_logs"
+}
+
 // ==================== Grid Store ====================
 
 // GridStore provides database operations for grid trading
@@ -243,6 +269,28 @@ func (s *GridStore) InitTables() error {
 			s.db.Exec(`ALTER TABLE grid_configs ADD COLUMN IF NOT EXISTS trapped_reduce_threshold_pct numeric DEFAULT 3.0`)
 			s.db.Exec(`ALTER TABLE grid_configs ADD COLUMN IF NOT EXISTS trapped_reduce_batch_pct numeric DEFAULT 25.0`)
 			s.db.Exec(`ALTER TABLE grid_configs ADD COLUMN IF NOT EXISTS trapped_reduce_interval_min integer DEFAULT 30`)
+			// Trade log table
+			s.db.Exec(`CREATE TABLE IF NOT EXISTS grid_trade_logs (
+				id bigserial PRIMARY KEY,
+				instance_id text NOT NULL,
+				created_at timestamptz DEFAULT now(),
+				source text NOT NULL,
+				action text NOT NULL,
+				symbol text NOT NULL,
+				side text,
+				quantity numeric,
+				price numeric,
+				entry_price numeric,
+				mark_price numeric,
+				margin_profit numeric,
+				unrealized_pl numeric,
+				reason text,
+				order_id text,
+				success boolean,
+				error_msg text
+			)`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_trade_logs_instance_id ON grid_trade_logs(instance_id)`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_trade_logs_created_at ON grid_trade_logs(created_at)`)
 			return nil
 		}
 	}
@@ -254,6 +302,7 @@ func (s *GridStore) InitTables() error {
 		&GridLevelModel{},
 		&GridEventModel{},
 		&GridRegimeAssessmentModel{},
+		&GridTradeLogModel{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate grid tables: %w", err)
 	}
@@ -600,4 +649,21 @@ func (s *GridStore) GetGridPerformanceMetrics(instanceID string, from, to time.T
 		"net_pnl":        pnlSum.TotalPnL - pnlSum.TotalFee,
 		"regime_changes": regimeChanges,
 	}, nil
+}
+
+// ==================== Grid Trade Log ====================
+
+// LogGridTrade records a trading action to grid_trade_logs for analysis.
+func (s *GridStore) LogGridTrade(entry *GridTradeLogModel) error {
+	return s.db.Create(entry).Error
+}
+
+// GetGridTradeLogs returns trade log entries for an instance, newest first.
+func (s *GridStore) GetGridTradeLogs(instanceID string, limit int) ([]GridTradeLogModel, error) {
+	var logs []GridTradeLogModel
+	q := s.db.Where("instance_id = ?", instanceID).Order("created_at desc")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	return logs, q.Find(&logs).Error
 }
