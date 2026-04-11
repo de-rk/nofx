@@ -2590,8 +2590,10 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	currentPrice := ctx.CurrentPrice
 
 	// Find nearest pending grid order on the appropriate side
-	// Long trapped → nearest pending sell order (above current price, will add new short — use for reduce_long after fill)
-	// Short trapped → nearest pending buy order (below current price, will add new long — use for reduce_short after fill)
+	// Long trapped (price fell below entry): tag nearest BUY order below current price
+	//   Fills when price drops further; adds long at lower cost; AI then reduce_long above fill price
+	// Short trapped (price rose above entry): tag nearest SELL order above current price
+	//   Fills when price rises further; adds short at better cost; AI then reduce_short below fill price
 	at.gridState.mu.RLock()
 	var bestOrderID string
 	var bestPrice float64
@@ -2601,19 +2603,19 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		if level.State != "pending" || level.OrderID == "" {
 			continue
 		}
-		if trapped.Side == "buy" && level.Side == "sell" {
-			// Long trapped: nearest sell above current price
-			if level.Price > currentPrice {
-				if bestOrderID == "" || level.Price < bestPrice {
+		if trapped.Side == "buy" && level.Side == "buy" {
+			// Long trapped: nearest buy order below current price
+			if level.Price < currentPrice {
+				if bestOrderID == "" || level.Price > bestPrice {
 					bestOrderID = level.OrderID
 					bestPrice = level.Price
 					bestSide = "buy"
 				}
 			}
-		} else if trapped.Side == "sell" && level.Side == "buy" {
-			// Short trapped: nearest buy below current price
-			if level.Price < currentPrice {
-				if bestOrderID == "" || level.Price > bestPrice {
+		} else if trapped.Side == "sell" && level.Side == "sell" {
+			// Short trapped: nearest sell order above current price
+			if level.Price > currentPrice {
+				if bestOrderID == "" || level.Price < bestPrice {
 					bestOrderID = level.OrderID
 					bestPrice = level.Price
 					bestSide = "sell"
