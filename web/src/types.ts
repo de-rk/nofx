@@ -514,10 +514,6 @@ export interface GridStrategyConfig {
   enable_trapped_reduce?: boolean;
   // Unrealized loss % to trigger batch reduction (default 3.0%)
   trapped_reduce_threshold_pct?: number;
-  // Percentage of trapped position to reduce per batch (default 25%)
-  trapped_reduce_batch_pct?: number;
-  // Minimum interval between trapped reductions in minutes (default 30)
-  trapped_reduce_interval_min?: number;
 }
 
 export interface CoinSourceConfig {

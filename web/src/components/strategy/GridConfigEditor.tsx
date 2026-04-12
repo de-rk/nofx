@@ -28,8 +28,6 @@ export const defaultGridConfig: GridStrategyConfig = {
   profit_drawdown_threshold: 50,
   enable_trapped_reduce: false,
   trapped_reduce_threshold_pct: 3.0,
-  trapped_reduce_batch_pct: 25,
-  trapped_reduce_interval_min: 30,
 }
 
 export function GridConfigEditor({
@@ -110,8 +108,6 @@ export function GridConfigEditor({
       trappedReduceThresholdDesc: { zh: '未实现亏损占总投资的百分比超过此值时触发', en: 'Trigger when unrealized loss exceeds this % of total investment' },
       trappedReduceBatch: { zh: '每批减仓比例 (%)', en: 'Batch Reduce Percent (%)' },
       trappedReduceBatchDesc: { zh: '每次减仓的仓位比例（25%=每次平掉1/4被套仓位）', en: 'Position percent to reduce per batch (25% = close 1/4 each time)' },
-      trappedReduceInterval: { zh: '减仓间隔 (分钟)', en: 'Reduce Interval (min)' },
-      trappedReduceIntervalDesc: { zh: '两次减仓操作之间的最短间隔时间', en: 'Minimum minutes between two reductions' },
       trappedReduceExplain: { zh: '💡 T字操作原理：被套时分批卖出降低成本，再在低位重新买入摊薄，逐步扭亏为盈，不需要等价格回到原开仓价', en: '💡 T-Trade principle: reduce partial position when trapped, re-enter at lower price to average down, gradually turn losses to profit without waiting for price to return to entry' },
     }
     return translations[key]?.[language] || key
@@ -625,48 +621,6 @@ export function GridConfigEditor({
               />
             </div>
 
-            {/* Batch percent */}
-            <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-                {t('trappedReduceBatch')}
-              </label>
-              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('trappedReduceBatchDesc')}</p>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  value={config.trapped_reduce_batch_pct ?? 25}
-                  onChange={(e) => updateField('trapped_reduce_batch_pct', parseInt(e.target.value))}
-                  disabled={disabled}
-                  min={10}
-                  max={50}
-                  step={5}
-                  className="flex-1"
-                  style={{ background: '#2B3139' }}
-                />
-                <span className="text-sm font-mono w-16 text-right" style={{ color: '#F6465D' }}>
-                  {config.trapped_reduce_batch_pct ?? 25}%
-                </span>
-              </div>
-            </div>
-
-            {/* Interval */}
-            <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-                {t('trappedReduceInterval')}
-              </label>
-              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('trappedReduceIntervalDesc')}</p>
-              <input
-                type="number"
-                value={config.trapped_reduce_interval_min ?? 30}
-                onChange={(e) => updateField('trapped_reduce_interval_min', parseInt(e.target.value))}
-                disabled={disabled}
-                min={5}
-                max={240}
-                step={5}
-                className="w-full px-3 py-2 rounded text-sm"
-                style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
-              />
-            </div>
           </div>
         )}
       </div>
