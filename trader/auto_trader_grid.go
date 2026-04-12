@@ -909,6 +909,10 @@ func (at *AutoTrader) RunGridCycle() error {
 		openOrders = nil
 	}
 
+	// Sync open orders from exchange FIRST so level states are up-to-date
+	// before T-trade fill detection runs
+	at.syncOpenOrdersFromExchange(openOrders)
+
 	// Check if T-trade buy order has filled → execute deferred reduce if so
 	if gridConfig.EnableTrappedReduce {
 		at.autoTagTTradeFromExistingOrders(openOrders) // auto-tag nearest grid order as T-trade prep
@@ -918,9 +922,6 @@ func (at *AutoTrader) RunGridCycle() error {
 
 	// Check profit-based position reduction
 	at.checkProfitReduce()
-
-	// Sync open orders from exchange BEFORE building context so AI sees accurate state
-	at.syncOpenOrdersFromExchange(openOrders)
 
 	// Build grid context
 	gridCtx, err := at.buildGridContext()
