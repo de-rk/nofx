@@ -105,7 +105,7 @@ func genOkxClOrdID() string {
 }
 
 // NewOKXTrader creates OKX trader
-func NewOKXTrader(apiKey, secretKey, passphrase string) *OKXTrader {
+func NewOKXTrader(apiKey, secretKey, passphrase string, isCrossMargin bool) *OKXTrader {
 	// Use default transport which respects system proxy settings
 	// OKX requires proxy in China due to DNS pollution
 	httpClient := &http.Client{
@@ -117,6 +117,7 @@ func NewOKXTrader(apiKey, secretKey, passphrase string) *OKXTrader {
 		apiKey:           apiKey,
 		secretKey:        secretKey,
 		passphrase:       passphrase,
+		isCrossMargin:    isCrossMargin,
 		httpClient:       httpClient,
 		cacheDuration:    15 * time.Second,
 		instrumentsCache: make(map[string]*OKXInstrument),
@@ -516,36 +517,20 @@ func (t *OKXTrader) getInstrument(symbol string) (*OKXInstrument, error) {
 	return instrument, nil
 }
 
+// tdMode returns "cross" or "isolated" based on isCrossMargin setting
+func (t *OKXTrader) tdMode() string {
+	if t.isCrossMargin {
+		return "cross"
+	}
+	return "isolated"
+}
+
 // SetMarginMode sets margin mode
+// Note: OKX margin mode is controlled per-order via tdMode field.
+// This call updates isCrossMargin so subsequent orders use the correct mode.
 func (t *OKXTrader) SetMarginMode(symbol string, isCrossMargin bool) error {
-	instId := t.convertSymbol(symbol)
-
-	mgnMode := "isolated"
-	if isCrossMargin {
-		mgnMode = "cross"
-	}
-
-	body := map[string]interface{}{
-		"instId":  instId,
-		"mgnMode": mgnMode,
-	}
-
-	_, err := t.doRequest("POST", "/api/v5/account/set-isolated-mode", body)
-	if err != nil {
-		// Ignore error if already in target mode
-		if strings.Contains(err.Error(), "already") {
-			logger.Infof("  ✓ %s margin mode is already %s", symbol, mgnMode)
-			return nil
-		}
-		// Cannot change when there are positions
-		if strings.Contains(err.Error(), "position") {
-			logger.Infof("  ⚠️ %s has positions, cannot change margin mode", symbol)
-			return nil
-		}
-		return err
-	}
-
-	logger.Infof("  ✓ %s margin mode set to %s", symbol, mgnMode)
+	t.isCrossMargin = isCrossMargin
+	logger.Infof("  ✓ %s margin mode set to %s", symbol, t.tdMode())
 	return nil
 }
 
@@ -615,7 +600,7 @@ func (t *OKXTrader) OpenLong(symbol string, quantity float64, leverage int) (map
 
 	body := map[string]interface{}{
 		"instId":  instId,
-		"tdMode":  "cross",
+		"tdMode":  t.tdMode(),
 		"side":    "buy",
 		"posSide": "long",
 		"ordType": "market",
@@ -692,7 +677,7 @@ func (t *OKXTrader) OpenShort(symbol string, quantity float64, leverage int) (ma
 
 	body := map[string]interface{}{
 		"instId":  instId,
-		"tdMode":  "cross",
+		"tdMode":  t.tdMode(),
 		"side":    "sell",
 		"posSide": "short",
 		"ordType": "market",
@@ -1014,7 +999,7 @@ func (t *OKXTrader) SetStopLoss(symbol string, positionSide string, quantity, st
 
 	body := map[string]interface{}{
 		"instId":      instId,
-		"tdMode":      "cross",
+		"tdMode":      t.tdMode(),
 		"side":        side,
 		"posSide":     posSide,
 		"ordType":     "conditional",
@@ -1057,7 +1042,7 @@ func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, 
 
 	body := map[string]interface{}{
 		"instId":      instId,
-		"tdMode":      "cross",
+		"tdMode":      t.tdMode(),
 		"side":        side,
 		"posSide":     posSide,
 		"ordType":     "conditional",
@@ -1588,7 +1573,7 @@ func (t *OKXTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitO
 
 	body := map[string]interface{}{
 		"instId":  instId,
-		"tdMode":  "cross",
+		"tdMode":  t.tdMode(),
 		"side":    side,
 		"posSide": posSide,
 		"ordType": "limit",
