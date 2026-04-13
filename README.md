@@ -110,41 +110,6 @@ To use NOFX, you'll need:
 
 ---
 
-## Screenshots
-
-### Config Page
-| AI Models & Exchanges | Traders List |
-|:---:|:---:|
-| <img src="screenshots/config-ai-exchanges.png" width="400" alt="Config - AI Models & Exchanges"/> | <img src="screenshots/config-traders-list.png" width="400" alt="Config - Traders List"/> |
-
-### Competition & Backtest
-| Competition Mode | Backtest Lab |
-|:---:|:---:|
-| <img src="screenshots/competition-page.png" width="400" alt="Competition Page"/> | <img src="screenshots/backtest-lab.png" width="400" alt="Backtest Lab"/> |
-
-### Dashboard
-| Overview | Market Chart |
-|:---:|:---:|
-| <img src="screenshots/dashboard-page.png" width="400" alt="Dashboard Overview"/> | <img src="screenshots/dashboard-market-chart.png" width="400" alt="Dashboard Market Chart"/> |
-
-| Trading Stats | Position History |
-|:---:|:---:|
-| <img src="screenshots/dashboard-trading-stats.png" width="400" alt="Trading Stats"/> | <img src="screenshots/dashboard-position-history.png" width="400" alt="Position History"/> |
-
-| Positions | Trader Details |
-|:---:|:---:|
-| <img src="screenshots/dashboard-positions.png" width="400" alt="Dashboard Positions"/> | <img src="screenshots/details-page.png" width="400" alt="Trader Details"/> |
-
-### Strategy Studio
-| Strategy Editor | Indicators Config |
-|:---:|:---:|
-| <img src="screenshots/strategy-studio.png" width="400" alt="Strategy Studio"/> | <img src="screenshots/strategy-indicators.png" width="400" alt="Strategy Indicators"/> |
-
-### Debate Arena
-| AI Debate Session | Create Debate |
-|:---:|:---:|
-| <img src="screenshots/debate-arena.png" width="400" alt="Debate Arena"/> | <img src="screenshots/debate-create.png" width="400" alt="Create Debate"/> |
-
 ---
 
 ## Quick Start

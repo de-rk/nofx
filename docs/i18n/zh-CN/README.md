@@ -102,22 +102,6 @@
 
 ---
 
-## 截图
-
-### 竞赛模式 - 实时 AI 对战
-![竞赛页面](../../../screenshots/competition-page.png)
-*多 AI 排行榜，实时性能对比*
-
-### 仪表板 - 市场图表视图
-![仪表板市场图表](../../../screenshots/dashboard-market-chart.png)
-*专业交易仪表板，TradingView 风格图表*
-
-### 策略工作室
-![策略工作室](../../../screenshots/strategy-studio.png)
-*多数据源策略配置与 AI 测试*
-
----
-
 ## 快速开始
 
 ### 一键安装 (本地/服务器)
