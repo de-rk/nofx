@@ -1316,10 +1316,34 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		// Block if a reduce order is already pending (waiting to fill or cancel)
 		at.gridState.mu.RLock()
 		pendingReduceID := at.gridState.TTradeReduceOrderID
+		tTradeIdle := !at.gridState.TTradeReadyToReduce && at.gridState.TTradePrepOrderID == ""
 		at.gridState.mu.RUnlock()
 		if pendingReduceID != "" {
 			logger.Infof("[Grid] reduce_long skipped: reduce order %s already pending", pendingReduceID)
 			return nil
+		}
+
+		// When T-trade is idle, cap AI-initiated reduce at 30% of current long position
+		if tTradeIdle {
+			positions, posErr := at.trader.GetPositions()
+			if posErr == nil {
+				var longSize float64
+				for _, pos := range positions {
+					if sym, _ := pos["symbol"].(string); sym == d.Symbol {
+						if side, _ := pos["side"].(string); side == "long" {
+							longSize, _ = pos["positionAmt"].(float64)
+							longSize = math.Abs(longSize)
+						}
+					}
+				}
+				if longSize > 0 {
+					maxQty := math.Round(longSize*0.30*10000) / 10000
+					if d.Quantity > maxQty {
+						logger.Infof("[Grid] reduce_long capped by 30%% rule (idle T-trade): %.4f → %.4f (long=%.4f)", d.Quantity, maxQty, longSize)
+						d.Quantity = maxQty
+					}
+				}
+			}
 		}
 
 		// Close long position with sell limit order
@@ -1354,10 +1378,34 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		// Block if a reduce order is already pending (waiting to fill or cancel)
 		at.gridState.mu.RLock()
 		pendingReduceID2 := at.gridState.TTradeReduceOrderID
+		tTradeIdle2 := !at.gridState.TTradeReadyToReduce && at.gridState.TTradePrepOrderID == ""
 		at.gridState.mu.RUnlock()
 		if pendingReduceID2 != "" {
 			logger.Infof("[Grid] reduce_short skipped: reduce order %s already pending", pendingReduceID2)
 			return nil
+		}
+
+		// When T-trade is idle, cap AI-initiated reduce at 30% of current short position
+		if tTradeIdle2 {
+			positions, posErr := at.trader.GetPositions()
+			if posErr == nil {
+				var shortSize float64
+				for _, pos := range positions {
+					if sym, _ := pos["symbol"].(string); sym == d.Symbol {
+						if side, _ := pos["side"].(string); side == "short" {
+							shortSize, _ = pos["positionAmt"].(float64)
+							shortSize = math.Abs(shortSize)
+						}
+					}
+				}
+				if shortSize > 0 {
+					maxQty := math.Round(shortSize*0.30*10000) / 10000
+					if d.Quantity > maxQty {
+						logger.Infof("[Grid] reduce_short capped by 30%% rule (idle T-trade): %.4f → %.4f (short=%.4f)", d.Quantity, maxQty, shortSize)
+						d.Quantity = maxQty
+					}
+				}
+			}
 		}
 
 		// Close short position with buy limit order
@@ -1878,19 +1926,23 @@ func (at *AutoTrader) syncGridState() {
 					at.gridState.TotalTrades++
 					logger.Infof("[Grid] Level %d order filled at $%.2f (level=$%.2f)", i, entryPrice, level.Price)
 
-					// Check if this was a T-trade prep order - if so, execute deferred reduce
+					// Check if this was a T-trade prep order - if so, signal AI to place reduce next cycle
 					if level.OrderID == at.gridState.TTradePrepOrderID && at.gridState.TTradePendingReduceQty > 0 && !at.gridState.TTradePrepExecuted {
 						reduceQty := at.gridState.TTradePendingReduceQty
 						prepSide := at.gridState.TTradePrepSide
+						prepPrice := at.gridState.TTradePrepPrice
 						at.gridState.TTradePrepExecuted = true
 						at.gridState.TTradePrepOrderID = ""
 						at.gridState.TTradePendingReduceQty = 0
 						at.gridState.TTradePrepSide = ""
-						at.gridState.mu.Unlock()
-						logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f) → executing deferred reduce (%.4f)",
-							level.OrderQuantity, entryPrice, reduceQty)
-						at.executeTrappedReduceSide(reduceQty, prepSide)
-						at.gridState.mu.Lock()
+						at.gridState.TTradePrepPrice = 0
+						// Signal AI to place reduce order next cycle (same path as checkTTradeOrderFillAndReduce)
+						at.gridState.TTradeReadyToReduce = true
+						at.gridState.TTradeReadyReduceQty = reduceQty
+						at.gridState.TTradeReadyReduceSide = prepSide
+						at.gridState.TTradeReadyPrepPrice = prepPrice
+						logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f) → ready_to_reduce (qty=%.4f side=%s)",
+							level.OrderQuantity, entryPrice, reduceQty, prepSide)
 					}
 				} else {
 					// Position didn't increase as expected, likely cancelled
