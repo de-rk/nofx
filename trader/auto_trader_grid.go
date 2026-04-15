@@ -178,13 +178,14 @@ func (at *AutoTrader) checkMaxDrawdown() (bool, float64) {
 		return false, 0
 	}
 
+	// Use wallet balance (realized equity) to avoid false triggers from unrealized PnL swings.
+	// totalEquity includes unrealized PnL: a large open profit sets a high PeakEquity, then
+	// closing the position drops totalEquity back to wallet level, falsely triggering drawdown.
 	currentEquity := 0.0
-	if equity, ok := balance["totalEquity"].(float64); ok {
+	if wallet, ok := balance["totalWalletBalance"].(float64); ok && wallet > 0 {
+		currentEquity = wallet
+	} else if equity, ok := balance["totalEquity"].(float64); ok {
 		currentEquity = equity
-	} else if total, ok := balance["totalWalletBalance"].(float64); ok {
-		if unrealized, ok := balance["totalUnrealizedProfit"].(float64); ok {
-			currentEquity = total + unrealized
-		}
 	}
 
 	if currentEquity <= 0 {
@@ -205,6 +206,7 @@ func (at *AutoTrader) checkMaxDrawdown() (bool, float64) {
 
 	// Calculate current drawdown
 	drawdown := (peakEquity - currentEquity) / peakEquity * 100
+	logger.Debugf("[Grid] Drawdown check: wallet=%.2f, peak=%.2f, drawdown=%.2f%%", currentEquity, peakEquity, drawdown)
 
 	// Update max drawdown tracking
 	at.gridState.mu.Lock()
