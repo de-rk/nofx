@@ -164,7 +164,9 @@ func (at *AutoTrader) checkBreakout() (BreakoutType, float64) {
 	return BreakoutNone, 0
 }
 
-// checkMaxDrawdown checks if current drawdown exceeds maximum allowed
+// checkMaxDrawdown checks if current drawdown exceeds maximum allowed.
+// Uses availableBalance (free capital not locked in positions) so that capital
+// transferred out of the trading account does not falsely inflate drawdown.
 // Returns: (exceeded bool, currentDrawdown float64)
 func (at *AutoTrader) checkMaxDrawdown() (bool, float64) {
 	gridConfig := at.config.StrategyConfig.GridConfig
@@ -172,17 +174,17 @@ func (at *AutoTrader) checkMaxDrawdown() (bool, float64) {
 		return false, 0
 	}
 
-	// Get current equity
 	balance, err := at.trader.GetBalance()
 	if err != nil {
 		return false, 0
 	}
 
-	// Use wallet balance (realized equity) to avoid false triggers from unrealized PnL swings.
-	// totalEquity includes unrealized PnL: a large open profit sets a high PeakEquity, then
-	// closing the position drops totalEquity back to wallet level, falsely triggering drawdown.
+	// Use availableBalance: free capital only, excludes margin locked in open positions
+	// and unrealized PnL, so transfers out and position closes don't trigger false exits.
 	currentEquity := 0.0
-	if wallet, ok := balance["totalWalletBalance"].(float64); ok && wallet > 0 {
+	if avail, ok := balance["availableBalance"].(float64); ok && avail > 0 {
+		currentEquity = avail
+	} else if wallet, ok := balance["totalWalletBalance"].(float64); ok && wallet > 0 {
 		currentEquity = wallet
 	} else if equity, ok := balance["totalEquity"].(float64); ok {
 		currentEquity = equity
@@ -204,11 +206,10 @@ func (at *AutoTrader) checkMaxDrawdown() (bool, float64) {
 		return false, 0
 	}
 
-	// Calculate current drawdown
 	drawdown := (peakEquity - currentEquity) / peakEquity * 100
-	logger.Debugf("[Grid] Drawdown check: wallet=%.2f, peak=%.2f, drawdown=%.2f%%", currentEquity, peakEquity, drawdown)
+	logger.Warnf("[RiskControl] max_drawdown check: available=%.2f, peak=%.2f, drawdown=%.2f%%, threshold=%.2f%%",
+		currentEquity, peakEquity, drawdown, gridConfig.MaxDrawdownPct)
 
-	// Update max drawdown tracking
 	at.gridState.mu.Lock()
 	if drawdown > at.gridState.MaxDrawdown {
 		at.gridState.MaxDrawdown = drawdown
@@ -218,7 +219,8 @@ func (at *AutoTrader) checkMaxDrawdown() (bool, float64) {
 	return drawdown >= gridConfig.MaxDrawdownPct, drawdown
 }
 
-// checkDailyLossLimit checks if daily loss exceeds limit
+// checkDailyLossLimit checks if daily loss exceeds limit.
+// Uses availableBalance as the denominator so only free capital is counted.
 // Returns: (exceeded bool, dailyLossPct float64)
 func (at *AutoTrader) checkDailyLossLimit() (bool, float64) {
 	gridConfig := at.config.StrategyConfig.GridConfig
@@ -237,11 +239,26 @@ func (at *AutoTrader) checkDailyLossLimit() (bool, float64) {
 	dailyPnL := at.gridState.DailyPnL
 	at.gridState.mu.Unlock()
 
-	// Calculate daily loss as percentage of total investment
-	dailyLossPct := 0.0
-	if gridConfig.TotalInvestment > 0 && dailyPnL < 0 {
-		dailyLossPct = (-dailyPnL) / gridConfig.TotalInvestment * 100
+	if dailyPnL >= 0 {
+		return false, 0
 	}
+
+	// Use availableBalance as denominator (free capital, excludes locked margin)
+	balance, err := at.trader.GetBalance()
+	denominator := gridConfig.TotalInvestment
+	if err == nil {
+		if avail, ok := balance["availableBalance"].(float64); ok && avail > 0 {
+			denominator = avail
+		}
+	}
+
+	dailyLossPct := 0.0
+	if denominator > 0 {
+		dailyLossPct = (-dailyPnL) / denominator * 100
+	}
+
+	logger.Warnf("[RiskControl] daily_loss check: dailyPnL=%.2f, available=%.2f, loss=%.2f%%, threshold=%.2f%%",
+		dailyPnL, denominator, dailyLossPct, gridConfig.DailyLossLimitPct)
 
 	return dailyLossPct >= gridConfig.DailyLossLimitPct, dailyLossPct
 }
@@ -2584,6 +2601,15 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 		return
 	}
 
+	// Get availableBalance for loss calculation denominator
+	balance, _ := at.trader.GetBalance()
+	availBalance := gridConfig.TotalInvestment
+	if balance != nil {
+		if avail, ok := balance["availableBalance"].(float64); ok && avail > 0 {
+			availBalance = avail
+		}
+	}
+
 	at.gridState.mu.Lock()
 	defer at.gridState.mu.Unlock()
 
@@ -2593,21 +2619,23 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 			continue
 		}
 
-		// Calculate loss percentage
+		// Calculate loss percentage relative to entry price
 		var lossPct float64
 		if level.Side == "buy" {
-			// Long position: loss when price drops
 			lossPct = (level.PositionEntry - currentPrice) / level.PositionEntry * 100
 		} else {
-			// Short position: loss when price rises
 			lossPct = (currentPrice - level.PositionEntry) / level.PositionEntry * 100
 		}
 
-		// Check if stop loss triggered
-		if lossPct >= gridConfig.StopLossPct {
-			logger.Warnf("[Grid] STOP LOSS TRIGGERED: Level %d, entry=$%.2f, current=$%.2f, loss=%.2f%%",
-				i, level.PositionEntry, currentPrice, lossPct)
+		side := "long"
+		if level.Side != "buy" {
+			side = "short"
+		}
 
+		logger.Warnf("[RiskControl] stop_loss check: level=%d side=%s entry=%.2f current=%.2f loss=%.2f%% threshold=%.2f%% available=%.2f",
+			i, side, level.PositionEntry, currentPrice, lossPct, gridConfig.StopLossPct, availBalance)
+
+		if lossPct >= gridConfig.StopLossPct {
 			// Close the position
 			var closeErr error
 			if level.Side == "buy" {
@@ -2616,14 +2644,11 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 				_, closeErr = at.trader.CloseShort(gridConfig.Symbol, level.PositionSize)
 			}
 
-			side := "long"
-			if level.Side != "buy" {
-				side = "short"
-			}
+			realizedLoss := -lossPct * level.AllocatedUSD / 100
 			at.logGridTrade("stop_loss", "stop_loss_close", side, gridConfig.Symbol,
-				fmt.Sprintf("level=%d loss=%.2f%% threshold=%.2f%%", i, lossPct, gridConfig.StopLossPct),
+				fmt.Sprintf("level=%d loss=%.2f%% threshold=%.2f%% available=%.2f", i, lossPct, gridConfig.StopLossPct, availBalance),
 				"", level.PositionSize, currentPrice, level.PositionEntry, currentPrice,
-				0, -lossPct*level.AllocatedUSD/100, closeErr == nil, func() string {
+				0, realizedLoss, closeErr == nil, func() string {
 					if closeErr != nil {
 						return closeErr.Error()
 					}
@@ -2631,17 +2656,15 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 				}())
 
 			if closeErr != nil {
-				logger.Errorf("[Grid] Failed to execute stop loss for level %d: %v", i, closeErr)
+				logger.Errorf("[RiskControl] stop_loss FAILED: level=%d err=%v", i, closeErr)
 			} else {
 				level.State = "stopped"
-				realizedLoss := -lossPct * level.AllocatedUSD / 100
 				level.UnrealizedPnL = realizedLoss
 				at.gridState.TotalTrades++
-				// Update daily PnL tracking (lock already held, update directly)
 				at.gridState.DailyPnL += realizedLoss
 				at.gridState.TotalProfit += realizedLoss
-				logger.Infof("[Grid] Stop loss executed: Level %d closed at $%.2f (loss %.2f%%)",
-					i, currentPrice, lossPct)
+				logger.Warnf("[RiskControl] stop_loss EXECUTED: level=%d closed %.4f @ %.2f loss=%.2f%%",
+					i, level.PositionSize, currentPrice, lossPct)
 				at.refreshTotalInvestment()
 			}
 		}
