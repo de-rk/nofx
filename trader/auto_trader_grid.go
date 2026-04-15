@@ -881,21 +881,7 @@ func (at *AutoTrader) RunGridCycle() error {
 		}
 	}
 
-	// CRITICAL: Check max drawdown
-	exceeded, drawdown := at.checkMaxDrawdown()
-	if exceeded {
-		return at.emergencyExit(fmt.Sprintf("max drawdown exceeded: %.2f%%", drawdown))
-	}
-
-	// CRITICAL: Check daily loss limit
-	dailyExceeded, dailyLossPct := at.checkDailyLossLimit()
-	if dailyExceeded {
-		logger.Errorf("[Grid] Daily loss limit exceeded: %.2f%%", dailyLossPct)
-		at.gridState.mu.Lock()
-		at.gridState.IsPaused = true
-		at.gridState.mu.Unlock()
-		return fmt.Errorf("daily loss limit exceeded: %.2f%%", dailyLossPct)
-	}
+	// Risk controls (max drawdown, daily loss limit, stop loss) are disabled.
 
 	// Check multi-period box breakout
 	if err := at.checkBoxBreakout(); err != nil {
@@ -2589,12 +2575,9 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 	}
 }
 
-// checkAndExecuteStopLoss checks if any filled level has exceeded stop loss and closes it
+// checkAndExecuteStopLoss is disabled.
 func (at *AutoTrader) checkAndExecuteStopLoss() {
-	gridConfig := at.config.StrategyConfig.GridConfig
-	if gridConfig.StopLossPct <= 0 {
-		return // Stop loss not configured
-	}
+}
 
 	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
 	if err != nil {
