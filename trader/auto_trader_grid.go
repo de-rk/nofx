@@ -2614,6 +2614,20 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 				_, closeErr = at.trader.CloseShort(gridConfig.Symbol, level.PositionSize)
 			}
 
+			side := "long"
+			if level.Side != "buy" {
+				side = "short"
+			}
+			at.logGridTrade("stop_loss", "stop_loss_close", side, gridConfig.Symbol,
+				fmt.Sprintf("level=%d loss=%.2f%% threshold=%.2f%%", i, lossPct, gridConfig.StopLossPct),
+				"", level.PositionSize, currentPrice, level.PositionEntry, currentPrice,
+				0, -lossPct*level.AllocatedUSD/100, closeErr == nil, func() string {
+					if closeErr != nil {
+						return closeErr.Error()
+					}
+					return ""
+				}())
+
 			if closeErr != nil {
 				logger.Errorf("[Grid] Failed to execute stop loss for level %d: %v", i, closeErr)
 			} else {
