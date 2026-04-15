@@ -938,6 +938,16 @@ func (at *AutoTrader) RunGridCycle() error {
 	// Get AI decisions
 	decision, err := kernel.GetGridDecisions(gridCtx, at.mcpClient, at.config.StrategyConfig, lang)
 	if err != nil {
+		at.gridState.mu.Lock()
+		at.gridState.DecisionMemory = append(at.gridState.DecisionMemory, kernel.DecisionSummary{
+			Timestamp: time.Now().Format("15:04:05"),
+			Action:    "timeout",
+			Reasoning: fmt.Sprintf("AI call timed out: %v", err),
+		})
+		if len(at.gridState.DecisionMemory) > 5 {
+			at.gridState.DecisionMemory = at.gridState.DecisionMemory[len(at.gridState.DecisionMemory)-5:]
+		}
+		at.gridState.mu.Unlock()
 		return fmt.Errorf("failed to get grid decisions: %w", err)
 	}
 
