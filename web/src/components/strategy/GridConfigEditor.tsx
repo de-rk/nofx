@@ -376,13 +376,11 @@ export function GridConfigEditor({
             <input
               type="number"
               value={config.max_drawdown_pct}
-              onChange={(e) => updateField('max_drawdown_pct', parseFloat(e.target.value) || 15)}
-              disabled={disabled}
-              min={5}
-              max={50}
-              className="w-full px-3 py-2 rounded"
-              style={inputStyle}
+              disabled
+              className="w-full px-3 py-2 rounded cursor-not-allowed"
+              style={{ ...inputStyle, opacity: 0.4 }}
             />
+            <p className="text-xs mt-1" style={{ color: '#F0B90B' }}>已禁用</p>
           </div>
 
           <div className="p-4 rounded-lg" style={sectionStyle}>
@@ -395,13 +393,11 @@ export function GridConfigEditor({
             <input
               type="number"
               value={config.stop_loss_pct}
-              onChange={(e) => updateField('stop_loss_pct', parseFloat(e.target.value) || 5)}
-              disabled={disabled}
-              min={1}
-              max={20}
-              className="w-full px-3 py-2 rounded"
-              style={inputStyle}
+              disabled
+              className="w-full px-3 py-2 rounded cursor-not-allowed"
+              style={{ ...inputStyle, opacity: 0.4 }}
             />
+            <p className="text-xs mt-1" style={{ color: '#F0B90B' }}>已禁用</p>
           </div>
 
           <div className="p-4 rounded-lg" style={sectionStyle}>
@@ -414,13 +410,11 @@ export function GridConfigEditor({
             <input
               type="number"
               value={config.daily_loss_limit_pct}
-              onChange={(e) => updateField('daily_loss_limit_pct', parseFloat(e.target.value) || 10)}
-              disabled={disabled}
-              min={1}
-              max={30}
-              className="w-full px-3 py-2 rounded"
-              style={inputStyle}
+              disabled
+              className="w-full px-3 py-2 rounded cursor-not-allowed"
+              style={{ ...inputStyle, opacity: 0.4 }}
             />
+            <p className="text-xs mt-1" style={{ color: '#F0B90B' }}>已禁用</p>
           </div>
 
           <div className="p-4 rounded-lg" style={sectionStyle}>
