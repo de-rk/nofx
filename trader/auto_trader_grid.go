@@ -298,9 +298,10 @@ func (at *AutoTrader) emergencyExit(reason string) error {
 		}
 	}
 
-	// Pause grid
+	// Pause grid and reset PeakEquity so drawdown check doesn't re-trigger on next cycle
 	at.gridState.mu.Lock()
 	at.gridState.IsPaused = true
+	at.gridState.PeakEquity = 0
 	at.gridState.mu.Unlock()
 
 	return nil
