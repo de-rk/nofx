@@ -336,7 +336,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 系统已自动处理T字操作：当损失超过 %.1f%% 时，系统会自动标记最近的网格挂单作为触发单。
 - **waiting_buy_fill**：触发单尚未成交，请勿重复下单，等待系统通知
 - **ready_to_reduce**：触发单已成交，**你需要立即执行 reduce_long 或 reduce_short 完成减仓**
-- **idle**：T字操作空闲，若判断被套可由 AI 发起减仓决策
+- **idle**：T字操作空闲，等待系统自动标记触发单，请勿自行发起减仓
 **你无需下 place_buy_limit / place_sell_limit 来触发T字操作，也不要重复下单。**
 `, config.TrappedReduceThresholdPct)
 	}
@@ -394,7 +394,7 @@ func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
 The system handles T-trade setup automatically: when loss exceeds %.1f%%, the system tags the nearest pending grid order as the trigger order.
 - **waiting_buy_fill**: trigger order not yet filled — do NOT place additional orders, wait for the system
 - **ready_to_reduce**: trigger order filled — **you must immediately place reduce_long or reduce_short to complete the reduction**
-- **idle**: T-trade is idle — AI may initiate a reduce decision if position is trapped
+- **idle**: T-trade is idle — do NOT initiate reduce independently, wait for the system to tag a trigger order
 **Do NOT place place_buy_limit / place_sell_limit to trigger T-trade.**
 `, config.TrappedReduceThresholdPct)
 	}

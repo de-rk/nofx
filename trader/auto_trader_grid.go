@@ -1339,27 +1339,10 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			return nil
 		}
 
-		// When T-trade is idle, cap AI-initiated reduce at 30% of current long position
+		// Block AI-initiated reduce when T-trade is idle — only allow when T-trade is active
 		if tTradeIdle {
-			positions, posErr := at.trader.GetPositions()
-			if posErr == nil {
-				var longSize float64
-				for _, pos := range positions {
-					if sym, _ := pos["symbol"].(string); sym == d.Symbol {
-						if side, _ := pos["side"].(string); side == "long" {
-							longSize, _ = pos["positionAmt"].(float64)
-							longSize = math.Abs(longSize)
-						}
-					}
-				}
-				if longSize > 0 {
-					maxQty := math.Round(longSize*0.30*10000) / 10000
-					if d.Quantity > maxQty {
-						logger.Infof("[Grid] reduce_long capped by 30%% rule (idle T-trade): %.4f → %.4f (long=%.4f)", d.Quantity, maxQty, longSize)
-						d.Quantity = maxQty
-					}
-				}
-			}
+			logger.Infof("[Grid] reduce_long skipped: T-trade is idle, AI-initiated reduce is disabled")
+			return nil
 		}
 
 		// Close long position with sell limit order
@@ -1401,27 +1384,10 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			return nil
 		}
 
-		// When T-trade is idle, cap AI-initiated reduce at 30% of current short position
+		// Block AI-initiated reduce when T-trade is idle — only allow when T-trade is active
 		if tTradeIdle2 {
-			positions, posErr := at.trader.GetPositions()
-			if posErr == nil {
-				var shortSize float64
-				for _, pos := range positions {
-					if sym, _ := pos["symbol"].(string); sym == d.Symbol {
-						if side, _ := pos["side"].(string); side == "short" {
-							shortSize, _ = pos["positionAmt"].(float64)
-							shortSize = math.Abs(shortSize)
-						}
-					}
-				}
-				if shortSize > 0 {
-					maxQty := math.Round(shortSize*0.30*10000) / 10000
-					if d.Quantity > maxQty {
-						logger.Infof("[Grid] reduce_short capped by 30%% rule (idle T-trade): %.4f → %.4f (short=%.4f)", d.Quantity, maxQty, shortSize)
-						d.Quantity = maxQty
-					}
-				}
-			}
+			logger.Infof("[Grid] reduce_short skipped: T-trade is idle, AI-initiated reduce is disabled")
+			return nil
 		}
 
 		// Close short position with buy limit order
