@@ -28,6 +28,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   profit_drawdown_threshold: 50,
   enable_trapped_reduce: false,
   trapped_reduce_threshold_pct: 3.0,
+  enable_profit_reduce: true,
 }
 
 export function GridConfigEditor({
@@ -100,15 +101,21 @@ export function GridConfigEditor({
       modeShortBias: { zh: '偏空：(100-X)%买 + X%卖', en: 'Short Bias: (100-X)% buy + X% sell' },
       modeShort: { zh: '全空：0%买 + 100%卖', en: 'Short: 0% buy + 100% sell' },
 
+      // Profit reduce
+      profitReduce: { zh: 'AI盈利减仓', en: 'AI Profit Reduction' },
+      enableProfitReduce: { zh: '启用盈利减仓', en: 'Enable Profit Reduction' },
+      enableProfitReduceDesc: { zh: '盈利达到10%时自动减仓，每多盈利10%再减一次，比例递增，锁定利润防止回撤', en: 'Auto-reduce when profit hits 10%, repeat at each 10% increment with increasing ratio, locking in gains' },
+      profitReduceExplain: { zh: '💡 盈利减仓规则：10%盈利→减10%仓位，20%→再减20%，30%→再减30%（基于保证金收益率，每次减剩余仓位）', en: '💡 Profit reduce rules: 10% profit → reduce 10%, 20% → reduce 20% of remaining, 30% → 30% (margin-based, each step reduces remaining position)' },
+
       // Trapped reduce
-      trappedReduce: { zh: 'AI分批减仓 (被套T字操作)', en: 'AI Batch Reduce (T-Trade for Trapped)' },
-      enableTrappedReduce: { zh: '启用分批减仓', en: 'Enable Batch Reduction' },
-      enableTrappedReduceDesc: { zh: '被套时AI自动分批减仓，降低持仓成本，防止长期亏损', en: 'AI auto batch-reduces when trapped to lower cost and prevent long-term loss' },
+      trappedReduce: { zh: 'AI被套减仓 (T字操作)', en: 'AI Trapped Reduction (T-Trade)' },
+      enableTrappedReduce: { zh: '启用被套减仓', en: 'Enable Trapped Reduction' },
+      enableTrappedReduceDesc: { zh: '被套时AI通过T字操作分批减仓，降低持仓成本，逐步扭亏为盈', en: 'AI uses T-trade to batch-reduce trapped positions, lowering cost basis to turn losses around' },
       trappedReduceThreshold: { zh: '触发阈值 (%)', en: 'Trigger Threshold (%)' },
       trappedReduceThresholdDesc: { zh: '未实现亏损占总投资的百分比超过此值时触发', en: 'Trigger when unrealized loss exceeds this % of total investment' },
       trappedReduceBatch: { zh: '每批减仓比例 (%)', en: 'Batch Reduce Percent (%)' },
       trappedReduceBatchDesc: { zh: '每次减仓的仓位比例（25%=每次平掉1/4被套仓位）', en: 'Position percent to reduce per batch (25% = close 1/4 each time)' },
-      trappedReduceExplain: { zh: '💡 T字操作原理：被套时分批卖出降低成本，再在低位重新买入摊薄，逐步扭亏为盈，不需要等价格回到原开仓价', en: '💡 T-Trade principle: reduce partial position when trapped, re-enter at lower price to average down, gradually turn losses to profit without waiting for price to return to entry' },
+      trappedReduceExplain: { zh: '💡 T字操作原理：被套时等待最近网格挂单成交，再在更优价格减仓，利用价差降低持仓成本，不需要等价格回到原开仓价', en: '💡 T-Trade principle: wait for nearest grid order to fill, then reduce at a better price to capture the spread and lower cost basis without waiting for price to return to entry' },
     }
     return translations[key]?.[language] || key
   }
@@ -554,6 +561,43 @@ export function GridConfigEditor({
             </div>
           </>
         )}
+      </div>
+
+      {/* ===== Profit Reduce Section ===== */}
+      <div className="p-4 rounded-lg" style={{ background: '#1A1D23', border: '1px solid #2B3139' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <TrendingUp className="w-5 h-5" style={{ color: '#0ECB81' }} />
+          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+            {t('profitReduce')}
+          </h3>
+        </div>
+
+        <div className="p-3 rounded-lg mb-4 text-xs" style={{ background: '#0ECB8110', border: '1px solid #0ECB8130', color: '#EAECEF' }}>
+          {t('profitReduceExplain')}
+        </div>
+
+        <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="block text-sm" style={{ color: '#EAECEF' }}>
+                {t('enableProfitReduce')}
+              </label>
+              <p className="text-xs" style={{ color: '#848E9C' }}>
+                {t('enableProfitReduceDesc')}
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.enable_profit_reduce ?? true}
+                onChange={(e) => updateField('enable_profit_reduce', e.target.checked)}
+                disabled={disabled}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0ECB81]"></div>
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* ===== Trapped Reduce Section ===== */}

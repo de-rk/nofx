@@ -927,7 +927,9 @@ func (at *AutoTrader) RunGridCycle() error {
 	}
 
 	// Check profit-based position reduction
-	at.checkProfitReduce()
+	if at.config.StrategyConfig.GridConfig.EnableProfitReduce {
+		at.checkProfitReduce()
+	}
 
 	// Build grid context
 	gridCtx, err := at.buildGridContext()

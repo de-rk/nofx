@@ -514,6 +514,8 @@ export interface GridStrategyConfig {
   enable_trapped_reduce?: boolean;
   // Unrealized loss % to trigger batch reduction (default 3.0%)
   trapped_reduce_threshold_pct?: number;
+  // Enable profit-based position reduction (盈利分批减仓, default true)
+  enable_profit_reduce?: boolean;
 }
 
 export interface CoinSourceConfig {
