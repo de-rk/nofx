@@ -516,6 +516,8 @@ export interface GridStrategyConfig {
   trapped_reduce_threshold_pct?: number;
   // Enable profit-based position reduction (盈利分批减仓, default true)
   enable_profit_reduce?: boolean;
+  // Profit reduce step percentage (default 10%)
+  profit_reduce_step_pct?: number;
 }
 
 export interface CoinSourceConfig {

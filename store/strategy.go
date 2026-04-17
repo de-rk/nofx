@@ -104,6 +104,8 @@ type GridStrategyConfig struct {
 	TrappedReduceThresholdPct float64 `json:"trapped_reduce_threshold_pct"`
 	// Enable profit-based position reduction (盈利分批减仓, default true)
 	EnableProfitReduce bool `json:"enable_profit_reduce"`
+	// Profit reduce step percentage (default 10.0%)
+	ProfitReduceStepPct float64 `json:"profit_reduce_step_pct"`
 	// Minimum minutes between direction changes to prevent oscillation (default 30, 0 = disabled)
 	DirectionHysteresisMin int `json:"direction_hysteresis_min"`
 }

@@ -29,6 +29,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   enable_trapped_reduce: false,
   trapped_reduce_threshold_pct: 3.0,
   enable_profit_reduce: true,
+  profit_reduce_step_pct: 10,
 }
 
 export function GridConfigEditor({
@@ -101,11 +102,16 @@ export function GridConfigEditor({
       modeShortBias: { zh: '偏空：(100-X)%买 + X%卖', en: 'Short Bias: (100-X)% buy + X% sell' },
       modeShort: { zh: '全空：0%买 + 100%卖', en: 'Short: 0% buy + 100% sell' },
 
+      // T-trade section (combines profit reduce + trapped reduce)
+      tTradeSection: { zh: 'T字操作', en: 'T-Trade Operations' },
+
       // Profit reduce
       profitReduce: { zh: 'AI盈利减仓', en: 'AI Profit Reduction' },
       enableProfitReduce: { zh: '启用盈利减仓', en: 'Enable Profit Reduction' },
-      enableProfitReduceDesc: { zh: '盈利达到10%时自动减仓，每多盈利10%再减一次，比例递增，锁定利润防止回撤', en: 'Auto-reduce when profit hits 10%, repeat at each 10% increment with increasing ratio, locking in gains' },
-      profitReduceExplain: { zh: '💡 盈利减仓规则：10%盈利→减10%仓位，20%→再减20%，30%→再减30%（基于保证金收益率，每次减剩余仓位）', en: '💡 Profit reduce rules: 10% profit → reduce 10%, 20% → reduce 20% of remaining, 30% → 30% (margin-based, each step reduces remaining position)' },
+      enableProfitReduceDesc: { zh: '盈利达到触发步长时自动减仓，每多盈利一个步长再减一次，比例递增，锁定利润防止回撤', en: 'Auto-reduce when profit hits the step threshold, repeat at each increment with increasing ratio' },
+      profitReduceExplain: { zh: '💡 盈利减仓规则：每盈利N%减仓N%，下一档再减2N%，以此类推（基于保证金收益率，每次减剩余仓位）', en: '💡 Profit reduce: at N% profit reduce N%, at 2N% reduce 2N% of remaining, etc. (margin-based)' },
+      profitReduceStep: { zh: '触发步长 (%)', en: 'Step Size (%)' },
+      profitReduceStepDesc: { zh: '每隔多少%盈利触发一次减仓（默认10%）', en: 'Profit increment that triggers each reduction (default 10%)' },
 
       // Trapped reduce
       trappedReduce: { zh: 'AI被套减仓 (T字操作)', en: 'AI Trapped Reduction (T-Trade)' },
@@ -563,88 +569,81 @@ export function GridConfigEditor({
         )}
       </div>
 
-      {/* ===== Profit Reduce Section ===== */}
+      {/* ===== T字操作 Section (Profit Reduce + Trapped Reduce) ===== */}
       <div className="p-4 rounded-lg" style={{ background: '#1A1D23', border: '1px solid #2B3139' }}>
         <div className="flex items-center gap-2 mb-4">
-          <TrendingUp className="w-5 h-5" style={{ color: '#0ECB81' }} />
+          <TrendingUp className="w-5 h-5" style={{ color: '#F0B90B' }} />
           <h3 className="font-medium" style={{ color: '#EAECEF' }}>
-            {t('profitReduce')}
+            {t('tTradeSection')}
           </h3>
         </div>
 
-        <div className="p-3 rounded-lg mb-4 text-xs" style={{ background: '#0ECB8110', border: '1px solid #0ECB8130', color: '#EAECEF' }}>
-          {t('profitReduceExplain')}
-        </div>
-
-        <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="block text-sm" style={{ color: '#EAECEF' }}>
-                {t('enableProfitReduce')}
+        {/* Profit Reduce */}
+        <div className="mb-4">
+          <p className="text-xs mb-3 px-1" style={{ color: '#848E9C' }}>{t('profitReduceExplain')}</p>
+          <div className="p-4 rounded-lg mb-3" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="block text-sm" style={{ color: '#EAECEF' }}>{t('enableProfitReduce')}</label>
+                <p className="text-xs" style={{ color: '#848E9C' }}>{t('enableProfitReduceDesc')}</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.enable_profit_reduce ?? true}
+                  onChange={(e) => updateField('enable_profit_reduce', e.target.checked)}
+                  disabled={disabled}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0ECB81]"></div>
               </label>
-              <p className="text-xs" style={{ color: '#848E9C' }}>
-                {t('enableProfitReduceDesc')}
-              </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.enable_profit_reduce ?? true}
-                onChange={(e) => updateField('enable_profit_reduce', e.target.checked)}
-                disabled={disabled}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0ECB81]"></div>
-            </label>
           </div>
-        </div>
-      </div>
-
-      {/* ===== Trapped Reduce Section ===== */}
-      <div className="p-4 rounded-lg" style={{ background: '#1A1D23', border: '1px solid #2B3139' }}>
-        <div className="flex items-center gap-2 mb-4">
-          <Shield className="w-5 h-5" style={{ color: '#F6465D' }} />
-          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
-            {t('trappedReduce')}
-          </h3>
-        </div>
-
-        {/* Explain box */}
-        <div className="p-3 rounded-lg mb-4 text-xs" style={{ background: '#F6465D10', border: '1px solid #F6465D30', color: '#EAECEF' }}>
-          {t('trappedReduceExplain')}
-        </div>
-
-        {/* Enable Toggle */}
-        <div className="p-4 rounded-lg mb-4" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="block text-sm" style={{ color: '#EAECEF' }}>
-                {t('enableTrappedReduce')}
-              </label>
-              <p className="text-xs" style={{ color: '#848E9C' }}>
-                {t('enableTrappedReduceDesc')}
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.enable_trapped_reduce ?? false}
-                onChange={(e) => updateField('enable_trapped_reduce', e.target.checked)}
-                disabled={disabled}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F6465D]"></div>
-            </label>
-          </div>
-        </div>
-
-        {config.enable_trapped_reduce && (
-          <div className="space-y-3">
-            {/* Threshold */}
+          {(config.enable_profit_reduce ?? true) && (
             <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-                {t('trappedReduceThreshold')}
+              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('profitReduceStep')}</label>
+              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('profitReduceStepDesc')}</p>
+              <input
+                type="number"
+                value={config.profit_reduce_step_pct ?? 10}
+                onChange={(e) => updateField('profit_reduce_step_pct', parseFloat(e.target.value) || 10)}
+                disabled={disabled}
+                min={5}
+                max={30}
+                step={5}
+                className="w-full px-3 py-2 rounded text-sm"
+                style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+              />
+            </div>
+          )}
+        </div>
+
+        <div style={{ borderTop: '1px solid #2B3139', marginBottom: '16px' }} />
+
+        {/* Trapped Reduce */}
+        <div>
+          <p className="text-xs mb-3 px-1" style={{ color: '#848E9C' }}>{t('trappedReduceExplain')}</p>
+          <div className="p-4 rounded-lg mb-3" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="block text-sm" style={{ color: '#EAECEF' }}>{t('enableTrappedReduce')}</label>
+                <p className="text-xs" style={{ color: '#848E9C' }}>{t('enableTrappedReduceDesc')}</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.enable_trapped_reduce ?? false}
+                  onChange={(e) => updateField('enable_trapped_reduce', e.target.checked)}
+                  disabled={disabled}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F6465D]"></div>
               </label>
+            </div>
+          </div>
+          {config.enable_trapped_reduce && (
+            <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('trappedReduceThreshold')}</label>
               <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('trappedReduceThresholdDesc')}</p>
               <input
                 type="number"
@@ -658,9 +657,8 @@ export function GridConfigEditor({
                 style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
               />
             </div>
-
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

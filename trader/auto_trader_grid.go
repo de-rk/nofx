@@ -1008,11 +1008,15 @@ func (at *AutoTrader) RunGridCycle() error {
 }
 
 // checkProfitReduce checks per-side unrealized profit and reduces position accordingly:
-// - Every 10% profit increment → reduce 10% of current position
-// - If profit > 12% AND position value < 100 USD → close entire side
+// - Every ProfitReduceStepPct increment → reduce that % of current position
+// - If profit > step*1.2 AND position value < 100 USD → close entire side
 func (at *AutoTrader) checkProfitReduce() {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	symbol := gridConfig.Symbol
+	step := gridConfig.ProfitReduceStepPct
+	if step <= 0 {
+		step = 10.0
+	}
 
 	positions, err := at.trader.GetPositions()
 	if err != nil {
@@ -1085,7 +1089,7 @@ func (at *AutoTrader) checkProfitReduce() {
 		}
 
 		positionValue := info.size * info.markPrice
-		if profitPct > 12 && positionValue < 100 {
+		if profitPct > step*1.2 && positionValue < 100 {
 			actions = append(actions, reduceAction{info: *info, qty: info.size, closeAll: true})
 			continue
 		}
@@ -1094,16 +1098,16 @@ func (at *AutoTrader) checkProfitReduce() {
 		if info.side == "short" {
 			alreadyReduced = at.gridState.ShortProfitReducedPct
 		}
-		targetReducePct := math.Floor(profitPct/10) * 10
+		targetReducePct := math.Floor(profitPct/step) * step
 		if targetReducePct <= alreadyReduced {
 			continue
 		}
 		// Escalating reduce based on current position size at each step
-		// Step 10%: reduce 10% of current size, Step 20%: reduce 20% of remaining, etc.
+		// Step N×: reduce N×step% of remaining position
 		var reduceQty float64
 		remaining := info.size
-		for step := alreadyReduced + 10; step <= targetReducePct; step += 10 {
-			stepPct := step / 10 * 0.10 // 10→10%, 20→20%, 30→30%...
+		for s := alreadyReduced + step; s <= targetReducePct; s += step {
+			stepPct := (s / step) * (step / 100) // 1×step→step%, 2×step→2×step%...
 			reduceQty += remaining * stepPct
 			remaining -= remaining * stepPct
 		}
