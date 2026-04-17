@@ -497,11 +497,11 @@ export interface GridStrategyConfig {
   // Position distribution: "uniform" | "gaussian" | "pyramid"
   distribution: 'uniform' | 'gaussian' | 'pyramid';
   // Maximum drawdown percentage before emergency exit
-  max_drawdown_pct: number;
+  max_drawdown_pct?: number;
   // Stop loss percentage per position
-  stop_loss_pct: number;
+  stop_loss_pct?: number;
   // Daily loss limit percentage
-  daily_loss_limit_pct: number;
+  daily_loss_limit_pct?: number;
   // Use maker-only orders for lower fees
   use_maker_only: boolean;
   // Enable automatic grid direction adjustment based on box breakouts
