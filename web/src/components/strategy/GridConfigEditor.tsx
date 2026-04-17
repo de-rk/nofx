@@ -19,9 +19,6 @@ export const defaultGridConfig: GridStrategyConfig = {
   use_atr_bounds: true,
   atr_multiplier: 2.0,
   distribution: 'gaussian',
-  max_drawdown_pct: 15,
-  stop_loss_pct: 5,
-  daily_loss_limit_pct: 10,
   use_maker_only: true,
   enable_direction_adjust: false,
   direction_bias_ratio: 0.7,
@@ -76,12 +73,6 @@ export function GridConfigEditor({
       lowerPriceDesc: { zh: '网格下边界价格 (0=自动计算)', en: 'Grid lower bound (0=auto)' },
 
       // Risk control
-      maxDrawdown: { zh: '最大回撤 (%)', en: 'Max Drawdown (%)' },
-      maxDrawdownDesc: { zh: '触发紧急退出的最大回撤百分比', en: 'Max drawdown before emergency exit' },
-      stopLoss: { zh: '止损 (%)', en: 'Stop Loss (%)' },
-      stopLossDesc: { zh: '单仓位止损百分比', en: 'Stop loss per position' },
-      dailyLossLimit: { zh: '日损失限制 (%)', en: 'Daily Loss Limit (%)' },
-      dailyLossLimitDesc: { zh: '每日最大亏损百分比', en: 'Maximum daily loss percentage' },
       profitDrawdown: { zh: '利润回撤阈值 (%)', en: 'Profit Drawdown (%)' },
       profitDrawdownDesc: { zh: '盈利回撤超过此值时自动平仓 (当利润>5%时)', en: 'Auto close when profit drawdown exceeds this (when profit>5%)' },
       useMakerOnly: { zh: '仅使用 Maker 订单', en: 'Maker Only Orders' },
@@ -379,57 +370,6 @@ export function GridConfigEditor({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div className="p-4 rounded-lg" style={sectionStyle}>
-            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-              {t('maxDrawdown')}
-            </label>
-            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-              {t('maxDrawdownDesc')}
-            </p>
-            <input
-              type="number"
-              value={config.max_drawdown_pct}
-              disabled
-              className="w-full px-3 py-2 rounded cursor-not-allowed"
-              style={{ ...inputStyle, opacity: 0.4 }}
-            />
-            <p className="text-xs mt-1" style={{ color: '#F0B90B' }}>已禁用</p>
-          </div>
-
-          <div className="p-4 rounded-lg" style={sectionStyle}>
-            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-              {t('stopLoss')}
-            </label>
-            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-              {t('stopLossDesc')}
-            </p>
-            <input
-              type="number"
-              value={config.stop_loss_pct}
-              disabled
-              className="w-full px-3 py-2 rounded cursor-not-allowed"
-              style={{ ...inputStyle, opacity: 0.4 }}
-            />
-            <p className="text-xs mt-1" style={{ color: '#F0B90B' }}>已禁用</p>
-          </div>
-
-          <div className="p-4 rounded-lg" style={sectionStyle}>
-            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-              {t('dailyLossLimit')}
-            </label>
-            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-              {t('dailyLossLimitDesc')}
-            </p>
-            <input
-              type="number"
-              value={config.daily_loss_limit_pct}
-              disabled
-              className="w-full px-3 py-2 rounded cursor-not-allowed"
-              style={{ ...inputStyle, opacity: 0.4 }}
-            />
-            <p className="text-xs mt-1" style={{ color: '#F0B90B' }}>已禁用</p>
-          </div>
-
           <div className="p-4 rounded-lg" style={sectionStyle}>
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {t('profitDrawdown')}
