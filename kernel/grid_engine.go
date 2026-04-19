@@ -332,56 +332,65 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 	trappedSection := ""
 	if config.EnableTrappedReduce {
 		trappedSection = fmt.Sprintf(`
-## 被套减仓（T字操作）
-系统已自动处理T字操作：当损失超过 %.1f%% 时，系统会自动标记最近的网格挂单作为触发单。
-- **waiting_buy_fill**：触发单尚未成交，请勿重复下单，等待系统通知
-- **ready_to_reduce**：触发单已成交，**你需要立即执行 reduce_long 或 reduce_short 完成减仓**
-- **idle**：T字操作空闲，等待系统自动标记触发单，请勿自行发起减仓
-**你无需下 place_buy_limit / place_sell_limit 来触发T字操作，也不要重复下单。**
+## T字操作（被套减仓）
+触发条件：亏损超过 %.1f%% 时系统自动标记最近网格挂单为触发单。
+
+**三个状态，你的职责不同：**
+| 状态 | 含义 | 你需要做什么 |
+|------|------|------------|
+| idle | 无被套或未达阈值 | 不执行任何减仓，等待系统标记 |
+| waiting_buy_fill | 触发单挂出，等待成交 | 什么都不做，禁止重复下单 |
+| ready_to_reduce | 触发单已成交 | **立即执行 reduce_long 或 reduce_short** |
+
+**ready_to_reduce 执行规则：**
+- 减仓数量由系统决定，你只需给出价格
+- 多头被套 → reduce_long，限价必须**高于**触发单成交价
+- 空头被套 → reduce_short，限价必须**低于**触发单成交价
+- 价差越大，T字套利效果越好
 `, config.TrappedReduceThresholdPct)
 	}
 
 	return fmt.Sprintf(`# 网格交易 AI — %s
 
-## 角色
-你是一个双向网格交易专家。每个周期你需要：
-1. 判断市场状态，决定网格方向偏好
-2. 补全空缺的网格层级订单
-3. 管理仓位风险
+## 角色定位
+你是双向网格交易的执行引擎。每个周期完成三件事：
+1. 判断市场状态，确定方向偏好
+2. 补全空缺网格层级
+3. 处理特殊状态（T字操作）
 
 ## 网格配置
-- 交易对: %s | 层数: %d | 投资额: %.2f USDT | 杠杆: %dx | 分布: %s
+交易对: %s | 层数: %d | 投资额: %.2f USDT | 杠杆: %dx | 分布: %s
 
-## 市场判断
+## 市场状态判断
 | 状态 | 条件 | 操作 |
 |------|------|------|
 | 震荡 | 布林带宽 < 3%%, EMA距离 < 1%% | 正常补单，多空均衡 |
-| 趋势上行 | 布林带宽 > 4%%, 价格持续突破上轨 | 偏多：优先补买单，减少卖单 |
-| 趋势下行 | 布林带宽 > 4%%, 价格持续突破下轨 | 偏空：优先补卖单，减少买单 |
-| 高波动 | ATR 异常放大 | pause_grid 暂停 |
+| 趋势上行 | 布林带宽 > 4%%, 价格持续突破上轨 | 偏多：优先补买单 |
+| 趋势下行 | 布林带宽 > 4%%, 价格持续突破下轨 | 偏空：优先补卖单 |
+| 高波动 | ATR 异常放大 | pause_grid |
 
-## 操作说明
+## 操作指令
 
-### 网格补单（核心任务）
+### 网格补单
 - place_buy_limit：在买方空层开多仓
 - place_sell_limit：在卖方空层开空仓
-- **quantity 必须使用层级表中的「建议数量」，不要自行估算**
-- **state = "pending" 的层级已有挂单，不要重复下单**
+- quantity 必须使用层级表中的「建议数量」
+- state = "pending" 的层级已有挂单，禁止重复下单
 
-### 仓位管理
-- reduce_long：平多仓/减多仓（限价单）
-- reduce_short：平空仓/减空仓（限价单）
-- ⚠️ 想减少多头敞口 → reduce_long，**不要用 place_sell_limit**
-- ⚠️ 想减少空头敞口 → reduce_short，**不要用 place_buy_limit**
+### 减仓指令（仅在T字操作 ready_to_reduce 状态下使用）
+- reduce_long：减多仓（限价单，reduce_only）
+- reduce_short：减空仓（限价单，reduce_only）
+- ⚠️ 减仓数量由系统决定，你只需提供价格
+- ⚠️ 禁止在 idle / waiting_buy_fill 状态下使用减仓指令
 
-### 其他操作
+### 其他
 - cancel_order / cancel_all_orders：撤单
 - pause_grid / resume_grid：暂停/恢复
 - adjust_grid：重新计算网格边界
 - hold：本周期不操作
 %s
 ## 输出格式
-输出 JSON 数组，示例：
+JSON 数组，每个决策一个对象：
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"confidence":0,"reasoning":"..."}]
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
 }
@@ -390,27 +399,36 @@ func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
 	trappedSection := ""
 	if config.EnableTrappedReduce {
 		trappedSection = fmt.Sprintf(`
-## Trapped Position Recovery (T-Trade)
-The system handles T-trade setup automatically: when loss exceeds %.1f%%, the system tags the nearest pending grid order as the trigger order.
-- **waiting_buy_fill**: trigger order not yet filled — do NOT place additional orders, wait for the system
-- **ready_to_reduce**: trigger order filled — **you must immediately place reduce_long or reduce_short to complete the reduction**
-- **idle**: T-trade is idle — do NOT initiate reduce independently, wait for the system to tag a trigger order
-**Do NOT place place_buy_limit / place_sell_limit to trigger T-trade.**
+## T-Trade (Trapped Position Recovery)
+Trigger: system auto-tags the nearest pending grid order when loss exceeds %.1f%%.
+
+**Three states — your responsibility differs per state:**
+| State | Meaning | Your action |
+|-------|---------|-------------|
+| idle | No trap or below threshold | Do nothing, wait for system to tag |
+| waiting_buy_fill | Trigger order placed, awaiting fill | Do nothing — do NOT place duplicate orders |
+| ready_to_reduce | Trigger order filled | **Immediately execute reduce_long or reduce_short** |
+
+**ready_to_reduce execution rules:**
+- Quantity is determined by the system — you only provide the price
+- Long trapped → reduce_long, limit price MUST be **above** the trigger fill price
+- Short trapped → reduce_short, limit price MUST be **below** the trigger fill price
+- Wider spread = better T-trade profit
 `, config.TrappedReduceThresholdPct)
 	}
 
 	return fmt.Sprintf(`# Grid Trading AI — %s
 
 ## Role
-You are a bidirectional grid trading expert. Each cycle you must:
-1. Assess market conditions and determine directional bias
+You are the execution engine for a bidirectional grid strategy. Each cycle:
+1. Assess market conditions and set directional bias
 2. Fill empty grid levels with orders
-3. Manage position risk
+3. Handle special states (T-trade)
 
 ## Grid Configuration
-- Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: %s
+Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: %s
 
-## Market Assessment
+## Market State
 | State | Conditions | Action |
 |-------|-----------|--------|
 | Ranging | BB width < 3%%, EMA distance < 1%% | Normal grid, balanced long/short |
@@ -418,19 +436,19 @@ You are a bidirectional grid trading expert. Each cycle you must:
 | Downtrend | BB width > 4%%, price breaking lower band | Short bias: prioritize sell orders |
 | High volatility | ATR abnormally large | pause_grid |
 
-## Actions
+## Instructions
 
-### Grid Orders (core task)
+### Grid Orders
 - place_buy_limit: open long at an empty buy-side level
 - place_sell_limit: open short at an empty sell-side level
-- **quantity must use "Suggested Qty" from the level table — do not estimate**
-- **levels with state = "pending" already have an order — do NOT place another**
+- quantity must use "Suggested Qty" from the level table
+- levels with state = "pending" already have an order — do NOT place another
 
-### Position Management
-- reduce_long: close/reduce long position (limit order)
-- reduce_short: close/reduce short position (limit order)
-- ⚠️ To reduce long exposure → reduce_long, **do NOT use place_sell_limit**
-- ⚠️ To reduce short exposure → reduce_short, **do NOT use place_buy_limit**
+### Reduce Orders (only in T-trade ready_to_reduce state)
+- reduce_long: reduce long position (limit order, reduce_only)
+- reduce_short: reduce short position (limit order, reduce_only)
+- ⚠️ Quantity is set by the system — you only provide the price
+- ⚠️ Do NOT use reduce orders in idle or waiting_buy_fill state
 
 ### Other
 - cancel_order / cancel_all_orders: cancel orders
@@ -439,7 +457,7 @@ You are a bidirectional grid trading expert. Each cycle you must:
 - hold: no action this cycle
 %s
 ## Output Format
-Output a JSON array:
+JSON array, one object per decision:
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"confidence":0,"reasoning":"..."}]
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
 }
@@ -457,86 +475,106 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 
 	sb.WriteString(fmt.Sprintf("## 当前时间: %s\n\n", ctx.CurrentTime))
 
-	if len(ctx.DecisionHistory) > 0 {
-		sb.WriteString("## 历史决策回顾\n")
-		sb.WriteString("| 时间 | 操作 | 理由 | 价格 |\n")
-		sb.WriteString("|------|------|------|------|\n")
-		for _, d := range ctx.DecisionHistory {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %.2f |\n", d.Timestamp, d.Action, d.Reasoning, d.Price))
+	// T-trade state first — highest priority
+	if ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped {
+		t := ctx.TrappedInfo
+		sideZh := "多单"
+		if t.Side == "sell" {
+			sideZh = "空单"
+		}
+		sb.WriteString("## ⚠️ 被套状态\n")
+		sb.WriteString(fmt.Sprintf("- 方向: %s | 亏损: $%.2f (%.2f%%) | 均价: $%.2f | 当前: $%.2f | 价差: %.2f%%\n",
+			sideZh, t.TotalUnrealizedLoss, t.LossPct, t.AvgEntryPrice, t.CurrentPrice, t.PriceDiffPct))
+		switch t.TTradePhase {
+		case "waiting_buy_fill":
+			label := "买单"
+			if t.Side == "sell" {
+				label = "卖单"
+			}
+			sb.WriteString(fmt.Sprintf("- T字状态: **等待%s成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
+				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
+			sb.WriteString("- ⛔ 本轮禁止下单，等待触发单成交\n")
+		case "ready_to_reduce":
+			action := "reduce_long"
+			priceHint := "高于"
+			if t.TTradeReadySide == "sell" {
+				action = "reduce_short"
+				priceHint = "低于"
+			}
+			sb.WriteString(fmt.Sprintf("- T字状态: **🟢 准备减仓** — 触发单成交价=%.2f，执行 %s，数量由系统决定\n",
+				t.TTradeReadyPrepPrice, action))
+			sb.WriteString(fmt.Sprintf("- ⚡ 限价必须**%s %.2f**（比触发单成交价更优）\n", priceHint, t.TTradeReadyPrepPrice))
+		default:
+			sb.WriteString("- T字状态: 空闲\n")
 		}
 		sb.WriteString("\n")
 	}
 
+	// Decision history
+	if len(ctx.DecisionHistory) > 0 {
+		sb.WriteString("## 历史决策\n")
+		sb.WriteString("| 时间 | 操作 | 价格 | 理由 |\n")
+		sb.WriteString("|------|------|------|------|\n")
+		for _, d := range ctx.DecisionHistory {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %.2f | %s |\n", d.Timestamp, d.Action, d.Price, d.Reasoning))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Market data
 	sb.WriteString("## 市场数据\n")
-	sb.WriteString(fmt.Sprintf("- 当前价格: $%.2f\n", ctx.CurrentPrice))
-	sb.WriteString(fmt.Sprintf("- 1小时涨跌: %.2f%%\n", ctx.PriceChange1h))
-	sb.WriteString(fmt.Sprintf("- 4小时涨跌: %.2f%%\n", ctx.PriceChange4h))
-	sb.WriteString(fmt.Sprintf("- ATR14: $%.2f (%.2f%%)\n", ctx.ATR14, ctx.ATR14/ctx.CurrentPrice*100))
-	sb.WriteString(fmt.Sprintf("- 布林带: 上轨 $%.2f, 中轨 $%.2f, 下轨 $%.2f\n", ctx.BollingerUpper, ctx.BollingerMiddle, ctx.BollingerLower))
-	sb.WriteString(fmt.Sprintf("- 布林带宽度: %.2f%%\n", ctx.BollingerWidth))
-	sb.WriteString(fmt.Sprintf("- EMA20: $%.2f, EMA50: $%.2f, 距离: %.2f%%\n", ctx.EMA20, ctx.EMA50, ctx.EMADistance))
-	sb.WriteString(fmt.Sprintf("- RSI14: %.1f\n", ctx.RSI14))
-	sb.WriteString(fmt.Sprintf("- MACD: %.4f, Signal: %.4f, Histogram: %.4f\n", ctx.MACD, ctx.MACDSignal, ctx.MACDHistogram))
-	sb.WriteString(fmt.Sprintf("- 资金费率: %.4f%%\n", ctx.FundingRate*100))
+	sb.WriteString(fmt.Sprintf("- 价格: $%.2f | 1h: %.2f%% | 4h: %.2f%%\n", ctx.CurrentPrice, ctx.PriceChange1h, ctx.PriceChange4h))
+	sb.WriteString(fmt.Sprintf("- ATR14: $%.2f (%.2f%%) | RSI14: %.1f | 资金费率: %.4f%%\n",
+		ctx.ATR14, ctx.ATR14/ctx.CurrentPrice*100, ctx.RSI14, ctx.FundingRate*100))
+	sb.WriteString(fmt.Sprintf("- 布林带: 上 $%.2f / 中 $%.2f / 下 $%.2f | 带宽: %.2f%%\n",
+		ctx.BollingerUpper, ctx.BollingerMiddle, ctx.BollingerLower, ctx.BollingerWidth))
+	sb.WriteString(fmt.Sprintf("- EMA20: $%.2f | EMA50: $%.2f | 距离: %.2f%%\n", ctx.EMA20, ctx.EMA50, ctx.EMADistance))
+	sb.WriteString(fmt.Sprintf("- MACD: %.4f | Signal: %.4f | Hist: %.4f\n", ctx.MACD, ctx.MACDSignal, ctx.MACDHistogram))
 	sb.WriteString("\n")
 
 	if ctx.BoxData != nil {
-		sb.WriteString("## 箱体指标 (唐奇安通道)\n\n")
-		sb.WriteString("| 箱体级别 | 上轨 | 下轨 | 宽度 |\n")
-		sb.WriteString("|----------|------|------|------|\n")
-		shortWidth, midWidth, longWidth := 0.0, 0.0, 0.0
-		if ctx.BoxData.CurrentPrice > 0 {
-			shortWidth = (ctx.BoxData.ShortUpper - ctx.BoxData.ShortLower) / ctx.BoxData.CurrentPrice * 100
-			midWidth = (ctx.BoxData.MidUpper - ctx.BoxData.MidLower) / ctx.BoxData.CurrentPrice * 100
-			longWidth = (ctx.BoxData.LongUpper - ctx.BoxData.LongLower) / ctx.BoxData.CurrentPrice * 100
+		sb.WriteString("## 箱体 (唐奇安)\n")
+		sb.WriteString("| 级别 | 上轨 | 下轨 | 宽度 |\n")
+		sb.WriteString("|------|------|------|------|\n")
+		p := ctx.BoxData.CurrentPrice
+		if p > 0 {
+			sb.WriteString(fmt.Sprintf("| 短期3天 | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.ShortUpper, ctx.BoxData.ShortLower, (ctx.BoxData.ShortUpper-ctx.BoxData.ShortLower)/p*100))
+			sb.WriteString(fmt.Sprintf("| 中期10天 | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.MidUpper, ctx.BoxData.MidLower, (ctx.BoxData.MidUpper-ctx.BoxData.MidLower)/p*100))
+			sb.WriteString(fmt.Sprintf("| 长期21天 | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.LongUpper, ctx.BoxData.LongLower, (ctx.BoxData.LongUpper-ctx.BoxData.LongLower)/p*100))
 		}
-		sb.WriteString(fmt.Sprintf("| 短期 (3天) | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.ShortUpper, ctx.BoxData.ShortLower, shortWidth))
-		sb.WriteString(fmt.Sprintf("| 中期 (10天) | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.MidUpper, ctx.BoxData.MidLower, midWidth))
-		sb.WriteString(fmt.Sprintf("| 长期 (21天) | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.LongUpper, ctx.BoxData.LongLower, longWidth))
-		sb.WriteString(fmt.Sprintf("\n当前价格: %.2f\n", ctx.BoxData.CurrentPrice))
-		price := ctx.BoxData.CurrentPrice
-		if price > ctx.BoxData.LongUpper || price < ctx.BoxData.LongLower {
-			sb.WriteString("⚠️ 突破: 价格突破长期箱体!\n")
-		} else if price > ctx.BoxData.MidUpper || price < ctx.BoxData.MidLower {
-			sb.WriteString("⚠️ 警告: 价格接近长期箱体边界\n")
+		if p > ctx.BoxData.LongUpper || p < ctx.BoxData.LongLower {
+			sb.WriteString("⚠️ 价格突破长期箱体\n")
+		} else if p > ctx.BoxData.MidUpper || p < ctx.BoxData.MidLower {
+			sb.WriteString("⚠️ 价格接近长期箱体边界\n")
 		}
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("## 账户状态\n")
-	sb.WriteString(fmt.Sprintf("- 总权益: $%.2f\n", ctx.TotalEquity))
-	sb.WriteString(fmt.Sprintf("- 可用余额: $%.2f\n", ctx.AvailableBalance))
-	sb.WriteString(fmt.Sprintf("- 余额 (网格总投资=可用余额+持仓保证金-浮动收益): $%.2f\n", ctx.WalletBalance))
-	sb.WriteString(fmt.Sprintf("- 当前持仓: %.4f (净头寸)\n", ctx.CurrentPosition))
+	// Account
+	sb.WriteString("## 账户\n")
+	sb.WriteString(fmt.Sprintf("- 可用余额: $%.2f | 总权益: $%.2f | 未实现盈亏: $%.2f\n",
+		ctx.AvailableBalance, ctx.TotalEquity, ctx.UnrealizedPnL))
 	if ctx.LongPosition != 0 || ctx.ShortPosition != 0 {
-		sb.WriteString(fmt.Sprintf("  - 多头: %.4f 合约\n", ctx.LongPosition))
-		sb.WriteString(fmt.Sprintf("  - 空头: %.4f 合约\n", ctx.ShortPosition))
+		sb.WriteString(fmt.Sprintf("- 多头: %.4f | 空头: %.4f\n", ctx.LongPosition, ctx.ShortPosition))
 	}
-	sb.WriteString(fmt.Sprintf("- 未实现盈亏: $%.2f\n", ctx.UnrealizedPnL))
 	sb.WriteString("\n")
 
+	// Grid status
 	sb.WriteString("## 网格状态\n")
-	sb.WriteString(fmt.Sprintf("- 网格范围: $%.2f - $%.2f\n", ctx.LowerPrice, ctx.UpperPrice))
-	sb.WriteString(fmt.Sprintf("- 网格间距: $%.2f\n", ctx.GridSpacing))
-	sb.WriteString(fmt.Sprintf("- 活跃订单数: %d\n", ctx.ActiveOrderCount))
-	sb.WriteString(fmt.Sprintf("- 已成交层数: %d\n", ctx.FilledLevelCount))
-	sb.WriteString(fmt.Sprintf("- 网格已暂停: %v\n", ctx.IsPaused))
+	sb.WriteString(fmt.Sprintf("- 范围: $%.2f - $%.2f | 间距: $%.2f | 活跃订单: %d | 已成交: %d | 暂停: %v\n",
+		ctx.LowerPrice, ctx.UpperPrice, ctx.GridSpacing, ctx.ActiveOrderCount, ctx.FilledLevelCount, ctx.IsPaused))
 	if ctx.CurrentDirection != "" {
 		dirMap := map[string]string{
-			"neutral": "中性 (50%买+50%卖)", "long": "做多 (100%买)",
-			"short": "做空 (100%卖)", "long_bias": "偏多 (70%买+30%卖)", "short_bias": "偏空 (30%买+70%卖)",
+			"neutral": "中性", "long": "做多", "short": "做空", "long_bias": "偏多", "short_bias": "偏空",
 		}
-		desc := dirMap[ctx.CurrentDirection]
-		if desc == "" {
-			desc = ctx.CurrentDirection
-		}
-		sb.WriteString(fmt.Sprintf("- 网格方向: %s\n", desc))
+		sb.WriteString(fmt.Sprintf("- 方向: %s\n", dirMap[ctx.CurrentDirection]))
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("## 网格层级详情\n")
-	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 分配USD | 建议数量 | 订单数量 | 持仓数量 | 未实现盈亏 |\n")
-	sb.WriteString("|------|------|------|------|---------|----------|----------|----------|------------|\n")
+	// Grid levels
+	sb.WriteString("## 网格层级\n")
+	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 分配USD | 建议数量 | 订单数量 | 持仓 | 浮盈 |\n")
+	sb.WriteString("|------|------|------|------|---------|----------|----------|------|------|\n")
 	for _, level := range ctx.Levels {
 		suggestedQty := 0.0
 		if level.Price > 0 && level.AllocatedUSD > 0 {
@@ -548,66 +586,15 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("## 绩效统计\n")
-	sb.WriteString(fmt.Sprintf("- 总利润: $%.2f\n", ctx.TotalProfit))
-	sb.WriteString(fmt.Sprintf("- 总交易次数: %d\n", ctx.TotalTrades))
-	sb.WriteString(fmt.Sprintf("- 胜率: %.1f%%\n", float64(ctx.WinningTrades)/float64(max(ctx.TotalTrades, 1))*100))
-	sb.WriteString(fmt.Sprintf("- 最大回撤: %.2f%%\n", ctx.MaxDrawdown))
-	sb.WriteString(fmt.Sprintf("- 今日盈亏: $%.2f\n", ctx.DailyPnL))
+	// Performance
+	sb.WriteString("## 绩效\n")
+	sb.WriteString(fmt.Sprintf("- 总利润: $%.2f | 交易次数: %d | 胜率: %.1f%% | 最大回撤: %.2f%% | 今日盈亏: $%.2f\n",
+		ctx.TotalProfit, ctx.TotalTrades,
+		float64(ctx.WinningTrades)/float64(max(ctx.TotalTrades, 1))*100,
+		ctx.MaxDrawdown, ctx.DailyPnL))
 	sb.WriteString("\n")
 
-	if ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped {
-		t := ctx.TrappedInfo
-		sideZh := "多单（买入方向）"
-		if t.Side == "sell" {
-			sideZh = "空单（卖出方向）"
-		}
-		logger.Infof("[Grid] 🔍 DEBUG: t.Side=%s, sideZh=%s", t.Side, sideZh)
-		sb.WriteString("## ⚠️ 被套警告\n")
-		sb.WriteString("- 被套状态: 是\n")
-		sb.WriteString(fmt.Sprintf("- 被套方向: %s\n", sideZh))
-		sb.WriteString(fmt.Sprintf("- 未实现亏损: $%.2f\n", t.TotalUnrealizedLoss))
-		sb.WriteString(fmt.Sprintf("- 亏损占比: %.2f%% (阈值: %.1f%%)\n", t.LossPct, t.ThresholdPct))
-		sb.WriteString(fmt.Sprintf("- 被套层数: %d\n", t.TrappedLevelCount))
-		sb.WriteString(fmt.Sprintf("- 平均开仓价: $%.2f\n", t.AvgEntryPrice))
-		sb.WriteString(fmt.Sprintf("- 当前价格: $%.2f\n", t.CurrentPrice))
-		sb.WriteString(fmt.Sprintf("- 价差: %.2f%%\n", t.PriceDiffPct))
-		sb.WriteString(fmt.Sprintf("- 建议减仓比例: %.0f%%\n", t.SuggestReducePct))
-		if t.LastReduceMinutes >= 0 {
-			sb.WriteString(fmt.Sprintf("- 上次减仓: %d 分钟前\n", t.LastReduceMinutes))
-		} else {
-			sb.WriteString("- 上次减仓: 从未执行\n")
-		}
-		switch t.TTradePhase {
-		case "waiting_buy_fill":
-			label := "买单"
-			if t.Side == "sell" {
-				label = "卖单"
-			}
-			sb.WriteString(fmt.Sprintf("- **T字状态: 等待%s成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
-				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ **T字挂单尚未成交，本轮请勿重复下单**\n")
-		case "ready_to_reduce":
-			action := "reduce_long"
-			desc := "多单"
-			priceHint := "高于"
-			if t.TTradeReadySide == "sell" {
-				action = "reduce_short"
-				desc = "空单"
-				priceHint = "低于"
-			}
-			sb.WriteString(fmt.Sprintf("- **🟢 T字状态: 准备减仓** — 网格挂单已成交（价格=%.2f），现在请执行 %s 减仓 %.4f（%s）\n",
-				t.TTradeReadyPrepPrice, action, t.TTradePendingReduce, desc))
-			sb.WriteString(fmt.Sprintf("- ⚡ 减仓限价必须**%s %.2f**（比成交价更优），才能实现T字套利效果\n",
-				priceHint, t.TTradeReadyPrepPrice))
-		default:
-			sb.WriteString("- T字状态: 空闲\n")
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("## 请分析以上数据，做出网格交易决策\n")
-	sb.WriteString("输出JSON数组格式的决策列表。\n")
+	sb.WriteString("请分析以上数据，输出JSON数组格式的决策。\n")
 	return sb.String()
 }
 
@@ -616,82 +603,106 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 
 	sb.WriteString(fmt.Sprintf("## Current Time: %s\n\n", ctx.CurrentTime))
 
-	if len(ctx.DecisionHistory) > 0 {
-		sb.WriteString("## Decision History Review\n")
-		sb.WriteString("| Time | Action | Reasoning | Price |\n")
-		sb.WriteString("|------|--------|-----------|-------|\n")
-		for _, d := range ctx.DecisionHistory {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %.2f |\n", d.Timestamp, d.Action, d.Reasoning, d.Price))
+	// T-trade state first — highest priority
+	if ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped {
+		t := ctx.TrappedInfo
+		sideEn := "Long"
+		if t.Side == "sell" {
+			sideEn = "Short"
+		}
+		sb.WriteString("## ⚠️ Trapped Position\n")
+		sb.WriteString(fmt.Sprintf("- Side: %s | Loss: $%.2f (%.2f%%) | Avg Entry: $%.2f | Current: $%.2f | Diff: %.2f%%\n",
+			sideEn, t.TotalUnrealizedLoss, t.LossPct, t.AvgEntryPrice, t.CurrentPrice, t.PriceDiffPct))
+		switch t.TTradePhase {
+		case "waiting_buy_fill":
+			label := "BUY"
+			if t.Side == "sell" {
+				label = "SELL"
+			}
+			sb.WriteString(fmt.Sprintf("- T-Trade: **WAITING FOR %s FILL** (orderID=%s, price=%.2f, pending=%.4f)\n",
+				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
+			sb.WriteString("- ⛔ Do NOT place any orders this cycle — wait for trigger fill\n")
+		case "ready_to_reduce":
+			action := "reduce_long"
+			priceHint := "above"
+			if t.TTradeReadySide == "sell" {
+				action = "reduce_short"
+				priceHint = "below"
+			}
+			sb.WriteString(fmt.Sprintf("- T-Trade: **🟢 READY TO REDUCE** — trigger filled at %.2f, execute %s, quantity set by system\n",
+				t.TTradeReadyPrepPrice, action))
+			sb.WriteString(fmt.Sprintf("- ⚡ Limit price MUST be **%s %.2f** (better than trigger fill price)\n", priceHint, t.TTradeReadyPrepPrice))
+		default:
+			sb.WriteString("- T-Trade: IDLE\n")
 		}
 		sb.WriteString("\n")
 	}
 
+	// Decision history
+	if len(ctx.DecisionHistory) > 0 {
+		sb.WriteString("## Decision History\n")
+		sb.WriteString("| Time | Action | Price | Reasoning |\n")
+		sb.WriteString("|------|--------|-------|----------|\n")
+		for _, d := range ctx.DecisionHistory {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %.2f | %s |\n", d.Timestamp, d.Action, d.Price, d.Reasoning))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Market data
 	sb.WriteString("## Market Data\n")
-	sb.WriteString(fmt.Sprintf("- Current Price: $%.2f\n", ctx.CurrentPrice))
-	sb.WriteString(fmt.Sprintf("- 1h Change: %.2f%%\n", ctx.PriceChange1h))
-	sb.WriteString(fmt.Sprintf("- 4h Change: %.2f%%\n", ctx.PriceChange4h))
-	sb.WriteString(fmt.Sprintf("- ATR14: $%.2f (%.2f%%)\n", ctx.ATR14, ctx.ATR14/ctx.CurrentPrice*100))
-	sb.WriteString(fmt.Sprintf("- Bollinger Bands: Upper $%.2f, Middle $%.2f, Lower $%.2f\n", ctx.BollingerUpper, ctx.BollingerMiddle, ctx.BollingerLower))
-	sb.WriteString(fmt.Sprintf("- Bollinger Width: %.2f%%\n", ctx.BollingerWidth))
-	sb.WriteString(fmt.Sprintf("- EMA20: $%.2f, EMA50: $%.2f, Distance: %.2f%%\n", ctx.EMA20, ctx.EMA50, ctx.EMADistance))
-	sb.WriteString(fmt.Sprintf("- RSI14: %.1f\n", ctx.RSI14))
-	sb.WriteString(fmt.Sprintf("- MACD: %.4f, Signal: %.4f, Histogram: %.4f\n", ctx.MACD, ctx.MACDSignal, ctx.MACDHistogram))
-	sb.WriteString(fmt.Sprintf("- Funding Rate: %.4f%%\n", ctx.FundingRate*100))
+	sb.WriteString(fmt.Sprintf("- Price: $%.2f | 1h: %.2f%% | 4h: %.2f%%\n", ctx.CurrentPrice, ctx.PriceChange1h, ctx.PriceChange4h))
+	sb.WriteString(fmt.Sprintf("- ATR14: $%.2f (%.2f%%) | RSI14: %.1f | Funding: %.4f%%\n",
+		ctx.ATR14, ctx.ATR14/ctx.CurrentPrice*100, ctx.RSI14, ctx.FundingRate*100))
+	sb.WriteString(fmt.Sprintf("- BB: Upper $%.2f / Mid $%.2f / Lower $%.2f | Width: %.2f%%\n",
+		ctx.BollingerUpper, ctx.BollingerMiddle, ctx.BollingerLower, ctx.BollingerWidth))
+	sb.WriteString(fmt.Sprintf("- EMA20: $%.2f | EMA50: $%.2f | Distance: %.2f%%\n", ctx.EMA20, ctx.EMA50, ctx.EMADistance))
+	sb.WriteString(fmt.Sprintf("- MACD: %.4f | Signal: %.4f | Hist: %.4f\n", ctx.MACD, ctx.MACDSignal, ctx.MACDHistogram))
 	sb.WriteString("\n")
 
 	if ctx.BoxData != nil {
-		sb.WriteString("## Box Indicators (Donchian Channels)\n\n")
-		sb.WriteString("| Box Level | Upper | Lower | Width |\n")
-		sb.WriteString("|-----------|-------|-------|-------|\n")
-		shortWidth, midWidth, longWidth := 0.0, 0.0, 0.0
-		if ctx.BoxData.CurrentPrice > 0 {
-			shortWidth = (ctx.BoxData.ShortUpper - ctx.BoxData.ShortLower) / ctx.BoxData.CurrentPrice * 100
-			midWidth = (ctx.BoxData.MidUpper - ctx.BoxData.MidLower) / ctx.BoxData.CurrentPrice * 100
-			longWidth = (ctx.BoxData.LongUpper - ctx.BoxData.LongLower) / ctx.BoxData.CurrentPrice * 100
+		sb.WriteString("## Donchian Channels\n")
+		sb.WriteString("| Level | Upper | Lower | Width |\n")
+		sb.WriteString("|-------|-------|-------|-------|\n")
+		p := ctx.BoxData.CurrentPrice
+		if p > 0 {
+			sb.WriteString(fmt.Sprintf("| Short 3d | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.ShortUpper, ctx.BoxData.ShortLower, (ctx.BoxData.ShortUpper-ctx.BoxData.ShortLower)/p*100))
+			sb.WriteString(fmt.Sprintf("| Mid 10d | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.MidUpper, ctx.BoxData.MidLower, (ctx.BoxData.MidUpper-ctx.BoxData.MidLower)/p*100))
+			sb.WriteString(fmt.Sprintf("| Long 21d | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.LongUpper, ctx.BoxData.LongLower, (ctx.BoxData.LongUpper-ctx.BoxData.LongLower)/p*100))
 		}
-		sb.WriteString(fmt.Sprintf("| Short (3d) | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.ShortUpper, ctx.BoxData.ShortLower, shortWidth))
-		sb.WriteString(fmt.Sprintf("| Mid (10d) | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.MidUpper, ctx.BoxData.MidLower, midWidth))
-		sb.WriteString(fmt.Sprintf("| Long (21d) | %.2f | %.2f | %.2f%% |\n", ctx.BoxData.LongUpper, ctx.BoxData.LongLower, longWidth))
-		sb.WriteString(fmt.Sprintf("\nCurrent Price: %.2f\n", ctx.BoxData.CurrentPrice))
-		price := ctx.BoxData.CurrentPrice
-		if price > ctx.BoxData.LongUpper || price < ctx.BoxData.LongLower {
-			sb.WriteString("⚠️ BREAKOUT: Price outside long-term box!\n")
-		} else if price > ctx.BoxData.MidUpper || price < ctx.BoxData.MidLower {
-			sb.WriteString("⚠️ WARNING: Price approaching long-term box boundary\n")
+		if p > ctx.BoxData.LongUpper || p < ctx.BoxData.LongLower {
+			sb.WriteString("⚠️ Price outside long-term box\n")
+		} else if p > ctx.BoxData.MidUpper || p < ctx.BoxData.MidLower {
+			sb.WriteString("⚠️ Price approaching long-term box boundary\n")
 		}
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("## Account Status\n")
-	sb.WriteString(fmt.Sprintf("- Total Equity: $%.2f\n", ctx.TotalEquity))
-	sb.WriteString(fmt.Sprintf("- Available Balance: $%.2f\n", ctx.AvailableBalance))
-	sb.WriteString(fmt.Sprintf("- Balance (Grid Investment = Available + Margin - Unrealized PnL): $%.2f\n", ctx.WalletBalance))
-	sb.WriteString(fmt.Sprintf("- Current Position: %.4f (net)\n", ctx.CurrentPosition))
-	sb.WriteString(fmt.Sprintf("- Unrealized PnL: $%.2f\n", ctx.UnrealizedPnL))
-	sb.WriteString("\n")
-
-	sb.WriteString("## Grid Status\n")
-	sb.WriteString(fmt.Sprintf("- Grid Range: $%.2f - $%.2f\n", ctx.LowerPrice, ctx.UpperPrice))
-	sb.WriteString(fmt.Sprintf("- Grid Spacing: $%.2f\n", ctx.GridSpacing))
-	sb.WriteString(fmt.Sprintf("- Active Orders: %d\n", ctx.ActiveOrderCount))
-	sb.WriteString(fmt.Sprintf("- Filled Levels: %d\n", ctx.FilledLevelCount))
-	sb.WriteString(fmt.Sprintf("- Grid Paused: %v\n", ctx.IsPaused))
-	if ctx.CurrentDirection != "" {
-		dirMap := map[string]string{
-			"neutral": "Neutral (50% buy + 50% sell)", "long": "Long (100% buy)",
-			"short": "Short (100% sell)", "long_bias": "Long Bias (70% buy + 30% sell)", "short_bias": "Short Bias (30% buy + 70% sell)",
-		}
-		desc := dirMap[ctx.CurrentDirection]
-		if desc == "" {
-			desc = ctx.CurrentDirection
-		}
-		sb.WriteString(fmt.Sprintf("- Grid Direction: %s\n", desc))
+	// Account
+	sb.WriteString("## Account\n")
+	sb.WriteString(fmt.Sprintf("- Available: $%.2f | Equity: $%.2f | Unrealized PnL: $%.2f\n",
+		ctx.AvailableBalance, ctx.TotalEquity, ctx.UnrealizedPnL))
+	if ctx.LongPosition != 0 || ctx.ShortPosition != 0 {
+		sb.WriteString(fmt.Sprintf("- Long: %.4f | Short: %.4f\n", ctx.LongPosition, ctx.ShortPosition))
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("## Grid Levels Detail\n")
-	sb.WriteString("| Level | Price | State | Side | Allocated USD | Suggested Qty | Order Qty | Position | Unrealized PnL |\n")
-	sb.WriteString("|-------|-------|-------|------|---------------|---------------|-----------|----------|----------------|\n")
+	// Grid status
+	sb.WriteString("## Grid Status\n")
+	sb.WriteString(fmt.Sprintf("- Range: $%.2f - $%.2f | Spacing: $%.2f | Active: %d | Filled: %d | Paused: %v\n",
+		ctx.LowerPrice, ctx.UpperPrice, ctx.GridSpacing, ctx.ActiveOrderCount, ctx.FilledLevelCount, ctx.IsPaused))
+	if ctx.CurrentDirection != "" {
+		dirMap := map[string]string{
+			"neutral": "Neutral", "long": "Long", "short": "Short", "long_bias": "Long Bias", "short_bias": "Short Bias",
+		}
+		sb.WriteString(fmt.Sprintf("- Direction: %s\n", dirMap[ctx.CurrentDirection]))
+	}
+	sb.WriteString("\n")
+
+	// Grid levels
+	sb.WriteString("## Grid Levels\n")
+	sb.WriteString("| Level | Price | State | Side | Alloc USD | Suggested Qty | Order Qty | Position | PnL |\n")
+	sb.WriteString("|-------|-------|-------|------|-----------|---------------|-----------|----------|-----|\n")
 	for _, level := range ctx.Levels {
 		suggestedQty := 0.0
 		if level.Price > 0 && level.AllocatedUSD > 0 {
@@ -703,65 +714,15 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("## Performance Stats\n")
-	sb.WriteString(fmt.Sprintf("- Total Profit: $%.2f\n", ctx.TotalProfit))
-	sb.WriteString(fmt.Sprintf("- Total Trades: %d\n", ctx.TotalTrades))
-	sb.WriteString(fmt.Sprintf("- Win Rate: %.1f%%\n", float64(ctx.WinningTrades)/float64(max(ctx.TotalTrades, 1))*100))
-	sb.WriteString(fmt.Sprintf("- Max Drawdown: %.2f%%\n", ctx.MaxDrawdown))
-	sb.WriteString(fmt.Sprintf("- Daily PnL: $%.2f\n", ctx.DailyPnL))
+	// Performance
+	sb.WriteString("## Performance\n")
+	sb.WriteString(fmt.Sprintf("- Profit: $%.2f | Trades: %d | Win Rate: %.1f%% | Max DD: %.2f%% | Daily PnL: $%.2f\n",
+		ctx.TotalProfit, ctx.TotalTrades,
+		float64(ctx.WinningTrades)/float64(max(ctx.TotalTrades, 1))*100,
+		ctx.MaxDrawdown, ctx.DailyPnL))
 	sb.WriteString("\n")
 
-	if ctx.TrappedInfo != nil && ctx.TrappedInfo.IsTrapped {
-		t := ctx.TrappedInfo
-		sideEn := "Long (buy direction)"
-		if t.Side == "sell" {
-			sideEn = "Short (sell direction)"
-		}
-		sb.WriteString("## ⚠️ TRAPPED POSITION WARNING\n")
-		sb.WriteString("- Trapped: YES\n")
-		sb.WriteString(fmt.Sprintf("- Trapped Side: %s\n", sideEn))
-		sb.WriteString(fmt.Sprintf("- Unrealized Loss: $%.2f\n", t.TotalUnrealizedLoss))
-		sb.WriteString(fmt.Sprintf("- Loss Percentage: %.2f%% (threshold: %.1f%%)\n", t.LossPct, t.ThresholdPct))
-		sb.WriteString(fmt.Sprintf("- Trapped Levels: %d\n", t.TrappedLevelCount))
-		sb.WriteString(fmt.Sprintf("- Avg Entry Price: $%.2f\n", t.AvgEntryPrice))
-		sb.WriteString(fmt.Sprintf("- Current Price: $%.2f\n", t.CurrentPrice))
-		sb.WriteString(fmt.Sprintf("- Price Diff: %.2f%%\n", t.PriceDiffPct))
-		sb.WriteString(fmt.Sprintf("- Suggested Reduce Pct: %.0f%%\n", t.SuggestReducePct))
-		if t.LastReduceMinutes >= 0 {
-			sb.WriteString(fmt.Sprintf("- Last Reduction: %d minutes ago\n", t.LastReduceMinutes))
-		} else {
-			sb.WriteString("- Last Reduction: Never executed\n")
-		}
-		switch t.TTradePhase {
-		case "waiting_buy_fill":
-			label := "BUY"
-			if t.Side == "sell" {
-				label = "SELL"
-			}
-			sb.WriteString(fmt.Sprintf("- **T-Trade State: WAITING FOR %s FILL** (orderID=%s, price=%.2f, pending reduce=%.4f)\n",
-				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ **T-trade order not yet filled. DO NOT place additional orders this cycle.**\n")
-		case "ready_to_reduce":
-			action := "reduce_long"
-			desc := "long"
-			priceHint := "above"
-			if t.TTradeReadySide == "sell" {
-				action = "reduce_short"
-				desc = "short"
-				priceHint = "below"
-			}
-			sb.WriteString(fmt.Sprintf("- **🟢 T-Trade State: READY TO REDUCE** — prep order filled at %.2f, now place %s for %.4f (%s position)\n",
-				t.TTradeReadyPrepPrice, action, t.TTradePendingReduce, desc))
-			sb.WriteString(fmt.Sprintf("- ⚡ Reduce limit price MUST be **%s %.2f** (better than prep fill price) to realize T-trade profit\n",
-				priceHint, t.TTradeReadyPrepPrice))
-		default:
-			sb.WriteString("- T-Trade State: IDLE\n")
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("## Please analyze the data above and make grid trading decisions\n")
-	sb.WriteString("Output a JSON array of decisions.\n")
+	sb.WriteString("Analyze the data above and output a JSON array of decisions.\n")
 	return sb.String()
 }
 
