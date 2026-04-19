@@ -1351,6 +1351,15 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			return nil
 		}
 
+		// Override quantity with the T-trade stored qty — AI must not decide the amount
+		at.gridState.mu.RLock()
+		tTradeQty := at.gridState.TTradeReadyReduceQty
+		at.gridState.mu.RUnlock()
+		if tTradeQty > 0 && tTradeQty != d.Quantity {
+			logger.Infof("[Grid] reduce_long qty overridden by T-trade: %.4f → %.4f", d.Quantity, tTradeQty)
+			d.Quantity = tTradeQty
+		}
+
 		// Close long position with sell limit order
 		logger.Infof("[Grid] AI decision: reduce_long qty=%.4f price=%.2f reason=%s", d.Quantity, d.Price, d.Reasoning)
 		if gridTrader, ok := at.trader.(GridTrader); ok {
@@ -1394,6 +1403,15 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		if tTradeIdle2 {
 			logger.Infof("[Grid] reduce_short skipped: T-trade is idle, AI-initiated reduce is disabled")
 			return nil
+		}
+
+		// Override quantity with the T-trade stored qty — AI must not decide the amount
+		at.gridState.mu.RLock()
+		tTradeQty2 := at.gridState.TTradeReadyReduceQty
+		at.gridState.mu.RUnlock()
+		if tTradeQty2 > 0 && tTradeQty2 != d.Quantity {
+			logger.Infof("[Grid] reduce_short qty overridden by T-trade: %.4f → %.4f", d.Quantity, tTradeQty2)
+			d.Quantity = tTradeQty2
 		}
 
 		// Close short position with buy limit order
