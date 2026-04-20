@@ -2628,8 +2628,15 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	// Skip if T-trade already pending
 	at.gridState.mu.RLock()
 	alreadyPending := at.gridState.TTradePrepOrderID != ""
+	readyToReduce := at.gridState.TTradeReadyToReduce
+	reduceOrderPending := at.gridState.TTradeReduceOrderID != ""
 	at.gridState.mu.RUnlock()
 	if alreadyPending {
+		return
+	}
+	// Don't re-tag if we're already in ready_to_reduce or a reduce order is pending
+	if readyToReduce || reduceOrderPending {
+		logger.Infof("[Grid] T-trade auto-tag skipped: already in ready_to_reduce or reduce order pending")
 		return
 	}
 
