@@ -532,7 +532,7 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 			}
 			sb.WriteString(fmt.Sprintf("- T字状态: **等待%s成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
 				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ 本轮禁止下单，等待触发单成交\n")
+			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，正常补网格单\n")
 		case "ready_to_reduce":
 			action := "reduce_long"
 			priceHint := "高于"
@@ -660,7 +660,7 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 			}
 			sb.WriteString(fmt.Sprintf("- T-Trade: **WAITING FOR %s FILL** (orderID=%s, price=%.2f, pending=%.4f)\n",
 				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ Do NOT place any orders this cycle — wait for trigger fill\n")
+			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — continue normal grid orders\n")
 		case "ready_to_reduce":
 			action := "reduce_long"
 			priceHint := "above"
