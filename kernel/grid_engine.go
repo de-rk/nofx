@@ -378,7 +378,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 | 状态 | 含义 | 你需要做什么 |
 |------|------|------------|
 | idle | 无被套或未达阈值 | 不执行任何减仓，等待系统标记 |
-| waiting_buy_fill | 触发单挂出，等待成交 | 什么都不做，禁止重复下单 |
+| waiting_buy_fill | 触发单挂出，等待成交 | 正常补网格单，禁止执行 reduce_long/reduce_short |
 | ready_to_reduce | 触发单已成交 | **立即执行 reduce_long 或 reduce_short** |
 
 **ready_to_reduce 执行规则：**
@@ -445,7 +445,7 @@ Trigger: system auto-tags the nearest pending grid order when loss exceeds %.1f%
 | State | Meaning | Your action |
 |-------|---------|-------------|
 | idle | No trap or below threshold | Do nothing, wait for system to tag |
-| waiting_buy_fill | Trigger order placed, awaiting fill | Do nothing — do NOT place duplicate orders |
+| waiting_buy_fill | Trigger order placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
 | ready_to_reduce | Trigger order filled | **Immediately execute reduce_long or reduce_short** |
 
 **ready_to_reduce execution rules:**
