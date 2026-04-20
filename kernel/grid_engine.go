@@ -77,19 +77,58 @@ var reTrailingQuoteNum = regexp.MustCompile(`(\d)"(\s*[,}\]])`)
 // reTrailingQuoteStr matches a stray extra quote after a string value: e.g. "action":"hold""
 var reTrailingQuoteStr = regexp.MustCompile(`([^\\])""\s*([,}\]])`)
 
+// reTrailingComma matches trailing commas before ] or }
+var reTrailingComma = regexp.MustCompile(`,\s*([}\]])`)
+
+// reCodeFence matches any fenced code block (with or without language tag)
+var reCodeFence = regexp.MustCompile("(?is)```(?:\\w+)?\\s*([\\s\\S]*?)```")
+
+// reJSONObject matches a single JSON object
+var reJSONObject = regexp.MustCompile(`(?is)\{.*?\}`)
+
 // sanitizeGridJSON cleans common AI JSON formatting errors
 func sanitizeGridJSON(s string) string {
 	// Fix curly/smart quotes
 	s = strings.ReplaceAll(s, "\u201c", "\"")
 	s = strings.ReplaceAll(s, "\u201d", "\"")
+	s = strings.ReplaceAll(s, "\u2018", "'")
+	s = strings.ReplaceAll(s, "\u2019", "'")
 	// Fix stray trailing quote after a number: 36.75" → 36.75
 	s = reTrailingQuoteNum.ReplaceAllString(s, `$1$2`)
 	// Fix double closing quote after string value: "hold"" → "hold"
 	s = reTrailingQuoteStr.ReplaceAllString(s, `$1"$2`)
+	// Remove trailing commas before ] or }
+	s = reTrailingComma.ReplaceAllString(s, `$1`)
 	return s
 }
 
-// parseGridDecisions parses AI response into grid decisions
+// extractJSONArray extracts a JSON array from an AI response string.
+// Handles: ```json [...] ```, bare [...], single object {...} wrapped into array.
+func extractJSONArray(response string) string {
+	// 1. Fenced code block with json tag
+	if m := reJSONFence.FindStringSubmatch(response); len(m) > 1 {
+		return m[1]
+	}
+	// 2. Fenced code block without json tag
+	if m := reCodeFence.FindStringSubmatch(response); len(m) > 1 {
+		candidate := strings.TrimSpace(m[1])
+		if strings.HasPrefix(candidate, "[") || strings.HasPrefix(candidate, "{") {
+			if strings.HasPrefix(candidate, "{") {
+				candidate = "[" + candidate + "]"
+			}
+			return candidate
+		}
+	}
+	// 3. Bare JSON array
+	if m := reJSONArray.FindString(response); m != "" {
+		return m
+	}
+	// 4. Single JSON object — wrap into array
+	if m := reJSONObject.FindString(response); m != "" {
+		return "[" + m + "]"
+	}
+	return ""
+}
 func parseGridDecisions(response string, symbol string) ([]Decision, error) {
 	jsonStr := extractJSONArray(response)
 	if jsonStr == "" {
@@ -724,17 +763,6 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 
 	sb.WriteString("Analyze the data above and output a JSON array of decisions.\n")
 	return sb.String()
-}
-
-// extractJSONArray extracts a JSON array from an AI response string
-func extractJSONArray(response string) string {
-	if m := reJSONFence.FindStringSubmatch(response); len(m) > 1 {
-		return m[1]
-	}
-	if m := reJSONArray.FindString(response); m != "" {
-		return m
-	}
-	return ""
 }
 
 func max(a, b int) int {
