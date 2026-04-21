@@ -2656,8 +2656,6 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	}
 	trapped := ctx.TrappedInfo
 
-	reduceQty := bestQty
-
 	currentPrice := ctx.CurrentPrice
 
 	// Find nearest pending grid order on the appropriate side
@@ -2704,6 +2702,8 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 			trapped.Side, trapped.LossPct)
 		return
 	}
+
+	reduceQty := bestQty
 
 	at.gridState.mu.Lock()
 	at.gridState.TTradePrepOrderID = bestOrderID
