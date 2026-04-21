@@ -3067,7 +3067,10 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 	tTradeBuyOrderID := ""
 	tTradeBuyPrice := 0.0
 	tTradePendingReduce := 0.0
-	if at.gridState.TTradeReadyToReduce {
+	if at.gridState.TTradeReduceOrderID != "" {
+		tTradePhase = "waiting_reduce_fill"
+		tTradePendingReduce = at.gridState.TTradeReduceQty
+	} else if at.gridState.TTradeReadyToReduce {
 		tTradePhase = "ready_to_reduce"
 		tTradePendingReduce = at.gridState.TTradeReadyReduceQty
 	} else if at.gridState.TTradePrepOrderID != "" {
