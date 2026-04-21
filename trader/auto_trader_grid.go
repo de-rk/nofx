@@ -2656,7 +2656,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	}
 	trapped := ctx.TrappedInfo
 
-	reduceQty := trapped.TrappedPositionSize
+	reduceQty := bestQty
 
 	currentPrice := ctx.CurrentPrice
 
@@ -2669,6 +2669,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	var bestOrderID string
 	var bestPrice float64
 	var bestSide string
+	var bestQty float64
 
 	for _, level := range at.gridState.Levels {
 		if level.State != "pending" || level.OrderID == "" {
@@ -2681,6 +2682,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 					bestOrderID = level.OrderID
 					bestPrice = level.Price
 					bestSide = "buy"
+					bestQty = level.OrderQuantity
 				}
 			}
 		} else if trapped.Side == "sell" && level.Side == "sell" {
@@ -2690,6 +2692,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 					bestOrderID = level.OrderID
 					bestPrice = level.Price
 					bestSide = "sell"
+					bestQty = level.OrderQuantity
 				}
 			}
 		}
