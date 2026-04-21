@@ -2794,21 +2794,40 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 	at.gridState.mu.RUnlock()
 
 	if !filled {
-		// Order disappeared but level not filled — was cancelled (user or system)
-		// Clear T-trade state WITHOUT updating LastTrappedReduceAt so re-tagging
-		// happens immediately on the next cycle
-		logger.Warnf("[Grid] T-trade prep order %s was cancelled — clearing state, will re-tag next cycle",
-			pendingOrderID)
-		at.gridState.mu.Lock()
-		at.gridState.TTradePrepOrderID = ""
-		at.gridState.TTradePrepPrice = 0
-		at.gridState.TTradePrepQty = 0
-		at.gridState.TTradePrepPlacedAt = time.Time{}
-		at.gridState.TTradePendingReduceQty = 0
-		at.gridState.TTradePrepSide = ""
-		at.gridState.TTradePrepExecuted = false
-		at.gridState.mu.Unlock()
-		return
+		// Order disappeared from open orders but level not marked filled yet.
+		// Confirm via GetOrderStatus before treating as cancelled — avoids false
+		// cancellation when syncOpenOrdersFromExchange missed the fill due to network error.
+		statusMap, err := at.trader.GetOrderStatus(gridConfig.Symbol, pendingOrderID)
+		if err != nil {
+			logger.Warnf("[Grid] T-trade prep order %s disappeared but GetOrderStatus failed (%v) — skipping, will retry next cycle", pendingOrderID, err)
+			return
+		}
+		statusStr, _ := statusMap["status"].(string)
+		if statusStr == "FILLED" {
+			// Exchange confirms filled — treat same as level.State=="filled"
+			filled = true
+			if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+				buyPrice = avg
+			}
+		} else if statusStr == "CANCELED" || statusStr == "EXPIRED" {
+			// Confirmed cancelled
+			logger.Warnf("[Grid] T-trade prep order %s was cancelled (status=%s) — clearing state, will re-tag next cycle",
+				pendingOrderID, statusStr)
+			at.gridState.mu.Lock()
+			at.gridState.TTradePrepOrderID = ""
+			at.gridState.TTradePrepPrice = 0
+			at.gridState.TTradePrepQty = 0
+			at.gridState.TTradePrepPlacedAt = time.Time{}
+			at.gridState.TTradePendingReduceQty = 0
+			at.gridState.TTradePrepSide = ""
+			at.gridState.TTradePrepExecuted = false
+			at.gridState.mu.Unlock()
+			return
+		} else {
+			// Unknown status — don't clear, retry next cycle
+			logger.Warnf("[Grid] T-trade prep order %s has unexpected status=%q — skipping, will retry next cycle", pendingOrderID, statusStr)
+			return
+		}
 	}
 
 	// ✅ T-trade prep order is CONFIRMED FILLED — signal AI to place reduce order
