@@ -1886,8 +1886,9 @@ func (at *AutoTrader) syncGridState() {
 
 	// Pre-fetch order status for disappeared pending orders (outside lock, network calls)
 	type orderFillInfo struct {
-		avgPrice float64
-		isFilled bool
+		avgPrice    float64
+		isFilled    bool
+		statusKnown bool // false if GetOrderStatus failed — treat as unknown, not cancelled
 	}
 	fillInfoByOrderID := make(map[string]orderFillInfo)
 	at.gridState.mu.RLock()
@@ -1897,7 +1898,10 @@ func (at *AutoTrader) syncGridState() {
 			if err == nil {
 				s, _ := status["status"].(string)
 				avg, _ := status["avgPrice"].(float64)
-				fillInfoByOrderID[level.OrderID] = orderFillInfo{avgPrice: avg, isFilled: s == "FILLED"}
+				fillInfoByOrderID[level.OrderID] = orderFillInfo{avgPrice: avg, isFilled: s == "FILLED", statusKnown: true}
+			} else {
+				// Network failure — mark as unknown so we don't misclassify as cancelled
+				fillInfoByOrderID[level.OrderID] = orderFillInfo{statusKnown: false}
 			}
 		}
 	}
@@ -1918,6 +1922,11 @@ func (at *AutoTrader) syncGridState() {
 			if !activeOrderIDs[level.OrderID] {
 				// Determine fill vs cancel: prefer GetOrderStatus result, fall back to position heuristic
 				info := fillInfoByOrderID[level.OrderID]
+				// If status is unknown (network failure), skip this level — retry next cycle
+				if !info.statusKnown && !(math.Abs(currentPositionSize) > math.Abs(expectedPositionSize)) {
+					logger.Warnf("[Grid] Level %d order %s disappeared but status unknown (network error) — skipping, will retry next cycle", i, level.OrderID)
+					continue
+				}
 				wasFilled := info.isFilled || math.Abs(currentPositionSize) > math.Abs(expectedPositionSize)
 				if wasFilled {
 					// Use actual fill price from exchange; fall back to level price if unavailable
