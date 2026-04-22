@@ -963,6 +963,11 @@ func (at *AutoTrader) RunGridCycle() error {
 	}
 
 	// Execute decisions
+	type decisionResult struct {
+		d   kernel.Decision
+		err error
+	}
+	results := make([]decisionResult, 0, len(decision.Decisions))
 	for _, d := range decision.Decisions {
 		// Check if trader is still running before each decision
 		at.isRunningMutex.RLock()
@@ -973,22 +978,29 @@ func (at *AutoTrader) RunGridCycle() error {
 			break
 		}
 
-		if err := at.executeGridDecision(&d, gridCtx); err != nil {
+		err := at.executeGridDecision(&d, gridCtx)
+		if err != nil {
 			logger.Warnf("[Grid] Failed to execute decision %s: %v", d.Action, err)
 		}
+		results = append(results, decisionResult{d: d, err: err})
 	}
 
 	// Update decision memory
 	at.gridState.mu.Lock()
-	for _, d := range decision.Decisions {
-		if d.Action == "hold" {
+	for _, r := range results {
+		if r.d.Action == "hold" {
 			continue
+		}
+		resultStr := "ok"
+		if r.err != nil {
+			resultStr = "failed: " + r.err.Error()
 		}
 		summary := kernel.DecisionSummary{
 			Timestamp: time.Now().Format("15:04:05"),
-			Action:    d.Action,
-			Reasoning: d.Reasoning,
-			Price:     d.Price,
+			Action:    r.d.Action,
+			Reasoning: r.d.Reasoning,
+			Price:     r.d.Price,
+			Result:    resultStr,
 		}
 		at.gridState.DecisionMemory = append(at.gridState.DecisionMemory, summary)
 	}

@@ -18,6 +18,7 @@ type DecisionSummary struct {
 	Action    string  `json:"action"`
 	Reasoning string  `json:"reasoning"`
 	Price     float64 `json:"price"`
+	Result    string  `json:"result"` // "ok", "failed: <reason>", or ""
 }
 
 // GetGridDecisions calls the AI client to get decisions for grid trading
@@ -557,10 +558,14 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	// Decision history
 	if len(ctx.DecisionHistory) > 0 {
 		sb.WriteString("## 历史决策\n")
-		sb.WriteString("| 时间 | 操作 | 价格 | 理由 |\n")
-		sb.WriteString("|------|------|------|------|\n")
+		sb.WriteString("| 时间 | 操作 | 价格 | 结果 | 理由 |\n")
+		sb.WriteString("|------|------|------|------|------|\n")
 		for _, d := range ctx.DecisionHistory {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %.2f | %s |\n", d.Timestamp, d.Action, d.Price, d.Reasoning))
+			result := d.Result
+			if result == "" {
+				result = "-"
+			}
+			sb.WriteString(fmt.Sprintf("| %s | %s | %.2f | %s | %s |\n", d.Timestamp, d.Action, d.Price, result, d.Reasoning))
 		}
 		sb.WriteString("\n")
 	}
@@ -688,10 +693,14 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	// Decision history
 	if len(ctx.DecisionHistory) > 0 {
 		sb.WriteString("## Decision History\n")
-		sb.WriteString("| Time | Action | Price | Reasoning |\n")
-		sb.WriteString("|------|--------|-------|----------|\n")
+		sb.WriteString("| Time | Action | Price | Result | Reasoning |\n")
+		sb.WriteString("|------|--------|-------|--------|----------|\n")
 		for _, d := range ctx.DecisionHistory {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %.2f | %s |\n", d.Timestamp, d.Action, d.Price, d.Reasoning))
+			result := d.Result
+			if result == "" {
+				result = "-"
+			}
+			sb.WriteString(fmt.Sprintf("| %s | %s | %.2f | %s | %s |\n", d.Timestamp, d.Action, d.Price, result, d.Reasoning))
 		}
 		sb.WriteString("\n")
 	}
