@@ -601,7 +601,6 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	if ctx.LongPosition != 0 || ctx.ShortPosition != 0 {
 		sb.WriteString(fmt.Sprintf("- 多头: %.4f | 空头: %.4f\n", ctx.LongPosition, ctx.ShortPosition))
 	}
-	sb.WriteString("- ⚠️ 无需自行计算保证金，系统会自动处理余额检查\n")
 	sb.WriteString("\n")
 
 	// Grid status
@@ -733,7 +732,6 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	if ctx.LongPosition != 0 || ctx.ShortPosition != 0 {
 		sb.WriteString(fmt.Sprintf("- Long: %.4f | Short: %.4f\n", ctx.LongPosition, ctx.ShortPosition))
 	}
-	sb.WriteString("- ⚠️ Do NOT calculate margin yourself — the system handles balance checks automatically\n")
 	sb.WriteString("\n")
 
 	// Grid status
