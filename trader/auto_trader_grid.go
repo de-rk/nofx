@@ -2692,7 +2692,12 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 					bestOrderID = level.OrderID
 					bestPrice = level.Price
 					bestSide = "buy"
-					bestQty = level.OrderQuantity
+					// Use suggested qty (AllocatedUSD * Leverage / Price) to avoid anomalous OrderQuantity values
+					if level.AllocatedUSD > 0 && level.Price > 0 {
+						bestQty = level.AllocatedUSD * float64(at.config.StrategyConfig.GridConfig.Leverage) / level.Price
+					} else {
+						bestQty = level.OrderQuantity
+					}
 				}
 			}
 		} else if trapped.Side == "sell" && level.Side == "sell" {
@@ -2702,7 +2707,12 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 					bestOrderID = level.OrderID
 					bestPrice = level.Price
 					bestSide = "sell"
-					bestQty = level.OrderQuantity
+					// Use suggested qty (AllocatedUSD * Leverage / Price) to avoid anomalous OrderQuantity values
+					if level.AllocatedUSD > 0 && level.Price > 0 {
+						bestQty = level.AllocatedUSD * float64(at.config.StrategyConfig.GridConfig.Leverage) / level.Price
+					} else {
+						bestQty = level.OrderQuantity
+					}
 				}
 			}
 		}
