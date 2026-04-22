@@ -109,7 +109,7 @@ export function GridConfigEditor({
       enableTrappedReduce: { zh: '启用被套减仓', en: 'Enable Trapped Reduction' },
       enableTrappedReduceDesc: { zh: '被套时AI通过T字操作分批减仓，降低持仓成本，逐步扭亏为盈', en: 'AI uses T-trade to batch-reduce trapped positions, lowering cost basis to turn losses around' },
       trappedReduceThreshold: { zh: '触发阈值 (%)', en: 'Trigger Threshold (%)' },
-      trappedReduceThresholdDesc: { zh: '未实现亏损占总投资的百分比超过此值时触发', en: 'Trigger when unrealized loss exceeds this % of total investment' },
+      trappedReduceThresholdDesc: { zh: '未实现亏损占持仓保证金的百分比超过此值时触发', en: 'Trigger when unrealized loss exceeds this % of position margin' },
       trappedReduceBatch: { zh: '每批减仓比例 (%)', en: 'Batch Reduce Percent (%)' },
       trappedReduceBatchDesc: { zh: '每次减仓的仓位比例（25%=每次平掉1/4被套仓位）', en: 'Position percent to reduce per batch (25% = close 1/4 each time)' },
       trappedReduceExplain: { zh: '💡 T字操作原理：被套时等待最近网格挂单成交，再在更优价格减仓，利用价差降低持仓成本，不需要等价格回到原开仓价', en: '💡 T-Trade principle: wait for nearest grid order to fill, then reduce at a better price to capture the spread and lower cost basis without waiting for price to return to entry' },

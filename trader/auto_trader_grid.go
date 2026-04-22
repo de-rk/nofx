@@ -3050,8 +3050,8 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 	}
 
 	lossPct := 0.0
-	if gridConfig.TotalInvestment > 0 {
-		lossPct = math.Abs(trappedData.pnl) / gridConfig.TotalInvestment * 100
+	if avgEntry > 0 {
+		lossPct = math.Abs(trappedData.pnl) / (avgEntry * trappedData.size / float64(gridConfig.Leverage)) * 100
 	}
 
 	priceDiffPct := 0.0
