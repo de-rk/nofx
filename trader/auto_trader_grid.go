@@ -2725,6 +2725,14 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		return
 	}
 
+	// Use actual order quantity from exchange open orders (most accurate)
+	for _, o := range openOrders {
+		if o.OrderID == bestOrderID && o.Quantity > 0 {
+			bestQty = o.Quantity
+			break
+		}
+	}
+
 	reduceQty := bestQty
 
 	at.gridState.mu.Lock()
