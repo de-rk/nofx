@@ -2574,7 +2574,8 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 	}
 
 	// Call coinank free/open API (no authentication required)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	ts := time.Now().UnixMilli()
 	// Use "To" side to search backward from current time (get historical klines)
 	coinankKlines, err := coinank_api.Kline(ctx, symbol, coinankExchange, ts, coinank_enum.To, limit, coinankInterval)
@@ -2609,7 +2610,8 @@ func (s *Server) getKlinesFromBinanceDirect(symbol, interval string, limit int) 
 	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/klines?symbol=%s&interval=%s&limit=%d",
 		symbol, interval, limit)
 
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("binance futures API error: %w", err)
 	}
@@ -2662,7 +2664,8 @@ func (s *Server) getKlinesFromAlpaca(symbol, interval string, limit int) ([]mark
 	timeframe := alpaca.MapTimeframe(interval)
 
 	// Fetch bars from Alpaca
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	bars, err := client.GetBars(ctx, symbol, timeframe, limit)
 	if err != nil {
 		return nil, fmt.Errorf("alpaca API error: %w", err)
@@ -2695,7 +2698,8 @@ func (s *Server) getKlinesFromTwelveData(symbol, interval string, limit int) ([]
 	timeframe := twelvedata.MapTimeframe(interval)
 
 	// Fetch time series from Twelve Data
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	result, err := client.GetTimeSeries(ctx, symbol, timeframe, limit)
 	if err != nil {
 		return nil, fmt.Errorf("twelvedata API error: %w", err)
@@ -2738,7 +2742,8 @@ func (s *Server) getKlinesFromHyperliquid(symbol, interval string, limit int) ([
 
 	// Fetch candles from Hyperliquid
 	// FormatCoinForAPI will automatically add xyz: prefix for stock perps
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	candles, err := client.GetCandles(ctx, symbol, timeframe, limit)
 	if err != nil {
 		return nil, fmt.Errorf("hyperliquid API error: %w", err)
