@@ -12,7 +12,7 @@ export function DeepVoidBackground({ children, className = '', disableAnimation 
             {/* BACKGROUND LAYERS */}
 
             {/* 1. Grain/Noise Texture */}
-            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-soft-light pointer-events-none fixed z-0"></div>
+            <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-20 mix-blend-soft-light pointer-events-none fixed z-0"></div>
 
             {/* 2. Grid System */}
             <div className="absolute inset-0 pointer-events-none fixed z-0">

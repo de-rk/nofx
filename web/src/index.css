@@ -944,7 +944,7 @@ tr:hover {
 .holo-overlay {
   /* Complex gradient + noise for texture */
   background:
-    url('https://grainy-gradients.vercel.app/noise.svg'),
+    url('/noise.svg'),
     conic-gradient(from 0deg at 50% 50%,
       rgba(240, 185, 11, 0.1) 0deg,
       rgba(0, 240, 255, 0.1) 120deg,
