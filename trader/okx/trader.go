@@ -1386,6 +1386,12 @@ func (t *OKXTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 	instId := t.convertSymbol(symbol)
 	var result []types.OpenOrder
 
+	// Get ctVal for contract-to-base-asset conversion
+	ctVal := 1.0
+	if inst, err := t.getInstrument(symbol); err == nil && inst.CtVal > 0 {
+		ctVal = inst.CtVal
+	}
+
 	// 1. Get pending limit orders
 	path := fmt.Sprintf("%s?instId=%s&instType=SWAP", okxPendingOrdersPath, instId)
 	data, err := t.doRequest("GET", path, nil)
@@ -1407,8 +1413,7 @@ func (t *OKXTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 			for _, order := range orders {
 				price, _ := strconv.ParseFloat(order.Px, 64)
 				quantity, _ := strconv.ParseFloat(order.Sz, 64)
-
-				// Convert OKX side to standard format
+				quantity *= ctVal // convert contracts to base asset
 				side := strings.ToUpper(order.Side)
 				positionSide := strings.ToUpper(order.PosSide)
 				if positionSide == "NET" {
@@ -1453,6 +1458,7 @@ func (t *OKXTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 		if err := json.Unmarshal(algoData, &algoOrders); err == nil {
 			for _, order := range algoOrders {
 				quantity, _ := strconv.ParseFloat(order.Sz, 64)
+				quantity *= ctVal // convert contracts to base asset
 
 				side := strings.ToUpper(order.Side)
 				positionSide := strings.ToUpper(order.PosSide)
