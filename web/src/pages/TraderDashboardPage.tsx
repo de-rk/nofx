@@ -564,7 +564,7 @@ export function TraderDashboardPage({
                         <GridRiskPanel
                             traderId={selectedTraderId}
                             language={language}
-                            refreshInterval={5000}
+                            refreshInterval={30000}
                         />
                     </div>
                 )}

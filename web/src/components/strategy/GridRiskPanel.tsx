@@ -5,13 +5,13 @@ import type { GridRiskInfo } from '../../types'
 interface GridRiskPanelProps {
   traderId: string
   language?: string
-  refreshInterval?: number // ms, default 5000
+  refreshInterval?: number // ms, default 30000
 }
 
 export function GridRiskPanel({
   traderId,
   language = 'en',
-  refreshInterval = 5000,
+  refreshInterval = 30000,
 }: GridRiskPanelProps) {
   const [riskInfo, setRiskInfo] = useState<GridRiskInfo | null>(null)
   const [loading, setLoading] = useState(true)
