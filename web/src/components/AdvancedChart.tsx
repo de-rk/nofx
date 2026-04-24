@@ -718,6 +718,61 @@ export function AdvancedChart({
   useEffect(() => {
     if (!traderID || !candlestickSeriesRef.current) return
 
+    // 加载订单标记
+    const loadOrderMarkers = async () => {
+      if (!candlestickSeriesRef.current || !chartRef.current) return
+      const orders = await fetchOrders(traderID, symbol)
+      if (!candlestickSeriesRef.current) return
+
+      if (orders.length === 0) return
+
+      const klineData = Array.from(klineDataRef.current.keys()).sort((a, b) => a - b)
+      if (klineData.length === 0) return
+
+      const klineMinTime = klineData[0]
+      const klineMaxTime = klineData[klineData.length - 1]
+
+      const findCandleTime = (orderTime: number): number | null => {
+        if (orderTime < klineMinTime || orderTime > klineMaxTime) return null
+        let left = 0, right = klineData.length - 1
+        while (left < right) {
+          const mid = Math.ceil((left + right + 1) / 2)
+          if (klineData[mid] <= orderTime) left = mid
+          else right = mid - 1
+        }
+        return klineData[left]
+      }
+
+      const ordersByCandle = new Map<number, { buys: number; sells: number }>()
+      orders.forEach(order => {
+        const candleTime = findCandleTime(order.time)
+        if (candleTime === null) return
+        const existing = ordersByCandle.get(candleTime) || { buys: 0, sells: 0 }
+        if (order.rawSide === 'buy') existing.buys++
+        else existing.sells++
+        ordersByCandle.set(candleTime, existing)
+      })
+
+      const markers: Array<{ time: Time; position: 'belowBar' | 'aboveBar'; color: string; shape: 'circle'; text: string; size: number }> = []
+      ordersByCandle.forEach((counts, candleTime) => {
+        if (counts.buys > 0) markers.push({ time: candleTime as Time, position: 'belowBar', color: '#0ECB81', shape: 'circle', text: counts.buys > 1 ? `B${counts.buys}` : 'B', size: 1 })
+        if (counts.sells > 0) markers.push({ time: candleTime as Time, position: 'aboveBar', color: '#F6465D', shape: 'circle', text: counts.sells > 1 ? `S${counts.sells}` : 'S', size: 1 })
+      })
+      markers.sort((a, b) => (a.time as number) - (b.time as number))
+
+      try {
+        currentMarkersDataRef.current = markers
+        const markersToShow = showOrderMarkers ? markers : []
+        if (seriesMarkersRef.current) {
+          seriesMarkersRef.current.setMarkers(markersToShow)
+        } else if (candlestickSeriesRef.current) {
+          seriesMarkersRef.current = createSeriesMarkers(candlestickSeriesRef.current, markersToShow)
+        }
+      } catch (err) {
+        console.error('[AdvancedChart] Failed to refresh markers:', err)
+      }
+    }
+
     // 加载挂单并显示价格线
     const loadOpenOrders = async () => {
       try {
@@ -787,9 +842,13 @@ export function AdvancedChart({
     // 60秒刷新一次挂单
     const openOrdersInterval = setInterval(loadOpenOrders, 60000)
 
+    // 60秒刷新一次订单标记
+    const markersInterval = setInterval(loadOrderMarkers, 60000)
+
     return () => {
       clearTimeout(initialTimeout)
       clearInterval(openOrdersInterval)
+      clearInterval(markersInterval)
     }
   }, [symbol, traderID])
 
