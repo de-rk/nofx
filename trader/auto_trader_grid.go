@@ -1632,24 +1632,37 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 		gridTrader = NewGridTraderAdapter(at.trader)
 	}
 
-	if err := gridTrader.CancelOrder(d.Symbol, d.OrderID); err != nil {
+	// Resolve order ID: AI provides level_index, not order_id
+	orderID := d.OrderID
+	if orderID == "" && d.LevelIndex >= 0 {
+		at.gridState.mu.RLock()
+		if d.LevelIndex < len(at.gridState.Levels) {
+			orderID = at.gridState.Levels[d.LevelIndex].OrderID
+		}
+		at.gridState.mu.RUnlock()
+	}
+	if orderID == "" {
+		return fmt.Errorf("cancel_order: no order ID found for level %d", d.LevelIndex)
+	}
+
+	if err := gridTrader.CancelOrder(d.Symbol, orderID); err != nil {
 		return fmt.Errorf("failed to cancel order: %w", err)
 	}
 
 	// Update state
 	at.gridState.mu.Lock()
-	if levelIdx, ok := at.gridState.OrderBook[d.OrderID]; ok {
+	if levelIdx, ok := at.gridState.OrderBook[orderID]; ok {
 		if levelIdx >= 0 && levelIdx < len(at.gridState.Levels) {
 			at.gridState.Levels[levelIdx].State = "empty"
 			at.gridState.Levels[levelIdx].OrderID = ""
 			at.gridState.Levels[levelIdx].OrderQuantity = 0
 			at.gridState.Levels[levelIdx].OrderPlacedAt = time.Time{}
 		}
-		delete(at.gridState.OrderBook, d.OrderID)
+		delete(at.gridState.OrderBook, orderID)
 	}
 	at.gridState.mu.Unlock()
 
-	logger.Infof("[Grid] Cancelled order: %s", d.OrderID)
+	logger.Infof("[Grid] Cancelled order: %s (level %d)", orderID, d.LevelIndex)
 	return nil
 }
 
