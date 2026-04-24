@@ -198,23 +198,17 @@ export function AdvancedChart({
     if (typeof time === 'number') {
       // 判断是毫秒还是秒：如果大于 10^12 则认为是毫秒（2001年之后的毫秒时间戳）
       if (time > 1000000000000) {
-        const seconds = Math.floor(time / 1000)
-        console.log('[AdvancedChart] ✅ Unix timestamp (ms→s):', time, '→', seconds, '(', new Date(time).toISOString(), ')')
-        return seconds
+        return Math.floor(time / 1000)
       }
-      console.log('[AdvancedChart] ✅ Unix timestamp (s):', time, '(', new Date(time * 1000).toISOString(), ')')
       return time
     }
 
     const timeStr = String(time)
-    console.log('[AdvancedChart] Parsing time string:', timeStr)
 
     // 尝试标准ISO格式
     const isoTime = new Date(timeStr).getTime()
     if (!isNaN(isoTime) && isoTime > 0) {
-      const timestamp = Math.floor(isoTime / 1000)
-      console.log('[AdvancedChart] ✅ Parsed as ISO:', timeStr, '→', timestamp, '(', new Date(timestamp * 1000).toISOString(), ')')
-      return timestamp
+      return Math.floor(isoTime / 1000)
     }
 
     // 解析自定义格式 "MM-DD HH:mm UTC" (兼容旧数据)
@@ -229,9 +223,7 @@ export function AdvancedChart({
         parseInt(hour),
         parseInt(minute)
       ))
-      const timestamp = Math.floor(date.getTime() / 1000)
-      console.log('[AdvancedChart] ✅ Parsed as custom format:', timeStr, '→', timestamp, '(', new Date(timestamp * 1000).toISOString(), ')')
-      return timestamp
+      return Math.floor(date.getTime() / 1000)
     }
 
     console.error('[AdvancedChart] ❌ Failed to parse time:', timeStr)
@@ -241,14 +233,10 @@ export function AdvancedChart({
   // 获取订单数据
   const fetchOrders = async (traderID: string, symbol: string): Promise<OrderMarker[]> => {
     try {
-      console.log('[AdvancedChart] Fetching orders for trader:', traderID, 'symbol:', symbol)
       // 获取已成交的订单，增加到200条以显示更多历史订单
       const result = await httpClient.get(`/api/orders?trader_id=${traderID}&symbol=${symbol}&status=FILLED&limit=200`)
 
-      console.log('[AdvancedChart] Orders API response:', result)
-
       if (!result.success || !result.data) {
-        console.warn('[AdvancedChart] No orders found, result:', result)
         return []
       }
 
@@ -313,13 +301,9 @@ export function AdvancedChart({
   // 获取交易所挂单 (止盈止损订单)
   const fetchOpenOrders = async (traderID: string, symbol: string): Promise<OpenOrder[]> => {
     try {
-      console.log('[AdvancedChart] Fetching open orders for trader:', traderID, 'symbol:', symbol)
       const result = await httpClient.get(`/api/open-orders?trader_id=${traderID}&symbol=${symbol}`)
 
-      console.log('[AdvancedChart] Open orders API response:', result)
-
       if (!result.success || !result.data) {
-        console.warn('[AdvancedChart] No open orders found')
         return []
       }
 
@@ -505,7 +489,6 @@ export function AdvancedChart({
     const loadData = async (isRefresh = false) => {
       if (!candlestickSeriesRef.current) return
 
-      console.log('[AdvancedChart] Loading data for', symbol, interval, isRefresh ? '(refresh)' : '')
       // 只在首次加载时显示 loading，刷新时不显示避免闪烁
       if (!isRefresh) {
         setLoading(true)
@@ -515,7 +498,6 @@ export function AdvancedChart({
       try {
         // 1. 获取K线数据
         const klineData = await fetchKlineData(symbol, interval, isRefresh)
-        console.log('[AdvancedChart] Loaded', klineData.length, 'klines')
 
         // Check if chart is still mounted before updating
         if (!candlestickSeriesRef.current || !chartRef.current) return
@@ -591,11 +573,9 @@ export function AdvancedChart({
         // 3. 添加指标
         updateIndicators(klineData)
 
-        // 4. 获取并显示订单标记
-        if (traderID && candlestickSeriesRef.current) {
-          console.log('[AdvancedChart] Starting to fetch orders...')
+        // 4. 获取并显示订单标记（仅首次加载，刷新时跳过）
+        if (!isRefresh && traderID && candlestickSeriesRef.current) {
           const orders = await fetchOrders(traderID, symbol)
-          console.log('[AdvancedChart] Received orders:', orders)
 
           // Check if chart is still mounted after async operation
           if (!candlestickSeriesRef.current || !chartRef.current) return
@@ -636,9 +616,7 @@ export function AdvancedChart({
               const candleTime = findCandleTime(order.time)
 
               if (candleTime === null) {
-                console.warn('[AdvancedChart] ⚠️ Skipping order outside kline range:',
-                  order.time, '(', new Date(order.time * 1000).toISOString(), ')')
-                return
+                return // 超出 K 线范围，正常跳过
               }
 
               const existing = ordersByCandle.get(candleTime) || { buys: 0, sells: 0 }
@@ -687,8 +665,6 @@ export function AdvancedChart({
 
             // 按时间排序（lightweight-charts 要求标记按时间顺序）
             markers.sort((a, b) => (a.time as number) - (b.time as number))
-
-            console.log('[AdvancedChart] Valid markers:', markers.length, 'out of', orders.length)
 
             try {
               // 存储标记数据供后续切换使用
@@ -756,7 +732,6 @@ export function AdvancedChart({
         priceLinesRef.current = []
 
         const openOrders = await fetchOpenOrders(traderID, symbol)
-        console.log('[AdvancedChart] Open orders for price lines:', openOrders)
 
         if (openOrders.length > 0 && candlestickSeriesRef.current) {
           openOrders.forEach(order => {
@@ -800,7 +775,6 @@ export function AdvancedChart({
               priceLinesRef.current.push(priceLine)
             }
           })
-          console.log('[AdvancedChart] ✅ Created', priceLinesRef.current.length, 'price lines for pending orders')
         }
       } catch (err) {
         console.error('[AdvancedChart] Error loading open orders:', err)
