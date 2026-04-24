@@ -148,9 +148,9 @@ export function AdvancedChart({
   ])
 
   // 从服务获取K线数据
-  const fetchKlineData = async (symbol: string, interval: string) => {
+  const fetchKlineData = async (symbol: string, interval: string, isRefresh = false) => {
     try {
-      const limit = 1500
+      const limit = isRefresh ? 10 : 1500
       const klineUrl = `/api/klines?symbol=${symbol}&interval=${interval}&limit=${limit}&exchange=${exchange}`
       const result = await httpClient.get(klineUrl)
 
@@ -512,19 +512,26 @@ export function AdvancedChart({
 
       try {
         // 1. 获取K线数据
-        const klineData = await fetchKlineData(symbol, interval)
+        const klineData = await fetchKlineData(symbol, interval, isRefresh)
         console.log('[AdvancedChart] Loaded', klineData.length, 'klines')
 
         // Check if chart is still mounted before updating
         if (!candlestickSeriesRef.current || !chartRef.current) return
 
-        candlestickSeriesRef.current.setData(klineData)
-
-        // 存储 volume/quoteVolume 数据供 tooltip 使用
-        klineDataRef.current.clear()
-        klineData.forEach((k: any) => {
-          klineDataRef.current.set(k.time, { volume: k.volume || 0, quoteVolume: k.quoteVolume || 0 })
-        })
+        if (isRefresh) {
+          // 刷新时只更新最新几根K线，避免重绘整个图表
+          klineData.forEach((k: any) => {
+            candlestickSeriesRef.current!.update(k)
+            klineDataRef.current.set(k.time, { volume: k.volume || 0, quoteVolume: k.quoteVolume || 0 })
+          })
+        } else {
+          candlestickSeriesRef.current.setData(klineData)
+          // 存储 volume/quoteVolume 数据供 tooltip 使用
+          klineDataRef.current.clear()
+          klineData.forEach((k: any) => {
+            klineDataRef.current.set(k.time, { volume: k.volume || 0, quoteVolume: k.quoteVolume || 0 })
+          })
+        }
 
         // 1.5 计算行情统计数据
         if (klineData.length > 1) {
