@@ -114,6 +114,7 @@ export function AdvancedChart({
   const seriesMarkersRef = useRef<any>(null) // Markers primitive for v5
   const currentMarkersDataRef = useRef<any[]>([]) // 存储当前的标记数据
   const klineDataRef = useRef<Map<number, { volume: number; quoteVolume: number }>>(new Map()) // 存储 kline 额外数据
+  const lastCandleTimeRef = useRef<number>(0) // 跟踪最后一根K线时间，防止 update 报错
   const priceLinesRef = useRef<any[]>([]) // 存储挂单价格线
 
   const [loading, setLoading] = useState(true)
@@ -488,6 +489,7 @@ export function AdvancedChart({
   useEffect(() => {
     // 当 symbol 或 interval 改变时，重置初始加载标志（以便自动适配新数据）
     isInitialLoadRef.current = true
+    lastCandleTimeRef.current = 0
 
     // 清除旧的标记数据，避免旧数据影响新图表
     currentMarkersDataRef.current = []
@@ -519,9 +521,11 @@ export function AdvancedChart({
         if (!candlestickSeriesRef.current || !chartRef.current) return
 
         if (isRefresh) {
-          // 刷新时只更新最新几根K线，避免重绘整个图表
+          // 刷新时只更新最新几根K线，跳过比已有数据更旧的K线避免报错
           klineData.forEach((k: any) => {
+            if (k.time < lastCandleTimeRef.current) return
             candlestickSeriesRef.current!.update(k)
+            if (k.time > lastCandleTimeRef.current) lastCandleTimeRef.current = k.time
             klineDataRef.current.set(k.time, { volume: k.volume || 0, quoteVolume: k.quoteVolume || 0 })
           })
         } else {
@@ -531,6 +535,10 @@ export function AdvancedChart({
           klineData.forEach((k: any) => {
             klineDataRef.current.set(k.time, { volume: k.volume || 0, quoteVolume: k.quoteVolume || 0 })
           })
+          // 记录最后一根K线时间
+          if (klineData.length > 0) {
+            lastCandleTimeRef.current = klineData[klineData.length - 1].time
+          }
         }
 
         // 1.5 计算行情统计数据
