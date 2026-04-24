@@ -40,7 +40,6 @@
 - **Multi-AI Support**: Run DeepSeek, Qwen, GPT, Claude, Gemini, Grok, Kimi - switch models anytime
 - **Multi-Exchange**: Trade on Binance, Bybit, OKX, Bitget, KuCoin, Gate, Hyperliquid, Aster DEX, Lighter from one platform
 - **Strategy Studio**: Visual strategy builder with coin sources, indicators, and risk controls
-- **AI Debate Arena**: Multiple AI models debate trading decisions with different roles (Bull, Bear, Analyst)
 - **AI Competition Mode**: Multiple AI traders compete in real-time, track performance side by side
 - **Web-Based Config**: No JSON editing - configure everything through the web interface
 - **Real-Time Dashboard**: Live positions, P/L tracking, AI decision logs with Chain of Thought
@@ -374,12 +373,6 @@ All configuration is done through the web interface - no JSON file editing requi
 - Risk control settings (leverage, position limits, margin usage)
 - AI test with real-time prompt preview
 
-### Debate Arena
-- Multi-AI debate sessions for trading decisions
-- Configurable AI roles (Bull, Bear, Analyst, Contrarian, Risk Manager)
-- Multiple rounds of debate with consensus voting
-- Auto-execute consensus trades
-
 ### Backtest Lab
 - 3-step wizard configuration (Model → Parameters → Confirm)
 - Real-time progress visualization with animated ring
@@ -419,7 +412,6 @@ sudo apt-get install libta-lib0-dev
 | **[Architecture Overview](docs/architecture/README.md)** | System design and module index |
 | **[Strategy Module](docs/architecture/STRATEGY_MODULE.md)** | Coin selection, data assembly, AI prompts, execution |
 | **[Backtest Module](docs/architecture/BACKTEST_MODULE.md)** | Historical simulation, metrics, checkpoint/resume |
-| **[Debate Module](docs/architecture/DEBATE_MODULE.md)** | Multi-AI debate, voting consensus, auto-execution |
 | **[FAQ](docs/faq/README.md)** | Frequently asked questions |
 | **[Getting Started](docs/getting-started/README.md)** | Deployment guide |
 

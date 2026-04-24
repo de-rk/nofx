@@ -103,7 +103,6 @@ nofx/
 ├── trader/                    # 交易执行层
 ├── strategy/                  # 策略引擎
 ├── backtest/                  # 回测模拟引擎
-├── debate/                    # 辩论竞技场引擎
 ├── market/                    # 行情数据服务
 ├── mcp/                       # AI 模型客户端
 ├── store/                     # 数据库操作
