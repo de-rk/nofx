@@ -1366,10 +1366,20 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		// Override quantity with the T-trade stored qty — AI must not decide the amount
 		at.gridState.mu.RLock()
 		tTradeQty := at.gridState.TTradeReadyReduceQty
+		tTradePrepPriceLong := at.gridState.TTradeReadyPrepPrice
 		at.gridState.mu.RUnlock()
 		if tTradeQty > 0 && tTradeQty != d.Quantity {
 			logger.Infof("[Grid] reduce_long qty overridden by T-trade: %.4f → %.4f", d.Quantity, tTradeQty)
 			d.Quantity = tTradeQty
+		}
+
+		// Enforce minimum spread: reduce_long sell price must be at least 0.2% above prep fill price
+		if tTradePrepPriceLong > 0 {
+			minPrice := tTradePrepPriceLong * 1.002
+			if d.Price < minPrice {
+				logger.Infof("[Grid] reduce_long price enforced: %.4f → %.4f (min 0.2%% above prep %.4f)", d.Price, minPrice, tTradePrepPriceLong)
+				d.Price = minPrice
+			}
 		}
 
 		// Close long position with sell limit order
@@ -1420,10 +1430,20 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		// Override quantity with the T-trade stored qty — AI must not decide the amount
 		at.gridState.mu.RLock()
 		tTradeQty2 := at.gridState.TTradeReadyReduceQty
+		tTradePrepPriceShort := at.gridState.TTradeReadyPrepPrice
 		at.gridState.mu.RUnlock()
 		if tTradeQty2 > 0 && tTradeQty2 != d.Quantity {
 			logger.Infof("[Grid] reduce_short qty overridden by T-trade: %.4f → %.4f", d.Quantity, tTradeQty2)
 			d.Quantity = tTradeQty2
+		}
+
+		// Enforce minimum spread: reduce_short buy price must be at least 0.2% below prep fill price
+		if tTradePrepPriceShort > 0 {
+			maxPrice := tTradePrepPriceShort * 0.998
+			if d.Price > maxPrice {
+				logger.Infof("[Grid] reduce_short price enforced: %.4f → %.4f (max 0.2%% below prep %.4f)", d.Price, maxPrice, tTradePrepPriceShort)
+				d.Price = maxPrice
+			}
 		}
 
 		// Close short position with buy limit order

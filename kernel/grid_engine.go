@@ -543,9 +543,10 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 				action = "reduce_short"
 				priceHint = "低于"
 			}
+			minSpread := t.TTradeReadyPrepPrice * 0.002
 			sb.WriteString(fmt.Sprintf("- T字状态: **🟢 准备减仓** — 触发单成交价=%.2f，执行 %s，数量由系统决定\n",
 				t.TTradeReadyPrepPrice, action))
-			sb.WriteString(fmt.Sprintf("- ⚡ 限价必须**%s %.2f**（比触发单成交价更优）\n", priceHint, t.TTradeReadyPrepPrice))
+			sb.WriteString(fmt.Sprintf("- ⚡ 限价必须**%s %.2f**（比触发单成交价更优），建议差价至少 0.2%%（约 %.4f）\n", priceHint, t.TTradeReadyPrepPrice, minSpread))
 		case "waiting_reduce_fill":
 			sb.WriteString(fmt.Sprintf("- T字状态: **⏳ 减仓单已挂出，等待成交** (待减仓=%.4f)\n", t.TTradePendingReduce))
 			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，正常补网格单\n")
@@ -678,9 +679,10 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 				action = "reduce_short"
 				priceHint = "below"
 			}
+			minSpread := t.TTradeReadyPrepPrice * 0.002
 			sb.WriteString(fmt.Sprintf("- T-Trade: **🟢 READY TO REDUCE** — trigger filled at %.2f, execute %s, quantity set by system\n",
 				t.TTradeReadyPrepPrice, action))
-			sb.WriteString(fmt.Sprintf("- ⚡ Limit price MUST be **%s %.2f** (better than trigger fill price)\n", priceHint, t.TTradeReadyPrepPrice))
+			sb.WriteString(fmt.Sprintf("- ⚡ Limit price MUST be **%s %.2f** (better than trigger fill price), recommended spread at least 0.2%% (~%.4f)\n", priceHint, t.TTradeReadyPrepPrice, minSpread))
 		case "waiting_reduce_fill":
 			sb.WriteString(fmt.Sprintf("- T-Trade: **⏳ REDUCE ORDER PLACED, AWAITING FILL** (pending=%.4f)\n", t.TTradePendingReduce))
 			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — continue normal grid orders\n")
