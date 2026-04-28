@@ -1373,11 +1373,15 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			d.Quantity = tTradeQty
 		}
 
-		// Enforce minimum spread: reduce_long sell price must be at least 0.2% above prep fill price
+		// Enforce minimum spread: reduce_long sell price must be at least spreadPct% above prep fill price
 		if tTradePrepPriceLong > 0 {
-			minPrice := tTradePrepPriceLong * 1.002
+			spreadPctLong := at.config.StrategyConfig.GridConfig.TTradeSpreadPct
+			if spreadPctLong < 0.2 {
+				spreadPctLong = 0.2
+			}
+			minPrice := tTradePrepPriceLong * (1 + spreadPctLong/100)
 			if d.Price < minPrice {
-				logger.Infof("[Grid] reduce_long price enforced: %.4f → %.4f (min 0.2%% above prep %.4f)", d.Price, minPrice, tTradePrepPriceLong)
+				logger.Infof("[Grid] reduce_long price enforced: %.4f → %.4f (min %.1f%% above prep %.4f)", d.Price, minPrice, spreadPctLong, tTradePrepPriceLong)
 				d.Price = minPrice
 			}
 		}
@@ -1437,11 +1441,15 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			d.Quantity = tTradeQty2
 		}
 
-		// Enforce minimum spread: reduce_short buy price must be at least 0.2% below prep fill price
+		// Enforce minimum spread: reduce_short buy price must be at least spreadPct% below prep fill price
 		if tTradePrepPriceShort > 0 {
-			maxPrice := tTradePrepPriceShort * 0.998
+			spreadPctShort := at.config.StrategyConfig.GridConfig.TTradeSpreadPct
+			if spreadPctShort < 0.2 {
+				spreadPctShort = 0.2
+			}
+			maxPrice := tTradePrepPriceShort * (1 - spreadPctShort/100)
 			if d.Price > maxPrice {
-				logger.Infof("[Grid] reduce_short price enforced: %.4f → %.4f (max 0.2%% below prep %.4f)", d.Price, maxPrice, tTradePrepPriceShort)
+				logger.Infof("[Grid] reduce_short price enforced: %.4f → %.4f (max %.1f%% below prep %.4f)", d.Price, maxPrice, spreadPctShort, tTradePrepPriceShort)
 				d.Price = maxPrice
 			}
 		}

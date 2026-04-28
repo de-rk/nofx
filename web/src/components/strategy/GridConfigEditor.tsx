@@ -113,6 +113,8 @@ export function GridConfigEditor({
       trappedReduceBatch: { zh: '每批减仓比例 (%)', en: 'Batch Reduce Percent (%)' },
       trappedReduceBatchDesc: { zh: '每次减仓的仓位比例（25%=每次平掉1/4被套仓位）', en: 'Position percent to reduce per batch (25% = close 1/4 each time)' },
       trappedReduceExplain: { zh: '💡 T字操作原理：被套时等待最近网格挂单成交，再在更优价格减仓，利用价差降低持仓成本，不需要等价格回到原开仓价', en: '💡 T-Trade principle: wait for nearest grid order to fill, then reduce at a better price to capture the spread and lower cost basis without waiting for price to return to entry' },
+      tTradeSpread: { zh: 'T字差价 (%)', en: 'T-Trade Spread (%)' },
+      tTradeSpreadDesc: { zh: '减仓限价单与触发单成交价的最小差价百分比（0.2%~1%）', en: 'Minimum spread % between reduce limit price and prep fill price (0.2%–1%)' },
     }
     return translations[key]?.[language] || key
   }
@@ -598,6 +600,23 @@ export function GridConfigEditor({
               />
             </div>
           )}
+
+          {/* T-Trade Spread */}
+          <div className="p-4 rounded-lg mt-3" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('tTradeSpread')}</label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('tTradeSpreadDesc')}</p>
+            <input
+              type="number"
+              value={config.t_trade_spread_pct ?? 0.2}
+              onChange={(e) => updateField('t_trade_spread_pct', parseFloat(e.target.value) || 0.2)}
+              disabled={disabled}
+              min={0.2}
+              max={1}
+              step={0.1}
+              className="w-full px-3 py-2 rounded text-sm"
+              style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+            />
+          </div>
         </div>
       </div>
     </div>

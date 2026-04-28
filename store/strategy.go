@@ -108,6 +108,8 @@ type GridStrategyConfig struct {
 	ProfitReduceStepPct float64 `json:"profit_reduce_step_pct"`
 	// Minimum minutes between direction changes to prevent oscillation (default 30, 0 = disabled)
 	DirectionHysteresisMin int `json:"direction_hysteresis_min"`
+	// Minimum spread % between T-trade prep fill price and reduce order price (default 0.2, range 0.2-1.0)
+	TTradeSpreadPct float64 `json:"t_trade_spread_pct"`
 }
 
 // PromptSectionsConfig editable sections of System Prompt
