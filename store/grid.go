@@ -668,7 +668,20 @@ func (s *GridStore) LogGridTrade(entry *GridTradeLogModel) error {
 	return nil
 }
 
-// GetGridTradeLogs returns trade log entries for an instance, newest first.
+// GetLatestGridTradeLogByAction returns the most recent log entry matching action and side.
+func (s *GridStore) GetLatestGridTradeLogByAction(instanceID, action, side string) (*GridTradeLogModel, error) {
+	var entry GridTradeLogModel
+	q := s.db.Where("instance_id = ? AND action = ?", instanceID, action)
+	if side != "" {
+		q = q.Where("side = ?", side)
+	}
+	err := q.Order("created_at DESC").First(&entry).Error
+	if err != nil {
+		return nil, err
+	}
+	return &entry, nil
+}
+
 func (s *GridStore) GetGridTradeLogs(instanceID string, limit int) ([]GridTradeLogModel, error) {
 	var logs []GridTradeLogModel
 	q := s.db.Where("instance_id = ?", instanceID).Order("created_at desc")

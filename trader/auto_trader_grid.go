@@ -632,6 +632,58 @@ func (at *AutoTrader) InitializeGrid() error {
 
 	at.gridState.IsInitialized = true
 
+	// Restore profit-reduce progress from trade log to prevent re-triggering after restart
+	if at.store != nil && gridConfig.EnableProfitReduce {
+		for _, side := range []string{"long", "short"} {
+			entry, err := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce", side)
+			if err == nil && entry != nil {
+				// Parse target pct from reason field "target=15% closeAll=false"
+				var targetPct float64
+				fmt.Sscanf(entry.Reason, "target=%f%%", &targetPct)
+				if targetPct > 0 {
+					at.gridState.mu.Lock()
+					if side == "long" {
+						at.gridState.LongProfitReducedPct = targetPct
+					} else {
+						at.gridState.ShortProfitReducedPct = targetPct
+					}
+					at.gridState.mu.Unlock()
+					logger.Infof("[Grid] Restored %s profit-reduce progress from log: %.0f%%", side, targetPct)
+				}
+			}
+		}
+	}
+
+	// Restore T-trade tag from trade log if the tagged order is still open
+	if at.store != nil && gridConfig.EnableTrappedReduce {
+		entry, err := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "ttrade_tag", "")
+		if err == nil && entry != nil && entry.OrderID != "" {
+			// Check if the tagged order is still open
+			openOrders, oErr := at.trader.GetOpenOrders(gridConfig.Symbol)
+			if oErr == nil {
+				for _, o := range openOrders {
+					if o.OrderID == entry.OrderID {
+						at.gridState.mu.Lock()
+						at.gridState.TTradePrepOrderID = entry.OrderID
+						at.gridState.TTradePrepPrice = entry.Price
+						at.gridState.TTradePrepQty = entry.Quantity
+						at.gridState.TTradePrepPlacedAt = entry.CreatedAt
+						at.gridState.TTradePendingReduceQty = entry.Quantity
+						if o.Side == "BUY" || o.Side == "buy" {
+							at.gridState.TTradePrepSide = "buy"
+						} else {
+							at.gridState.TTradePrepSide = "sell"
+						}
+						at.gridState.TTradePrepExecuted = false
+						at.gridState.mu.Unlock()
+						logger.Infof("[Grid] Restored T-trade tag from log: order %s @ %.4f", entry.OrderID, entry.Price)
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// CRITICAL: Set leverage on exchange before trading
 	if err := at.trader.SetLeverage(gridConfig.Symbol, gridConfig.Leverage); err != nil {
 		logger.Warnf("[Grid] Failed to set leverage %dx on exchange: %v", gridConfig.Leverage, err)
