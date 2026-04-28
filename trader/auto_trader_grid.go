@@ -1014,20 +1014,30 @@ func (at *AutoTrader) RunGridCycle() error {
 	at.syncGridState()
 
 	// After AI places new orders, re-fetch open orders and re-run T-trade tagging
-	// so the next cycle doesn't miss a taggable order placed this cycle
+	// so the next cycle doesn't miss a taggable order placed this cycle.
+	// Only re-tag if T-trade is fully idle (no reduce order placed this cycle).
 	if gridConfig.EnableTrappedReduce {
 		hasNewOrder := false
+		hasReduceOrder := false
 		for _, r := range results {
 			if r.err == nil && (r.d.Action == "place_buy_limit" || r.d.Action == "place_sell_limit") {
 				hasNewOrder = true
-				break
+			}
+			if r.err == nil && (r.d.Action == "reduce_long" || r.d.Action == "reduce_short") {
+				hasReduceOrder = true
 			}
 		}
-		if hasNewOrder {
-			freshOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
-			if err == nil {
-				at.syncOpenOrdersFromExchange(freshOrders)
-				at.autoTagTTradeFromExistingOrders(freshOrders)
+		if hasNewOrder && !hasReduceOrder {
+			at.gridState.mu.RLock()
+			reduceOrderPending := at.gridState.TTradeReduceOrderID != ""
+			readyToReduce := at.gridState.TTradeReadyToReduce
+			at.gridState.mu.RUnlock()
+			if !reduceOrderPending && !readyToReduce {
+				freshOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
+				if err == nil {
+					at.syncOpenOrdersFromExchange(freshOrders)
+					at.autoTagTTradeFromExistingOrders(freshOrders)
+				}
 			}
 		}
 	}
