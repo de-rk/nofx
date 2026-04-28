@@ -87,6 +87,19 @@ func Init(cfg *Config) error {
 	// Setup log file output (write to both stdout and file)
 	logDir := "data"
 	if err := os.MkdirAll(logDir, 0755); err == nil {
+		// Purge log files older than 30 days
+		cutoff := time.Now().AddDate(0, -1, 0)
+		if entries, err := os.ReadDir(logDir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
+					continue
+				}
+				if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+					os.Remove(filepath.Join(logDir, e.Name()))
+				}
+			}
+		}
+
 		logFileName := filepath.Join(logDir, fmt.Sprintf("nofx_%s.log", time.Now().Format("2006-01-02")))
 		f, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err == nil {
