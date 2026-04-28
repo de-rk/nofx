@@ -266,6 +266,12 @@ func (s *DecisionStore) CleanOldRecords(traderID string, days int) (int64, error
 	return result.RowsAffected, nil
 }
 
+func (s *DecisionStore) CleanAllOldRecords(days int) (int64, error) {
+	cutoffTime := time.Now().AddDate(0, 0, -days)
+	result := s.db.Where("timestamp < ?", cutoffTime).Delete(&DecisionRecordDB{})
+	return result.RowsAffected, result.Error
+}
+
 // GetStatistics gets statistics information for specified trader
 func (s *DecisionStore) GetStatistics(traderID string) (*Statistics, error) {
 	stats := &Statistics{}

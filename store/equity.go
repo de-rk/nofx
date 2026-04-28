@@ -129,6 +129,12 @@ func (s *EquityStore) CleanOldRecords(traderID string, days int) (int64, error) 
 	return result.RowsAffected, nil
 }
 
+func (s *EquityStore) CleanAllOldRecords(days int) (int64, error) {
+	cutoffTime := time.Now().AddDate(0, 0, -days)
+	result := s.db.Where("timestamp < ?", cutoffTime).Delete(&EquitySnapshot{})
+	return result.RowsAffected, result.Error
+}
+
 // GetCount gets record count for specified trader
 func (s *EquityStore) GetCount(traderID string) (int, error) {
 	var count int64

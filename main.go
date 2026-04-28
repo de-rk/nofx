@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -79,6 +80,15 @@ func main() {
 	}
 	defer st.Close()
 	backtest.UseDatabaseWithType(st.DB(), st.DBType() == store.DBTypePostgres)
+
+	// Background database maintenance: purge old records daily
+	go func() {
+		for {
+			st.Decision().CleanAllOldRecords(30)
+			st.Equity().CleanAllOldRecords(30)
+			time.Sleep(24 * time.Hour)
+		}
+	}()
 
 	// Initialize installation ID for experience improvement (anonymous statistics)
 	initInstallationID(st)
