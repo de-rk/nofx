@@ -1013,6 +1013,25 @@ func (at *AutoTrader) RunGridCycle() error {
 	// Sync state with exchange
 	at.syncGridState()
 
+	// After AI places new orders, re-fetch open orders and re-run T-trade tagging
+	// so the next cycle doesn't miss a taggable order placed this cycle
+	if gridConfig.EnableTrappedReduce {
+		hasNewOrder := false
+		for _, r := range results {
+			if r.err == nil && (r.d.Action == "place_buy_limit" || r.d.Action == "place_sell_limit") {
+				hasNewOrder = true
+				break
+			}
+		}
+		if hasNewOrder {
+			freshOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
+			if err == nil {
+				at.syncOpenOrdersFromExchange(freshOrders)
+				at.autoTagTTradeFromExistingOrders(freshOrders)
+			}
+		}
+	}
+
 	// Save decision record
 	at.saveGridDecisionRecord(decision)
 
