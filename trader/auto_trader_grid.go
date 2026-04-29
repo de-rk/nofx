@@ -2768,19 +2768,42 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		return
 	}
 
-	// Skip if T-trade already pending
+	// Skip if T-trade already pending AND the tagged order is still open
 	at.gridState.mu.RLock()
 	alreadyPending := at.gridState.TTradePrepOrderID != ""
+	pendingOrderID := at.gridState.TTradePrepOrderID
 	readyToReduce := at.gridState.TTradeReadyToReduce
 	reduceOrderPending := at.gridState.TTradeReduceOrderID != ""
 	at.gridState.mu.RUnlock()
-	if alreadyPending {
-		return
-	}
+
 	// Don't re-tag if we're already in ready_to_reduce or a reduce order is pending
 	if readyToReduce || reduceOrderPending {
 		logger.Infof("[Grid] T-trade auto-tag skipped: already in ready_to_reduce or reduce order pending")
 		return
+	}
+
+	if alreadyPending {
+		// Check if the tagged order is still open — if it filled too fast and was missed, clear and re-tag
+		stillOpen := false
+		for _, o := range openOrders {
+			if o.OrderID == pendingOrderID {
+				stillOpen = true
+				break
+			}
+		}
+		if stillOpen {
+			return
+		}
+		// Tagged order no longer open — clear stale tag and fall through to re-tag
+		logger.Infof("[Grid] T-trade: tagged order %s no longer open, clearing stale tag and re-tagging", pendingOrderID)
+		at.gridState.mu.Lock()
+		at.gridState.TTradePrepOrderID = ""
+		at.gridState.TTradePrepPrice = 0
+		at.gridState.TTradePrepQty = 0
+		at.gridState.TTradePendingReduceQty = 0
+		at.gridState.TTradePrepSide = ""
+		at.gridState.TTradePrepExecuted = false
+		at.gridState.mu.Unlock()
 	}
 
 	// Build trapped info
