@@ -974,7 +974,7 @@ func (at *AutoTrader) RunGridCycle() error {
 	// Check if T-trade buy order has filled → execute deferred reduce if so
 	if gridConfig.EnableTrappedReduce {
 		at.autoTagTTradeFromExistingOrders(openOrders) // auto-tag nearest grid order as T-trade prep
-		at.checkTTradeOrderFillAndReduce(openOrders)
+		at.checkTTradeOrderFillAndReduce(openOrders)   // check fill immediately after tag (order may have filled in same cycle)
 		at.checkTTradeReduceOrderStatus(openOrders)
 	}
 
@@ -2871,13 +2871,19 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	}
 
 	// Use actual order quantity from exchange open orders (most accurate)
+	orderStillOpen := false
 	for _, o := range openOrders {
-		if o.OrderID == bestOrderID && o.Quantity > 0 {
-			bestQty = o.Quantity
+		if o.OrderID == bestOrderID {
+			orderStillOpen = true
+			if o.Quantity > 0 {
+				bestQty = o.Quantity
+			}
 			break
 		}
 	}
 
+	// If the best order is no longer open (filled before we could tag it),
+	// set it as the prep order and immediately trigger fill handling
 	reduceQty := bestQty
 
 	at.gridState.mu.Lock()
@@ -2895,6 +2901,12 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	at.logGridTrade("ttrade", "ttrade_tag", trapped.Side, gridConfig.Symbol,
 		fmt.Sprintf("tagged order %s @ %.2f, loss=%.2f%%", bestOrderID, bestPrice, trapped.LossPct),
 		bestOrderID, reduceQty, bestPrice, 0, 0, 0, trapped.PriceDiffPct, true, "")
+
+	// If the tagged order already filled before we could tag it, trigger fill handling immediately
+	if !orderStillOpen {
+		logger.Infof("[Grid] T-trade: tagged order %s already filled — triggering fill handling immediately", bestOrderID)
+		at.checkTTradeOrderFillAndReduce(openOrders)
+	}
 }
 
 func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder) {
