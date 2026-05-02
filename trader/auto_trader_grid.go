@@ -654,30 +654,62 @@ func (at *AutoTrader) InitializeGrid() error {
 		}
 	}
 
-	// Restore T-trade tag from trade log if the tagged order is still open
+	// Restore T-trade state from trade log on restart
 	if at.store != nil && gridConfig.EnableTrappedReduce {
 		entry, err := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "ttrade_tag", "")
 		if err == nil && entry != nil && entry.OrderID != "" {
-			// Check if the tagged order is still open
 			openOrders, oErr := at.trader.GetOpenOrders(gridConfig.Symbol)
 			if oErr == nil {
+				// Check if the tagged order is still open
+				stillOpen := false
+				var openSide string
 				for _, o := range openOrders {
 					if o.OrderID == entry.OrderID {
-						at.gridState.mu.Lock()
-						at.gridState.TTradePrepOrderID = entry.OrderID
-						at.gridState.TTradePrepPrice = entry.Price
-						at.gridState.TTradePrepQty = entry.Quantity
-						at.gridState.TTradePrepPlacedAt = entry.CreatedAt
-						at.gridState.TTradePendingReduceQty = entry.Quantity
-						if o.Side == "BUY" || o.Side == "buy" {
-							at.gridState.TTradePrepSide = "buy"
-						} else {
-							at.gridState.TTradePrepSide = "sell"
-						}
-						at.gridState.TTradePrepExecuted = false
-						at.gridState.mu.Unlock()
-						logger.Infof("[Grid] Restored T-trade tag from log: order %s @ %.4f", entry.OrderID, entry.Price)
+						stillOpen = true
+						openSide = o.Side
 						break
+					}
+				}
+
+				if stillOpen {
+					// Order still pending — restore prep state so fill detection continues
+					side := "sell"
+					if openSide == "BUY" || openSide == "buy" {
+						side = "buy"
+					}
+					at.gridState.mu.Lock()
+					at.gridState.TTradePrepOrderID = entry.OrderID
+					at.gridState.TTradePrepPrice = entry.Price
+					at.gridState.TTradePrepQty = entry.Quantity
+					at.gridState.TTradePrepPlacedAt = entry.CreatedAt
+					at.gridState.TTradePendingReduceQty = entry.Quantity
+					at.gridState.TTradePrepSide = side
+					at.gridState.TTradePrepExecuted = false
+					at.gridState.mu.Unlock()
+					logger.Infof("[Grid] Restored T-trade tag from log: order %s @ %.4f (still open)", entry.OrderID, entry.Price)
+				} else {
+					// Order no longer open — check if it filled while we were down
+					statusMap, sErr := at.trader.GetOrderStatus(gridConfig.Symbol, entry.OrderID)
+					if sErr == nil {
+						statusStr, _ := statusMap["status"].(string)
+						if statusStr == "FILLED" {
+							fillPrice := entry.Price
+							if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+								fillPrice = avg
+							}
+							// log Side is "long"/"short"; map to "buy"/"sell" for prep state
+							side := "buy"
+							if entry.Side == "short" {
+								side = "sell"
+							}
+							at.gridState.mu.Lock()
+							at.gridState.TTradeReadyToReduce = true
+							at.gridState.TTradeReadyReduceQty = entry.Quantity
+							at.gridState.TTradeReadyReduceSide = side
+							at.gridState.TTradeReadyPrepPrice = fillPrice
+							at.gridState.mu.Unlock()
+							logger.Infof("[Grid] Restored T-trade ready_to_reduce from log: order %s filled @ %.4f (detected on restart)", entry.OrderID, fillPrice)
+						}
 					}
 				}
 			}
@@ -2768,19 +2800,55 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		return
 	}
 
-	// Skip if T-trade already pending
 	at.gridState.mu.RLock()
 	alreadyPending := at.gridState.TTradePrepOrderID != ""
+	pendingOrderID := at.gridState.TTradePrepOrderID
 	readyToReduce := at.gridState.TTradeReadyToReduce
 	reduceOrderPending := at.gridState.TTradeReduceOrderID != ""
 	at.gridState.mu.RUnlock()
-	if alreadyPending {
-		return
-	}
+
 	// Don't re-tag if we're already in ready_to_reduce or a reduce order is pending
 	if readyToReduce || reduceOrderPending {
 		logger.Infof("[Grid] T-trade auto-tag skipped: already in ready_to_reduce or reduce order pending")
 		return
+	}
+
+	if alreadyPending {
+		// Check if the tagged order is still open
+		stillOpen := false
+		for _, o := range openOrders {
+			if o.OrderID == pendingOrderID {
+				stillOpen = true
+				break
+			}
+		}
+		if stillOpen {
+			return
+		}
+		// Tagged order no longer open — trigger fill check BEFORE clearing state.
+		// checkTTradeOrderFillAndReduce calls GetOrderStatus to confirm fill vs cancel.
+		// If filled: sets TTradeReadyToReduce=true and clears TTradePrepOrderID.
+		// If cancelled: clears TTradePrepOrderID.
+		logger.Infof("[Grid] T-trade: tagged order %s no longer open — checking fill status before re-tagging", pendingOrderID)
+		at.checkTTradeOrderFillAndReduce(openOrders)
+
+		// If fill was confirmed, don't re-tag — AI will place reduce next cycle
+		at.gridState.mu.RLock()
+		nowReadyToReduce := at.gridState.TTradeReadyToReduce
+		at.gridState.mu.RUnlock()
+		if nowReadyToReduce {
+			return
+		}
+
+		// Fill not confirmed (cancelled or unknown) — ensure state is cleared before re-tagging
+		at.gridState.mu.Lock()
+		at.gridState.TTradePrepOrderID = ""
+		at.gridState.TTradePrepPrice = 0
+		at.gridState.TTradePrepQty = 0
+		at.gridState.TTradePendingReduceQty = 0
+		at.gridState.TTradePrepSide = ""
+		at.gridState.TTradePrepExecuted = false
+		at.gridState.mu.Unlock()
 	}
 
 	// Build trapped info
