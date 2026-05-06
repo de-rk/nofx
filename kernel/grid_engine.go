@@ -546,13 +546,13 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
 			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，正常补网格单\n")
 		case "ready_to_reduce":
-			action := "reduce_long"
-			priceHint := "高于"
-			trappedDesc := "多头被套"
+			action := "reduce_short"
+			priceHint := "低于"
+			trappedDesc := "空头被套"
 			if t.TTradeReadySide == "sell" {
-				action = "reduce_short"
-				priceHint = "低于"
-				trappedDesc = "空头被套"
+				action = "reduce_long"
+				priceHint = "高于"
+				trappedDesc = "多头被套"
 			}
 			minSpread := t.TTradeReadyPrepPrice * ctx.TTradeSpreadPct / 100
 			sb.WriteString(fmt.Sprintf("- T字状态: **🟢 准备减仓** — %s，触发单成交价=%.2f，执行 %s，数量由系统决定\n",
@@ -684,13 +684,13 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
 			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — continue normal grid orders\n")
 		case "ready_to_reduce":
-			action := "reduce_long"
-			priceHint := "above"
-			trappedDesc := "long trapped"
+			action := "reduce_short"
+			priceHint := "below"
+			trappedDesc := "short trapped"
 			if t.TTradeReadySide == "sell" {
-				action = "reduce_short"
-				priceHint = "below"
-				trappedDesc = "short trapped"
+				action = "reduce_long"
+				priceHint = "above"
+				trappedDesc = "long trapped"
 			}
 			minSpread := t.TTradeReadyPrepPrice * ctx.TTradeSpreadPct / 100
 			sb.WriteString(fmt.Sprintf("- T-Trade: **🟢 READY TO REDUCE** — %s, trigger filled at %.2f, execute %s, quantity set by system\n",
