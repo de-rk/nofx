@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Shield, TrendingUp, AlertTriangle, Activity, Box, ChevronDown, ChevronUp } from 'lucide-react'
+import { Shield, TrendingUp, Activity, Box, ChevronDown, ChevronUp } from 'lucide-react'
 import type { GridRiskInfo } from '../../types'
 
 interface GridRiskPanelProps {
