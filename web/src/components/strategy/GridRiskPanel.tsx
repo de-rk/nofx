@@ -315,27 +315,6 @@ export function GridRiskPanel({
               </div>
             </div>
 
-            {/* Liquidation */}
-            <div className="p-2 rounded" style={{ background: '#1E2329' }}>
-              <div className="flex items-center gap-1 mb-2">
-                <AlertTriangle className="w-3 h-3" style={{ color: '#F6465D' }} />
-                <span className="text-xs font-medium" style={{ color: '#848E9C' }}>{t('liquidationInfo')}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <div style={{ color: '#5E6673' }}>{t('liquidationPrice')}</div>
-                  <div className="font-mono" style={{ color: '#F6465D' }}>
-                    {riskInfo.liquidation_price > 0 ? formatPrice(riskInfo.liquidation_price) : '-'}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ color: '#5E6673' }}>{t('liquidationDistance')}</div>
-                  <div className="font-mono" style={{ color: '#F6465D' }}>
-                    {riskInfo.liquidation_distance > 0 ? `${riskInfo.liquidation_distance.toFixed(1)}%` : '-'}
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Row 3: Box State */}
