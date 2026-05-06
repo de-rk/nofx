@@ -696,11 +696,6 @@ func (at *AutoTrader) InitializeGrid() error {
 							if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
 								fillPrice = avg
 							}
-							// log Side is "long"/"short"; map to "buy"/"sell" for prep state
-							side := "buy"
-							if entry.Side == "short" {
-								side = "sell"
-							}
 							at.gridState.mu.Lock()
 							at.gridState.TTradeReadyToReduce = true
 							at.gridState.TTradeReadyReduceQty = entry.Quantity
