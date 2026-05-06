@@ -98,7 +98,6 @@ type GridState struct {
 	// T-trade ready-to-reduce state (set after prep order fills, cleared after AI reduce order placed)
 	TTradeReadyToReduce     bool    // true = prep filled, AI should now place reduce order
 	TTradeReadyReduceQty    float64 // qty to reduce
-	TTradeReadyReduceSide   string  // "buy" (was long trapped) or "sell" (was short trapped)
 	TTradeReadyPrepPrice    float64 // fill price of the prep order (reduce price must be better than this)
 
 	// T-trade placed reduce order tracking (for cancel detection and re-place)
@@ -705,7 +704,6 @@ func (at *AutoTrader) InitializeGrid() error {
 							at.gridState.mu.Lock()
 							at.gridState.TTradeReadyToReduce = true
 							at.gridState.TTradeReadyReduceQty = entry.Quantity
-							at.gridState.TTradeReadyReduceSide = side
 							at.gridState.TTradeReadyPrepPrice = fillPrice
 							at.gridState.mu.Unlock()
 							logger.Infof("[Grid] Restored T-trade ready_to_reduce from log: order %s filled @ %.4f (detected on restart)", entry.OrderID, fillPrice)
@@ -2120,7 +2118,6 @@ func (at *AutoTrader) syncGridState() {
 						// Signal AI to place reduce order next cycle (same path as checkTTradeOrderFillAndReduce)
 						at.gridState.TTradeReadyToReduce = true
 						at.gridState.TTradeReadyReduceQty = reduceQty
-						at.gridState.TTradeReadyReduceSide = prepSide
 						at.gridState.TTradeReadyPrepPrice = prepPrice
 						logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f) → ready_to_reduce (qty=%.4f side=%s)",
 							level.OrderQuantity, entryPrice, reduceQty, prepSide)
@@ -3075,7 +3072,6 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 	// Signal AI to place reduce order next cycle
 	at.gridState.TTradeReadyToReduce = true
 	at.gridState.TTradeReadyReduceQty = reduceQty
-	at.gridState.TTradeReadyReduceSide = prepSide
 	at.gridState.TTradeReadyPrepPrice = buyPrice // AI must place reduce at a better price than this
 	at.gridState.mu.Unlock()
 
@@ -3154,7 +3150,6 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 			logger.Infof("[Grid] T-trade reduce order %s filled (status=%s) -- clearing T-trade state", reduceOrderID, statusStr)
 			at.gridState.TTradeReadyToReduce = false
 			at.gridState.TTradeReadyReduceQty = 0
-			at.gridState.TTradeReadyReduceSide = ""
 			at.gridState.TTradeReadyPrepPrice = 0
 			at.gridState.TTradeReduceQty = 0
 			at.gridState.TTradeReducePrice = 0
@@ -3299,7 +3294,6 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		tTradeBuyPrice = at.gridState.TTradePrepPrice
 		tTradePendingReduce = at.gridState.TTradePendingReduceQty
 	}
-	tTradeReadySide := at.gridState.TTradeReadyReduceSide
 	tTradeReadyPrepPrice := at.gridState.TTradeReadyPrepPrice
 	at.gridState.mu.RUnlock()
 
@@ -3317,7 +3311,6 @@ func (at *AutoTrader) buildTrappedPositionInfo(currentPrice float64) *kernel.Tra
 		SuggestReducePct:    suggestReducePct,
 		LastReduceMinutes:   lastReduceMinutes,
 		TTradePhase:         tTradePhase,
-		TTradeReadySide:     tTradeReadySide,
 		TTradeReadyPrepPrice: tTradeReadyPrepPrice,
 		TTradeBuyOrderID:    tTradeBuyOrderID,
 		TTradeBuyPrice:      tTradeBuyPrice,

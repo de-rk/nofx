@@ -350,7 +350,6 @@ type TrappedPositionInfo struct {
 	LastReduceMinutes    int     `json:"last_reduce_minutes"`    // minutes since last reduction (-1 = never)
 	// T-trade state (T字状态)
 	TTradePhase          string  `json:"t_trade_phase"`           // "idle" | "waiting_buy_fill" | "ready_to_reduce" | "waiting_reduce_fill"
-	TTradeReadySide      string  `json:"t_trade_ready_side"`      // "buy"=reduce_long, "sell"=reduce_short (when ready_to_reduce)
 	TTradeReadyPrepPrice float64 `json:"t_trade_ready_prep_price"` // fill price of prep order (reduce must be better)
 	TTradeBuyOrderID     string  `json:"t_trade_buy_order_id"`     // pending T-trade buy order ID (if waiting)
 	TTradeBuyPrice       float64 `json:"t_trade_buy_price"`        // price of pending T-trade buy
@@ -548,12 +547,10 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		case "ready_to_reduce":
 			action := "reduce_long"
 			priceHint := "高于"
-			if t.TTradeReadySide == "sell" {
-				action = "reduce_short"
-				priceHint = "低于"
-			}
 			trappedDesc := "多单被套"
 			if t.Side == "sell" {
+				action = "reduce_short"
+				priceHint = "低于"
 				trappedDesc = "空单被套"
 			}
 			minSpread := t.TTradeReadyPrepPrice * ctx.TTradeSpreadPct / 100
@@ -688,12 +685,10 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		case "ready_to_reduce":
 			action := "reduce_long"
 			priceHint := "above"
-			if t.TTradeReadySide == "sell" {
-				action = "reduce_short"
-				priceHint = "below"
-			}
 			trappedDesc := "long trapped"
 			if t.Side == "sell" {
+				action = "reduce_short"
+				priceHint = "below"
 				trappedDesc = "short trapped"
 			}
 			minSpread := t.TTradeReadyPrepPrice * ctx.TTradeSpreadPct / 100
