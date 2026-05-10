@@ -84,7 +84,7 @@ export function GridConfigEditor({
       enableDirectionAdjustDesc: { zh: '根据箱体突破自动调整网格方向', en: 'Auto-adjust grid direction based on box breakouts' },
       directionBiasRatio: { zh: '倾向强度', en: 'Bias Strength' },
       directionBiasRatioDesc: { zh: 'LongBias/ShortBias 模式下的买单占比（X）', en: 'Buy ratio for LongBias/ShortBias modes' },
-      directionBiasExplain: { zh: 'X>50%=顺势（LongBias 多买）；X<50%=反向对冲（LongBias 多卖）', en: 'X>50% = trend-follow; X<50% = reverse hedge' },
+      directionBiasExplain: { zh: 'X>50%=顺势（LongBias 多买）；X<50%=反向对冲（LongBias 多卖）', en: 'X>50% = trend-follow (LongBias favors buys); X<50% = reverse hedge (LongBias favors sells)' },
       directionExplain: { zh: '短期箱体突破 → 偏向，中期箱体突破 → 全仓，价格回归 → 逐步恢复中性', en: 'Short box breakout → bias, Mid box breakout → full, Price return → gradually recover to neutral' },
       directionModes: { zh: '方向模式说明', en: 'Direction Modes' },
       modeNeutral: { zh: '中性：50%买 + 50%卖（默认）', en: 'Neutral: 50% buy + 50% sell (default)' },
@@ -498,12 +498,12 @@ export function GridConfigEditor({
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                 <div className="p-2 rounded" style={{ background: '#0ECB8115', border: '1px solid #0ECB8130' }}>
-                  <span style={{ color: '#0ECB81' }}>偏多/Long Bias: </span>
-                  <span style={{ color: '#EAECEF' }}>{Math.round((config.direction_bias_ratio ?? 0.7) * 100)}% 买 + {Math.round((1 - (config.direction_bias_ratio ?? 0.7)) * 100)}% 卖</span>
+                  <span style={{ color: '#0ECB81' }}>LongBias: </span>
+                  <span style={{ color: '#EAECEF' }}>{Math.round((config.direction_bias_ratio ?? 0.7) * 100)}% {language === 'zh' ? '买' : 'buy'} + {Math.round((1 - (config.direction_bias_ratio ?? 0.7)) * 100)}% {language === 'zh' ? '卖' : 'sell'}</span>
                 </div>
                 <div className="p-2 rounded" style={{ background: '#F6465D15', border: '1px solid #F6465D30' }}>
-                  <span style={{ color: '#F6465D' }}>偏空/Short Bias: </span>
-                  <span style={{ color: '#EAECEF' }}>{Math.round((1 - (config.direction_bias_ratio ?? 0.7)) * 100)}% 买 + {Math.round((config.direction_bias_ratio ?? 0.7) * 100)}% 卖</span>
+                  <span style={{ color: '#F6465D' }}>ShortBias: </span>
+                  <span style={{ color: '#EAECEF' }}>{Math.round((1 - (config.direction_bias_ratio ?? 0.7)) * 100)}% {language === 'zh' ? '买' : 'buy'} + {Math.round((config.direction_bias_ratio ?? 0.7) * 100)}% {language === 'zh' ? '卖' : 'sell'}</span>
                 </div>
               </div>
             </div>
