@@ -2,7 +2,9 @@ package store
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base32"
+	"encoding/hex"
 	"time"
 
 	"gorm.io/gorm"
@@ -11,6 +13,22 @@ import (
 // UserStore user storage
 type UserStore struct {
 	db *gorm.DB
+}
+
+// OTPDeviceToken records a per-device OTP-skip token
+type OTPDeviceToken struct {
+	TokenHash string    `gorm:"primaryKey;column:token_hash" json:"-"`
+	UserID    string    `gorm:"column:user_id;index;not null" json:"user_id"`
+	ExpiresAt time.Time `gorm:"column:expires_at;index" json:"expires_at"`
+	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
+}
+
+func (OTPDeviceToken) TableName() string { return "otp_device_tokens" }
+
+// hashDeviceToken returns the SHA-256 hex digest used as the primary key.
+func hashDeviceToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 // User user model
@@ -71,10 +89,23 @@ func (s *UserStore) initTables() error {
 				s.db.Exec("CREATE UNIQUE INDEX idx_users_email ON users(email)")
 			}
 
+			// Ensure device-token table exists on postgres
+			s.db.Exec(`CREATE TABLE IF NOT EXISTS otp_device_tokens (
+				token_hash TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				expires_at TIMESTAMP NOT NULL,
+				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_otp_device_tokens_user_id ON otp_device_tokens(user_id)`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_otp_device_tokens_expires_at ON otp_device_tokens(expires_at)`)
+
 			return nil
 		}
 	}
-	return s.db.AutoMigrate(&User{})
+	if err := s.db.AutoMigrate(&User{}); err != nil {
+		return err
+	}
+	return s.db.AutoMigrate(&OTPDeviceToken{})
 }
 
 // Create creates user
@@ -124,6 +155,41 @@ func (s *UserStore) UpdateOTPVerified(userID string, verified bool) error {
 // UpdateLastOTPAt records the timestamp of a successful OTP verification
 func (s *UserStore) UpdateLastOTPAt(userID string, t time.Time) error {
 	return s.db.Model(&User{}).Where("id = ?", userID).Update("last_otp_at", t).Error
+}
+
+// CreateOTPDeviceToken generates a new per-device OTP-skip token valid for ttl.
+// Returns the raw token to hand to the client; only its hash is stored.
+func (s *UserStore) CreateOTPDeviceToken(userID string, ttl time.Duration) (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	token := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw)
+	entry := &OTPDeviceToken{
+		TokenHash: hashDeviceToken(token),
+		UserID:    userID,
+		ExpiresAt: time.Now().UTC().Add(ttl),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.db.Create(entry).Error; err != nil {
+		return "", err
+	}
+	// Opportunistic cleanup: drop expired rows on each create
+	s.db.Where("expires_at < ?", time.Now().UTC()).Delete(&OTPDeviceToken{})
+	return token, nil
+}
+
+// ValidateOTPDeviceToken returns true if the token belongs to userID and is not expired.
+func (s *UserStore) ValidateOTPDeviceToken(userID, token string) bool {
+	if token == "" {
+		return false
+	}
+	var entry OTPDeviceToken
+	err := s.db.Where("token_hash = ? AND user_id = ?", hashDeviceToken(token), userID).First(&entry).Error
+	if err != nil {
+		return false
+	}
+	return time.Now().UTC().Before(entry.ExpiresAt)
 }
 
 // UpdatePassword updates password

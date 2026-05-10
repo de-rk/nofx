@@ -112,12 +112,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
+      const deviceToken = localStorage.getItem('otp_device_token') || undefined
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, device_token: deviceToken }),
       })
 
       const data = await response.json()
@@ -146,9 +147,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             otpSecret: data.otp_secret
           }
         }
+        // Device token accepted — fully logged in
+        if (data.token) {
+          reset401Flag()
+          const userInfo = { id: data.user_id, email: data.email }
+          setToken(data.token)
+          setUser(userInfo)
+          localStorage.setItem('auth_token', data.token)
+          localStorage.setItem('auth_user', JSON.stringify(userInfo))
+          const returnUrl = sessionStorage.getItem('returnUrl')
+          if (returnUrl) {
+            sessionStorage.removeItem('returnUrl')
+            window.history.pushState({}, '', returnUrl)
+            window.dispatchEvent(new PopStateEvent('popstate'))
+          } else {
+            window.history.pushState({}, '', '/traders')
+            window.dispatchEvent(new PopStateEvent('popstate'))
+          }
+          return { success: true }
+        }
         // Unexpected success response
         return { success: false, message: '登录响应异常' }
       } else {
+        // Device token may have been revoked on server — clear stale copy
+        if (deviceToken) {
+          localStorage.removeItem('otp_device_token')
+        }
         return {
           success: false,
           message: data.error,
@@ -274,6 +298,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(userInfo)
         localStorage.setItem('auth_token', data.token)
         localStorage.setItem('auth_user', JSON.stringify(userInfo))
+        if (data.device_token) {
+          localStorage.setItem('otp_device_token', data.device_token)
+        }
 
         // Check and redirect to returnUrl if exists
         const returnUrl = sessionStorage.getItem('returnUrl')

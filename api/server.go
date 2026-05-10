@@ -3215,8 +3215,9 @@ func (s *Server) handleCompleteRegistration(c *gin.Context) {
 // handleLogin Handle user login request
 func (s *Server) handleLogin(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required"`
+		Email       string `json:"email" binding:"required,email"`
+		Password    string `json:"password" binding:"required"`
+		DeviceToken string `json:"device_token"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -3252,8 +3253,8 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 
-	// Skip OTP if verified within the last 3 days
-	if !user.LastOTPAt.IsZero() && time.Since(user.LastOTPAt) < 3*24*time.Hour {
+	// Skip OTP if device token is present and valid
+	if req.DeviceToken != "" && s.store.User().ValidateOTPDeviceToken(user.ID, req.DeviceToken) {
 		token, err := auth.GenerateJWT(user.ID, user.Email)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
@@ -3302,9 +3303,15 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 		return
 	}
 
-	// Record successful OTP verification timestamp (for 3-day skip window)
+	// Record successful OTP verification timestamp
 	if err := s.store.User().UpdateLastOTPAt(user.ID, time.Now().UTC()); err != nil {
 		logger.Warnf("Failed to update last_otp_at for user %s: %v", user.ID, err)
+	}
+
+	// Issue a 3-day device token so subsequent logins from this device skip OTP
+	deviceToken, dErr := s.store.User().CreateOTPDeviceToken(user.ID, 3*24*time.Hour)
+	if dErr != nil {
+		logger.Warnf("Failed to create OTP device token for user %s: %v", user.ID, dErr)
 	}
 
 	// Generate JWT token
@@ -3315,10 +3322,11 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"message": "Login successful",
+		"token":        token,
+		"user_id":      user.ID,
+		"email":        user.Email,
+		"device_token": deviceToken,
+		"message":      "Login successful",
 	})
 }
 
