@@ -192,6 +192,20 @@ func (s *UserStore) ValidateOTPDeviceToken(userID, token string) bool {
 	return time.Now().UTC().Before(entry.ExpiresAt)
 }
 
+// RevokeOTPDeviceToken deletes a single device token (called on logout).
+func (s *UserStore) RevokeOTPDeviceToken(token string) error {
+	if token == "" {
+		return nil
+	}
+	return s.db.Where("token_hash = ?", hashDeviceToken(token)).Delete(&OTPDeviceToken{}).Error
+}
+
+// RevokeAllOTPDeviceTokens deletes every device token for a user
+// (called on password change / reset so stale devices stop bypassing OTP).
+func (s *UserStore) RevokeAllOTPDeviceTokens(userID string) error {
+	return s.db.Where("user_id = ?", userID).Delete(&OTPDeviceToken{}).Error
+}
+
 // UpdatePassword updates password
 func (s *UserStore) UpdatePassword(userID, passwordHash string) error {
 	return s.db.Model(&User{}).Where("id = ?", userID).Updates(map[string]interface{}{

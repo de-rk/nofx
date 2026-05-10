@@ -3056,6 +3056,17 @@ func (s *Server) handleLogout(c *gin.Context) {
 		exp = time.Now().Add(24 * time.Hour)
 	}
 	auth.BlacklistToken(tokenString, exp)
+
+	// Revoke device token for this device (sent by frontend in body)
+	var body struct {
+		DeviceToken string `json:"device_token"`
+	}
+	if err := c.ShouldBindJSON(&body); err == nil && body.DeviceToken != "" {
+		if err := s.store.User().RevokeOTPDeviceToken(body.DeviceToken); err != nil {
+			logger.Warnf("Failed to revoke device token: %v", err)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out"})
 }
 
@@ -3368,6 +3379,11 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Password update failed"})
 		return
+	}
+
+	// Revoke all device tokens so stale sessions can't bypass OTP
+	if err := s.store.User().RevokeAllOTPDeviceTokens(user.ID); err != nil {
+		logger.Warnf("Failed to revoke device tokens for user %s: %v", user.ID, err)
 	}
 
 	logger.Infof("✓ User %s password has been reset", user.Email)

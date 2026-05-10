@@ -399,10 +399,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     const savedToken = localStorage.getItem('auth_token')
+    const deviceToken = localStorage.getItem('otp_device_token')
     if (savedToken) {
       fetch('/api/logout', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${savedToken}` },
+        headers: {
+          Authorization: `Bearer ${savedToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ device_token: deviceToken || '' }),
       }).catch(() => {
         /* ignore network errors on logout */
       })
@@ -411,6 +416,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null)
     localStorage.removeItem('auth_token')
     localStorage.removeItem('auth_user')
+    localStorage.removeItem('otp_device_token')
   }
 
   return (
