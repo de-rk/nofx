@@ -3252,6 +3252,22 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 
+	// Skip OTP if verified within the last 3 days
+	if !user.LastOTPAt.IsZero() && time.Since(user.LastOTPAt) < 3*24*time.Hour {
+		token, err := auth.GenerateJWT(user.ID, user.Email)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"token":   token,
+			"user_id": user.ID,
+			"email":   user.Email,
+			"message": "Login successful",
+		})
+		return
+	}
+
 	// Return status requiring OTP verification
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":      user.ID,
@@ -3284,6 +3300,11 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 	if !auth.VerifyOTP(user.OTPSecret, req.OTPCode) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Verification code error"})
 		return
+	}
+
+	// Record successful OTP verification timestamp (for 3-day skip window)
+	if err := s.store.User().UpdateLastOTPAt(user.ID, time.Now().UTC()); err != nil {
+		logger.Warnf("Failed to update last_otp_at for user %s: %v", user.ID, err)
 	}
 
 	// Generate JWT token

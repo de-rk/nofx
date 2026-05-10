@@ -20,6 +20,7 @@ type User struct {
 	PasswordHash string    `gorm:"column:password_hash;not null" json:"-"`
 	OTPSecret    string    `gorm:"column:otp_secret" json:"-"`
 	OTPVerified  bool      `gorm:"column:otp_verified;default:false" json:"otp_verified"`
+	LastOTPAt    time.Time `gorm:"column:last_otp_at" json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -57,6 +58,7 @@ func (s *UserStore) initTables() error {
 			// OTP columns (added later)
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_secret TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE`)
+			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_otp_at TIMESTAMP`)
 
 			// Ensure unique index exists on email (don't care about the name)
 			var indexExists int64
@@ -117,6 +119,11 @@ func (s *UserStore) GetAllIDs() ([]string, error) {
 // UpdateOTPVerified updates OTP verification status
 func (s *UserStore) UpdateOTPVerified(userID string, verified bool) error {
 	return s.db.Model(&User{}).Where("id = ?", userID).Update("otp_verified", verified).Error
+}
+
+// UpdateLastOTPAt records the timestamp of a successful OTP verification
+func (s *UserStore) UpdateLastOTPAt(userID string, t time.Time) error {
+	return s.db.Model(&User{}).Where("id = ?", userID).Update("last_otp_at", t).Error
 }
 
 // UpdatePassword updates password
