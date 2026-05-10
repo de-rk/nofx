@@ -82,9 +82,9 @@ export function GridConfigEditor({
       directionAdjust: { zh: '方向自动调整', en: 'Direction Auto-Adjust' },
       enableDirectionAdjust: { zh: '启用方向调整', en: 'Enable Direction Adjust' },
       enableDirectionAdjustDesc: { zh: '根据箱体突破自动调整网格方向', en: 'Auto-adjust grid direction based on box breakouts' },
-      directionBiasRatio: { zh: '偏向强度', en: 'Bias Strength' },
-      directionBiasRatioDesc: { zh: '偏多/偏空模式的强度', en: 'Strength for long_bias/short_bias modes' },
-      directionBiasExplain: { zh: '偏多模式：X%买 + (100-X)%卖 | 偏空模式：(100-X)%买 + X%卖', en: 'Long bias: X% buy + (100-X)% sell | Short bias: (100-X)% buy + X% sell' },
+      directionBiasRatio: { zh: '倾向强度', en: 'Bias Strength' },
+      directionBiasRatioDesc: { zh: 'LongBias/ShortBias 模式下的买单占比（X）', en: 'Buy ratio for LongBias/ShortBias modes' },
+      directionBiasExplain: { zh: 'X>50%=顺势（LongBias 多买）；X<50%=反向对冲（LongBias 多卖）', en: 'X>50% = trend-follow; X<50% = reverse hedge' },
       directionExplain: { zh: '短期箱体突破 → 偏向，中期箱体突破 → 全仓，价格回归 → 逐步恢复中性', en: 'Short box breakout → bias, Mid box breakout → full, Price return → gradually recover to neutral' },
       directionModes: { zh: '方向模式说明', en: 'Direction Modes' },
       modeNeutral: { zh: '中性：50%买 + 50%卖（默认）', en: 'Neutral: 50% buy + 50% sell (default)' },
@@ -486,7 +486,7 @@ export function GridConfigEditor({
                   value={(config.direction_bias_ratio ?? 0.7) * 100}
                   onChange={(e) => updateField('direction_bias_ratio', parseInt(e.target.value) / 100)}
                   disabled={disabled}
-                  min={55}
+                  min={10}
                   max={90}
                   step={5}
                   className="flex-1 h-2 rounded-lg appearance-none cursor-pointer"
