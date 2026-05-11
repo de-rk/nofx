@@ -2843,14 +2843,11 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		at.gridState.mu.Unlock()
 	}
 
-	// Build trapped info
-	ctx, err := at.buildGridContext()
-	if err != nil || ctx == nil || ctx.TrappedInfo == nil || !ctx.TrappedInfo.IsTrapped {
+	// Build trapped info (lightweight — only fetches price + positions, no K-lines or balance)
+	currentPrice, trapped, err := at.buildTrappedContext()
+	if err != nil || trapped == nil || !trapped.IsTrapped {
 		return
 	}
-	trapped := ctx.TrappedInfo
-
-	currentPrice := ctx.CurrentPrice
 
 	// Find nearest pending grid order on the appropriate side.
 	// Source of truth: exchange openOrders (level.Side can drift after direction
@@ -3175,6 +3172,23 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 		at.gridState.TTradeReducePlacedAt = time.Time{}
 		at.gridState.mu.Unlock()
 	}
+}
+
+// buildTrappedContext fetches only what autoTagTTradeFromExistingOrders needs:
+// current price (from latest 5m candle) and trapped position info.
+// Avoids the full buildGridContext() cost (K-lines, balance, grid state snapshot).
+func (at *AutoTrader) buildTrappedContext() (float64, *kernel.TrappedPositionInfo, error) {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
+	if err != nil {
+		return 0, nil, err
+	}
+	currentPrice := mktData.CurrentPrice
+	if currentPrice <= 0 {
+		return 0, nil, fmt.Errorf("invalid current price")
+	}
+	trapped := at.buildTrappedPositionInfo(currentPrice)
+	return currentPrice, trapped, nil
 }
 
 // buildTrappedPositionInfo builds trapped position information for AI context
