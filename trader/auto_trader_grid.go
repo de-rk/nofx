@@ -2852,67 +2852,88 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 
 	currentPrice := ctx.CurrentPrice
 
-	// Find nearest pending grid order on the appropriate side
-	// Long trapped (price fell below entry): tag nearest BUY order below current price
-	//   Fills when price drops further; adds long at lower cost; AI then reduce_long above fill price
-	// Short trapped (price rose above entry): tag nearest SELL order above current price
-	//   Fills when price rises further; adds short at better cost; AI then reduce_short below fill price
+	// Find nearest pending grid order on the appropriate side.
+	// Source of truth: exchange openOrders (level.Side can drift after direction
+	// adjustments; the exchange order side is always authoritative).
+	// Long trapped (price fell): tag nearest BUY below current price — fills on
+	// further drop, adds long at lower cost, then reduce_long at t_b > b captures the spread.
+	// Short trapped (price rose): tag nearest SELL above current price — fills on
+	// further rise, adds short at higher cost, then reduce_short at t_a < a captures the spread.
 	at.gridState.mu.RLock()
+	gridOrderIDs := make(map[string]int, len(at.gridState.Levels))
+	for i, level := range at.gridState.Levels {
+		if level.State == "pending" && level.OrderID != "" {
+			gridOrderIDs[level.OrderID] = i
+		}
+	}
+	leverage := at.config.StrategyConfig.GridConfig.Leverage
+	at.gridState.mu.RUnlock()
+
 	var bestOrderID string
 	var bestPrice float64
 	var bestSide string
 	var bestQty float64
 
-	for _, level := range at.gridState.Levels {
-		if level.State != "pending" || level.OrderID == "" {
+	for _, o := range openOrders {
+		// Only consider orders tracked by the grid (skip manual orders)
+		levelIdx, ok := gridOrderIDs[o.OrderID]
+		if !ok {
 			continue
 		}
-		if trapped.Side == "buy" && level.Side == "buy" {
-			// Long trapped: nearest buy order below current price
-			if level.Price < currentPrice {
-				if bestOrderID == "" || level.Price > bestPrice {
-					bestOrderID = level.OrderID
-					bestPrice = level.Price
-					bestSide = "buy"
-					// Use suggested qty (AllocatedUSD * Leverage / Price) to avoid anomalous OrderQuantity values
-					if level.AllocatedUSD > 0 && level.Price > 0 {
-						bestQty = level.AllocatedUSD * float64(at.config.StrategyConfig.GridConfig.Leverage) / level.Price
+		side := o.Side
+		if side == "BUY" {
+			side = "buy"
+		} else if side == "SELL" {
+			side = "sell"
+		}
+		price := o.Price
+		if price <= 0 {
+			continue
+		}
+
+		if trapped.Side == "buy" && side == "buy" && price < currentPrice {
+			// Long trapped: pick the buy closest to current price (highest buy < current)
+			if bestOrderID == "" || price > bestPrice {
+				bestOrderID = o.OrderID
+				bestPrice = price
+				bestSide = "buy"
+				bestQty = o.Quantity
+				if bestQty == 0 {
+					at.gridState.mu.RLock()
+					lvl := at.gridState.Levels[levelIdx]
+					if lvl.AllocatedUSD > 0 {
+						bestQty = lvl.AllocatedUSD * float64(leverage) / price
 					} else {
-						bestQty = level.OrderQuantity
+						bestQty = lvl.OrderQuantity
 					}
+					at.gridState.mu.RUnlock()
 				}
 			}
-		} else if trapped.Side == "sell" && level.Side == "sell" {
-			// Short trapped: nearest sell order above current price
-			if level.Price > currentPrice {
-				if bestOrderID == "" || level.Price < bestPrice {
-					bestOrderID = level.OrderID
-					bestPrice = level.Price
-					bestSide = "sell"
-					// Use suggested qty (AllocatedUSD * Leverage / Price) to avoid anomalous OrderQuantity values
-					if level.AllocatedUSD > 0 && level.Price > 0 {
-						bestQty = level.AllocatedUSD * float64(at.config.StrategyConfig.GridConfig.Leverage) / level.Price
+		} else if trapped.Side == "sell" && side == "sell" && price > currentPrice {
+			// Short trapped: pick the sell closest to current price (lowest sell > current)
+			if bestOrderID == "" || price < bestPrice {
+				bestOrderID = o.OrderID
+				bestPrice = price
+				bestSide = "sell"
+				bestQty = o.Quantity
+				if bestQty == 0 {
+					at.gridState.mu.RLock()
+					lvl := at.gridState.Levels[levelIdx]
+					if lvl.AllocatedUSD > 0 {
+						bestQty = lvl.AllocatedUSD * float64(leverage) / price
 					} else {
-						bestQty = level.OrderQuantity
+						bestQty = lvl.OrderQuantity
 					}
+					at.gridState.mu.RUnlock()
 				}
 			}
 		}
 	}
-	at.gridState.mu.RUnlock()
 
 	if bestOrderID == "" {
 		logger.Infof("[Grid] T-trade: trapped (%s, loss=%.2f%%) but no suitable pending grid order found",
 			trapped.Side, trapped.LossPct)
 		return
-	}
-
-	// Use actual order quantity from exchange open orders (most accurate)
-	for _, o := range openOrders {
-		if o.OrderID == bestOrderID && o.Quantity > 0 {
-			bestQty = o.Quantity
-			break
-		}
 	}
 
 	reduceQty := bestQty
