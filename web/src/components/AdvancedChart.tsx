@@ -6,19 +6,13 @@ import {
   Time,
   UTCTimestamp,
   CandlestickSeries,
-  LineSeries,
   HistogramSeries,
   createSeriesMarkers,
 } from 'lightweight-charts'
 import { useLanguage } from '../contexts/LanguageContext'
 import { httpClient } from '../lib/httpClient'
-import {
-  calculateSMA,
-  calculateEMA,
-  calculateBollingerBands,
-  type Kline,
-} from '../utils/indicators'
-import { Settings, BarChart2 } from 'lucide-react'
+import { type Kline } from '../utils/indicators'
+import { Compass } from 'lucide-react'
 
 // 订单接口定义
 interface OrderMarker {
@@ -51,15 +45,6 @@ interface AdvancedChartProps {
   height?: number
   exchange?: string // 交易所类型：binance, bybit, okx, bitget, hyperliquid, aster, lighter
   onSymbolChange?: (symbol: string) => void // 币种切换回调
-}
-
-// 指标配置
-interface IndicatorConfig {
-  id: string
-  name: string
-  enabled: boolean
-  color: string
-  params?: any
 }
 
 // 获取成交额货币单位
@@ -110,7 +95,6 @@ export function AdvancedChart({
   const chartRef = useRef<IChartApi | null>(null)
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
-  const indicatorSeriesRef = useRef<Map<string, ISeriesApi<any>>>(new Map())
   const seriesMarkersRef = useRef<any>(null) // Markers primitive for v5
   const currentMarkersDataRef = useRef<any[]>([]) // 存储当前的标记数据
   const klineDataRef = useRef<Map<number, { volume: number; quoteVolume: number }>>(new Map()) // 存储 kline 额外数据
@@ -119,8 +103,8 @@ export function AdvancedChart({
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showIndicatorPanel, setShowIndicatorPanel] = useState(false)
-  const [showOrderMarkers, setShowOrderMarkers] = useState(true) // 订单标记显示开关，默认显示
+  const [showOrderMarkers, setShowOrderMarkers] = useState(true)
+  const [gridDirection, setGridDirection] = useState<string | null>(null)
   const isInitialLoadRef = useRef(true) // 跟踪是否为初始加载
   const [tooltipData, setTooltipData] = useState<any>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -135,18 +119,6 @@ export function AdvancedChart({
     volume: number      // 数量（BTC/股数）
     quoteVolume: number // 成交额（USDT/USD）
   } | null>(null)
-
-  // 指标配置
-  const [indicators, setIndicators] = useState<IndicatorConfig[]>([
-    { id: 'volume', name: 'Volume', enabled: true, color: '#3B82F6' },
-    { id: 'ma5', name: 'MA5', enabled: false, color: '#FF6B6B', params: { period: 5 } },
-    { id: 'ma10', name: 'MA10', enabled: false, color: '#4ECDC4', params: { period: 10 } },
-    { id: 'ma20', name: 'MA20', enabled: false, color: '#FFD93D', params: { period: 20 } },
-    { id: 'ma60', name: 'MA60', enabled: false, color: '#95E1D3', params: { period: 60 } },
-    { id: 'ema12', name: 'EMA12', enabled: false, color: '#A8E6CF', params: { period: 12 } },
-    { id: 'ema26', name: 'EMA26', enabled: false, color: '#FFD3B6', params: { period: 26 } },
-    { id: 'bb', name: 'Bollinger Bands', enabled: false, color: '#9B59B6' },
-  ])
 
   // 从服务获取K线数据
   const fetchKlineData = async (symbol: string, interval: string, isRefresh = false) => {
@@ -556,24 +528,15 @@ export function AdvancedChart({
 
         // 2. 显示成交量
         if (volumeSeriesRef.current) {
-          const volumeEnabled = indicators.find(i => i.id === 'volume')?.enabled
-          if (volumeEnabled) {
-            const volumeData = klineData.map((k: Kline) => ({
-              time: k.time,
-              value: k.volume || 0,
-              color: k.close >= k.open ? 'rgba(14, 203, 129, 0.5)' : 'rgba(246, 70, 93, 0.5)',
-            }))
-            volumeSeriesRef.current.setData(volumeData)
-          } else {
-            // 关闭成交量时清空数据
-            volumeSeriesRef.current.setData([])
-          }
+          const volumeData = klineData.map((k: Kline) => ({
+            time: k.time,
+            value: k.volume || 0,
+            color: k.close >= k.open ? 'rgba(14, 203, 129, 0.5)' : 'rgba(246, 70, 93, 0.5)',
+          }))
+          volumeSeriesRef.current.setData(volumeData)
         }
 
-        // 3. 添加指标
-        updateIndicators(klineData)
-
-        // 4. 获取并显示订单标记（仅首次加载，刷新时跳过）
+        // 3. 获取并显示订单标记（仅首次加载，刷新时跳过）
         if (!isRefresh && traderID && candlestickSeriesRef.current) {
           const orders = await fetchOrders(traderID, symbol)
 
@@ -864,77 +827,17 @@ export function AdvancedChart({
     }
   }, [showOrderMarkers])
 
-  // 更新指标
-  const updateIndicators = (klineData: Kline[]) => {
-    if (!chartRef.current) return
-
-    // 清除旧指标
-    indicatorSeriesRef.current.forEach(series => {
-      chartRef.current?.removeSeries(series as any)
-    })
-    indicatorSeriesRef.current.clear()
-
-    // 添加启用的指标
-    indicators.forEach(indicator => {
-      if (!indicator.enabled || !chartRef.current) return
-
-      if (indicator.id.startsWith('ma')) {
-        const maData = calculateSMA(klineData, indicator.params.period)
-        const series = chartRef.current.addSeries(LineSeries, {
-          color: indicator.color,
-          lineWidth: 2,
-          title: indicator.name,
-        })
-        series.setData(maData as any)
-        indicatorSeriesRef.current.set(indicator.id, series)
-      } else if (indicator.id.startsWith('ema')) {
-        const emaData = calculateEMA(klineData, indicator.params.period)
-        const series = chartRef.current.addSeries(LineSeries, {
-          color: indicator.color,
-          lineWidth: 2,
-          title: indicator.name,
-          lineStyle: 2, // 虚线
-        })
-        series.setData(emaData as any)
-        indicatorSeriesRef.current.set(indicator.id, series)
-      } else if (indicator.id === 'bb') {
-        const bbData = calculateBollingerBands(klineData)
-
-        const upperSeries = chartRef.current.addSeries(LineSeries, {
-          color: indicator.color,
-          lineWidth: 1,
-          title: 'BB Upper',
-        })
-        upperSeries.setData(bbData.map(d => ({ time: d.time as any, value: d.upper })))
-
-        const middleSeries = chartRef.current.addSeries(LineSeries, {
-          color: indicator.color,
-          lineWidth: 1,
-          lineStyle: 2,
-          title: 'BB Middle',
-        })
-        middleSeries.setData(bbData.map(d => ({ time: d.time as any, value: d.middle })))
-
-        const lowerSeries = chartRef.current.addSeries(LineSeries, {
-          color: indicator.color,
-          lineWidth: 1,
-          title: 'BB Lower',
-        })
-        lowerSeries.setData(bbData.map(d => ({ time: d.time as any, value: d.lower })))
-
-        indicatorSeriesRef.current.set(indicator.id + '_upper', upperSeries)
-        indicatorSeriesRef.current.set(indicator.id + '_middle', middleSeries)
-        indicatorSeriesRef.current.set(indicator.id + '_lower', lowerSeries)
+  // Fetch grid direction from grid-risk endpoint
+  useEffect(() => {
+    if (!traderID) return
+    httpClient.get<any>(`/api/traders/${traderID}/grid-risk`).then(result => {
+      if (result.success && result.data?.enable_direction_adjust) {
+        setGridDirection(result.data.current_grid_direction ?? 'neutral')
+      } else {
+        setGridDirection(null)
       }
-    })
-  }
-
-  // 切换指标
-  const toggleIndicator = (id: string) => {
-    setIndicators(prev =>
-      prev.map(ind => (ind.id === id ? { ...ind, enabled: !ind.enabled } : ind))
-    )
-  }
+    }).catch(() => {})
+  }, [traderID])
 
   return (
     <div
@@ -1012,17 +915,32 @@ export function AdvancedChart({
               {language === 'zh' ? '更新中...' : 'Updating...'}
             </span>
           )}
-          <button
-            onClick={() => setShowIndicatorPanel(!showIndicatorPanel)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-all"
-            style={{
-              background: showIndicatorPanel ? 'rgba(96, 165, 250, 0.15)' : 'transparent',
-              color: showIndicatorPanel ? '#60A5FA' : '#6B7280',
-            }}
-          >
-            <Settings className="w-3 h-3" />
-            <span>{language === 'zh' ? '指标' : 'Indicators'}</span>
-          </button>
+          {gridDirection && (
+            <div
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium"
+              style={{
+                background: gridDirection === 'long' || gridDirection === 'long_bias'
+                  ? 'rgba(16, 185, 129, 0.15)'
+                  : gridDirection === 'short' || gridDirection === 'short_bias'
+                  ? 'rgba(239, 68, 68, 0.15)'
+                  : 'rgba(107, 114, 128, 0.15)',
+                color: gridDirection === 'long' || gridDirection === 'long_bias'
+                  ? '#10B981'
+                  : gridDirection === 'short' || gridDirection === 'short_bias'
+                  ? '#EF4444'
+                  : '#6B7280',
+              }}
+            >
+              <Compass className="w-3 h-3" />
+              <span>
+                {gridDirection === 'long' ? (language === 'zh' ? '全多' : 'Long')
+                  : gridDirection === 'long_bias' ? (language === 'zh' ? '偏多' : 'LongBias')
+                  : gridDirection === 'short' ? (language === 'zh' ? '全空' : 'Short')
+                  : gridDirection === 'short_bias' ? (language === 'zh' ? '偏空' : 'ShortBias')
+                  : (language === 'zh' ? '中性' : 'Neutral')}
+              </span>
+            </div>
+          )}
 
           <button
             onClick={() => setShowOrderMarkers(!showOrderMarkers)}
@@ -1037,76 +955,6 @@ export function AdvancedChart({
           </button>
         </div>
       </div>
-
-      {/* 指标面板 - 专业化设计 */}
-      {showIndicatorPanel && (
-        <div
-          className="absolute top-16 right-4 z-10 rounded-lg shadow-2xl backdrop-blur-sm"
-          style={{
-            background: 'linear-gradient(135deg, #1A1E23 0%, #0F1215 100%)',
-            border: '1px solid rgba(240, 185, 11, 0.2)',
-            maxHeight: '500px',
-            minWidth: '280px',
-            overflowY: 'auto',
-          }}
-        >
-          {/* 标题栏 */}
-          <div
-            className="flex items-center justify-between px-4 py-3 border-b"
-            style={{ borderColor: 'rgba(43, 49, 57, 0.5)' }}
-          >
-            <div className="flex items-center gap-2">
-              <BarChart2 className="w-4 h-4 text-yellow-400" />
-              <h4 className="text-sm font-bold text-white">
-                {language === 'zh' ? '技术指标' : 'Technical Indicators'}
-              </h4>
-            </div>
-            <button
-              onClick={() => setShowIndicatorPanel(false)}
-              className="text-gray-400 hover:text-white transition-colors"
-            >
-              <span className="text-lg">×</span>
-            </button>
-          </div>
-
-          {/* 指标列表 */}
-          <div className="p-3 space-y-1">
-            {indicators.map(indicator => (
-              <label
-                key={indicator.id}
-                className="flex items-center gap-3 p-2.5 rounded-md hover:bg-white/5 cursor-pointer transition-all group"
-              >
-                <div className="relative">
-                  <input
-                    type="checkbox"
-                    checked={indicator.enabled}
-                    onChange={() => toggleIndicator(indicator.id)}
-                    className="w-4 h-4 rounded border-gray-600 text-yellow-500 focus:ring-2 focus:ring-yellow-500/50"
-                  />
-                </div>
-                <div
-                  className="w-8 h-3 rounded-sm border border-white/10"
-                  style={{ backgroundColor: indicator.color }}
-                ></div>
-                <span className="text-sm text-gray-300 group-hover:text-white transition-colors flex-1">
-                  {indicator.name}
-                </span>
-                {indicator.enabled && (
-                  <span className="text-xs text-yellow-400">●</span>
-                )}
-              </label>
-            ))}
-          </div>
-
-          {/* 底部提示 */}
-          <div
-            className="px-4 py-2 text-xs text-gray-500 border-t"
-            style={{ borderColor: 'rgba(43, 49, 57, 0.5)' }}
-          >
-            {language === 'zh' ? '点击选择需要显示的指标' : 'Click to toggle indicators'}
-          </div>
-        </div>
-      )}
 
       {/* 图表容器 */}
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
