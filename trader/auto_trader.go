@@ -1922,8 +1922,13 @@ func (at *AutoTrader) checkPositionDrawdown() {
 				logger.Infof("❌ Drawdown close position failed (%s %s): %v", symbol, side, err)
 			} else {
 				logger.Infof("✅ Drawdown close position succeeded: %s %s", symbol, side)
-				// Clear cache for this position after closing
 				at.ClearPeakPnLCache(symbol, side)
+				if at.IsGridStrategy() {
+					at.logGridTrade("profit_drawdown", "profit_drawdown_close", side, symbol,
+						fmt.Sprintf("profit=%.2f%% peak=%.2f%% drawdown=%.2f%% threshold=%.0f%%",
+							currentPnLPct, peakPnLPct, drawdownPct, drawdownThreshold),
+						"", 0, 0, 0, 0, currentPnLPct, 0, true, "")
+				}
 			}
 		} else if currentPnLPct > 5.0 {
 			// Record situations close to close position condition (for debugging)
