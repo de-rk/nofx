@@ -1947,12 +1947,22 @@ func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
 			return err
 		}
 		logger.Infof("✅ Emergency close long position succeeded, order ID: %v", order["orderId"])
+		if at.IsGridStrategy() {
+			at.gridState.mu.Lock()
+			at.gridState.LongProfitReducedPct = 0
+			at.gridState.mu.Unlock()
+		}
 	case "short":
 		order, err := at.trader.CloseShort(symbol, 0) // 0 = close all
 		if err != nil {
 			return err
 		}
 		logger.Infof("✅ Emergency close short position succeeded, order ID: %v", order["orderId"])
+		if at.IsGridStrategy() {
+			at.gridState.mu.Lock()
+			at.gridState.ShortProfitReducedPct = 0
+			at.gridState.mu.Unlock()
+		}
 	default:
 		return fmt.Errorf("unknown position direction: %s", side)
 	}
