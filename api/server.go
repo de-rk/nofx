@@ -156,6 +156,7 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
 			protected.POST("/traders/:id/close-position", s.handleClosePosition)
 			protected.GET("/traders/:id/grid-risk", s.handleGetGridRiskInfo)
+			protected.POST("/traders/:id/grid-risk/reset-profit-tracker", s.handleResetProfitTracker)
 			protected.GET("/traders/:id/trade-logs", s.handleGetGridTradeLogs)
 
 			// AI model configuration
@@ -1060,6 +1061,29 @@ func (s *Server) handleGetGridRiskInfo(c *gin.Context) {
 
 	riskInfo := autoTrader.GetGridRiskInfo()
 	c.JSON(http.StatusOK, riskInfo)
+}
+
+// handleResetProfitTracker manually resets profit-reduce tracker for a side
+func (s *Server) handleResetProfitTracker(c *gin.Context) {
+	traderID := c.Param("id")
+
+	var req struct {
+		Side string `json:"side"` // "long" or "short"
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || (req.Side != "long" && req.Side != "short") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "side must be 'long' or 'short'"})
+		return
+	}
+
+	autoTrader, err := s.traderManager.GetTrader(traderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "trader not found"})
+		return
+	}
+
+	autoTrader.ResetProfitTracker(req.Side)
+	logger.Infof("[API] Manually reset %s profit-reduce tracker for trader %s", req.Side, traderID)
+	c.JSON(http.StatusOK, gin.H{"message": "tracker reset"})
 }
 
 // handleGetGridTradeLogs returns grid_trade_logs for a trader instance.

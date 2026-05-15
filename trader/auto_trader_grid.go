@@ -1361,6 +1361,22 @@ func (at *AutoTrader) checkProfitReduce() {
 	}
 }
 
+// ResetProfitTracker manually resets the profit-reduce tracker for a side.
+// Called via API; writes a log entry so restart recovery skips restore.
+func (at *AutoTrader) ResetProfitTracker(side string) {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	at.gridState.mu.Lock()
+	if side == "long" {
+		at.gridState.LongProfitReducedPct = 0
+	} else {
+		at.gridState.ShortProfitReducedPct = 0
+	}
+	at.gridState.mu.Unlock()
+	logger.Infof("[Grid] Profit-reduce tracker manually reset: %s", side)
+	at.logGridTrade("profit_reduce", "profit_reduce_reset", side,
+		gridConfig.Symbol, "manual reset via dashboard", "", 0, 0, 0, 0, 0, 0, true, "")
+}
+
 // buildGridContext builds the context for AI grid decisions
 func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	gridConfig := at.config.StrategyConfig.GridConfig

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Shield, TrendingUp, Activity, Box, ChevronDown, ChevronUp } from 'lucide-react'
 import type { GridRiskInfo } from '../../types'
+import { httpClient } from '../../lib/httpClient'
 
 interface GridRiskPanelProps {
   traderId: string
@@ -17,6 +18,21 @@ export function GridRiskPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [resetting, setResetting] = useState<'long' | 'short' | null>(null)
+
+  const resetTracker = async (side: 'long' | 'short') => {
+    setResetting(side)
+    try {
+      await httpClient.post(`/api/traders/${traderId}/grid-risk/reset-profit-tracker`, { side })
+      // Refresh risk info after reset
+      const result = await httpClient.get<GridRiskInfo>(`/api/traders/${traderId}/grid-risk`)
+      if (result.success && result.data) setRiskInfo(result.data)
+    } catch (e) {
+      // ignore
+    } finally {
+      setResetting(null)
+    }
+  }
 
   const t = (key: string) => {
     const translations: Record<string, Record<string, string>> = {
@@ -356,17 +372,41 @@ export function GridRiskPanel({
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex justify-between">
-                    <span style={{ color: '#5E6673' }}>{language === 'zh' ? '多单' : 'Long'}</span>
-                    <span className="font-mono" style={{ color: riskInfo.long_profit_reduced_pct > 0 ? '#F0B90B' : '#848E9C' }}>
-                      {riskInfo.long_profit_reduced_pct > 0 ? `已减 ${riskInfo.long_profit_reduced_pct.toFixed(0)}%` : '-'}
-                    </span>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span style={{ color: '#5E6673' }}>{language === 'zh' ? '多单' : 'Long'}</span>
+                      <span className="font-mono ml-2" style={{ color: riskInfo.long_profit_reduced_pct > 0 ? '#F0B90B' : '#848E9C' }}>
+                        {riskInfo.long_profit_reduced_pct > 0 ? `${riskInfo.long_profit_reduced_pct.toFixed(0)}%` : '-'}
+                      </span>
+                    </div>
+                    {riskInfo.long_profit_reduced_pct > 0 && (
+                      <button
+                        onClick={() => resetTracker('long')}
+                        disabled={resetting === 'long'}
+                        className="text-xs px-1.5 py-0.5 rounded transition-all"
+                        style={{ background: 'rgba(239,68,68,0.1)', color: '#EF4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                      >
+                        {resetting === 'long' ? '...' : (language === 'zh' ? '清零' : 'Reset')}
+                      </button>
+                    )}
                   </div>
-                  <div className="flex justify-between">
-                    <span style={{ color: '#5E6673' }}>{language === 'zh' ? '空单' : 'Short'}</span>
-                    <span className="font-mono" style={{ color: riskInfo.short_profit_reduced_pct > 0 ? '#F0B90B' : '#848E9C' }}>
-                      {riskInfo.short_profit_reduced_pct > 0 ? `已减 ${riskInfo.short_profit_reduced_pct.toFixed(0)}%` : '-'}
-                    </span>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span style={{ color: '#5E6673' }}>{language === 'zh' ? '空单' : 'Short'}</span>
+                      <span className="font-mono ml-2" style={{ color: riskInfo.short_profit_reduced_pct > 0 ? '#F0B90B' : '#848E9C' }}>
+                        {riskInfo.short_profit_reduced_pct > 0 ? `${riskInfo.short_profit_reduced_pct.toFixed(0)}%` : '-'}
+                      </span>
+                    </div>
+                    {riskInfo.short_profit_reduced_pct > 0 && (
+                      <button
+                        onClick={() => resetTracker('short')}
+                        disabled={resetting === 'short'}
+                        className="text-xs px-1.5 py-0.5 rounded transition-all"
+                        style={{ background: 'rgba(239,68,68,0.1)', color: '#EF4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                      >
+                        {resetting === 'short' ? '...' : (language === 'zh' ? '清零' : 'Reset')}
+                      </button>
+                    )}
                   </div>
                 </div>
                 {riskInfo.profit_reduce_step > 0 && (
