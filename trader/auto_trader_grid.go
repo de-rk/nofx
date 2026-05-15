@@ -638,24 +638,40 @@ func (at *AutoTrader) InitializeGrid() error {
 
 	at.gridState.IsInitialized = true
 
-	// Restore profit-reduce progress from trade log to prevent re-triggering after restart
+	// Restore profit-reduce progress from trade log to prevent re-triggering after restart.
+	// Only restore if the position has NOT been closed since the last reduce
+	// (a close event means the position was reset and tracker should start from 0).
 	if at.store != nil && gridConfig.EnableProfitReduce {
 		for _, side := range []string{"long", "short"} {
-			entry, err := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce", side)
-			if err == nil && entry != nil {
-				// Parse target pct from reason field "target=15% closeAll=false"
-				var targetPct float64
-				fmt.Sscanf(entry.Reason, "target=%f%%", &targetPct)
-				if targetPct > 0 {
-					at.gridState.mu.Lock()
-					if side == "long" {
-						at.gridState.LongProfitReducedPct = targetPct
-					} else {
-						at.gridState.ShortProfitReducedPct = targetPct
-					}
-					at.gridState.mu.Unlock()
-					logger.Infof("[Grid] Restored %s profit-reduce progress from log: %.0f%%", side, targetPct)
+			reduceEntry, err := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce", side)
+			if err != nil || reduceEntry == nil {
+				continue
+			}
+			// Check if a close event happened AFTER the last reduce
+			closeEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce_close", side)
+			drawdownEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_drawdown_close", side)
+			closedAfter := false
+			if closeEntry != nil && closeEntry.CreatedAt.After(reduceEntry.CreatedAt) {
+				closedAfter = true
+			}
+			if drawdownEntry != nil && drawdownEntry.CreatedAt.After(reduceEntry.CreatedAt) {
+				closedAfter = true
+			}
+			if closedAfter {
+				logger.Infof("[Grid] Skipping %s profit-reduce restore: position was closed after last reduce", side)
+				continue
+			}
+			var targetPct float64
+			fmt.Sscanf(reduceEntry.Reason, "target=%f%%", &targetPct)
+			if targetPct > 0 {
+				at.gridState.mu.Lock()
+				if side == "long" {
+					at.gridState.LongProfitReducedPct = targetPct
+				} else {
+					at.gridState.ShortProfitReducedPct = targetPct
 				}
+				at.gridState.mu.Unlock()
+				logger.Infof("[Grid] Restored %s profit-reduce progress from log: %.0f%%", side, targetPct)
 			}
 		}
 	}
