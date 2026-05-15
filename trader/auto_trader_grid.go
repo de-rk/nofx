@@ -2529,6 +2529,11 @@ type GridRiskInfo struct {
 	CurrentGridDirection  string `json:"current_grid_direction"`
 	DirectionChangeCount  int    `json:"direction_change_count"`
 	EnableDirectionAdjust bool   `json:"enable_direction_adjust"`
+
+	// Profit reduce tracker
+	LongProfitReducedPct  float64 `json:"long_profit_reduced_pct"`
+	ShortProfitReducedPct float64 `json:"short_profit_reduced_pct"`
+	ProfitReduceStep      float64 `json:"profit_reduce_step"`
 }
 
 // GetGridRiskInfo returns current risk information for frontend display
@@ -2658,6 +2663,10 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 		CurrentGridDirection:  string(at.gridState.CurrentDirection),
 		DirectionChangeCount:  at.gridState.DirectionChangeCount,
 		EnableDirectionAdjust: gridConfig.EnableDirectionAdjust,
+
+		LongProfitReducedPct:  at.gridState.LongProfitReducedPct,
+		ShortProfitReducedPct: at.gridState.ShortProfitReducedPct,
+		ProfitReduceStep:      gridConfig.ProfitReduceStepPct,
 	}
 }
 

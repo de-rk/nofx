@@ -721,6 +721,16 @@ export interface GridRiskInfo {
   // Breakout state
   breakout_level: string
   breakout_direction: string
+
+  // Grid direction
+  current_grid_direction: string
+  direction_change_count: number
+  enable_direction_adjust: boolean
+
+  // Profit reduce tracker
+  long_profit_reduced_pct: number
+  short_profit_reduced_pct: number
+  profit_reduce_step: number
 }
 
 export interface GridTradeLog {

@@ -344,6 +344,41 @@ export function GridRiskPanel({
               </div>
             </div>
           </div>
+
+          {/* Row 4: Profit Reduce Tracker */}
+          {(riskInfo.long_profit_reduced_pct > 0 || riskInfo.short_profit_reduced_pct > 0) && (
+            <div className="px-3 pb-3">
+              <div className="rounded p-2" style={{ background: '#0D1117', border: '1px solid #2B3139' }}>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <TrendingUp className="w-3 h-3" style={{ color: '#F0B90B' }} />
+                  <span className="text-xs font-medium" style={{ color: '#848E9C' }}>
+                    {language === 'zh' ? '浮盈减仓进度' : 'Profit Reduce Progress'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex justify-between">
+                    <span style={{ color: '#5E6673' }}>{language === 'zh' ? '多单' : 'Long'}</span>
+                    <span className="font-mono" style={{ color: riskInfo.long_profit_reduced_pct > 0 ? '#F0B90B' : '#848E9C' }}>
+                      {riskInfo.long_profit_reduced_pct > 0 ? `已减 ${riskInfo.long_profit_reduced_pct.toFixed(0)}%` : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span style={{ color: '#5E6673' }}>{language === 'zh' ? '空单' : 'Short'}</span>
+                    <span className="font-mono" style={{ color: riskInfo.short_profit_reduced_pct > 0 ? '#F0B90B' : '#848E9C' }}>
+                      {riskInfo.short_profit_reduced_pct > 0 ? `已减 ${riskInfo.short_profit_reduced_pct.toFixed(0)}%` : '-'}
+                    </span>
+                  </div>
+                </div>
+                {riskInfo.profit_reduce_step > 0 && (
+                  <div className="mt-1.5 text-xs" style={{ color: '#5E6673' }}>
+                    {language === 'zh'
+                      ? `下次触发: 多 ${riskInfo.long_profit_reduced_pct + riskInfo.profit_reduce_step}% / 空 ${riskInfo.short_profit_reduced_pct + riskInfo.profit_reduce_step}%`
+                      : `Next trigger: Long ${riskInfo.long_profit_reduced_pct + riskInfo.profit_reduce_step}% / Short ${riskInfo.short_profit_reduced_pct + riskInfo.profit_reduce_step}%`}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
