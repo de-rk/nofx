@@ -647,14 +647,18 @@ func (at *AutoTrader) InitializeGrid() error {
 			if err != nil || reduceEntry == nil {
 				continue
 			}
-			// Check if a close event happened AFTER the last reduce
+			// Check if a close or reset event happened AFTER the last reduce
 			closeEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce_close", side)
 			drawdownEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_drawdown_close", side)
+			resetEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce_reset", side)
 			closedAfter := false
 			if closeEntry != nil && closeEntry.CreatedAt.After(reduceEntry.CreatedAt) {
 				closedAfter = true
 			}
 			if drawdownEntry != nil && drawdownEntry.CreatedAt.After(reduceEntry.CreatedAt) {
+				closedAfter = true
+			}
+			if resetEntry != nil && resetEntry.CreatedAt.After(reduceEntry.CreatedAt) {
 				closedAfter = true
 			}
 			if closedAfter {
@@ -1278,7 +1282,7 @@ func (at *AutoTrader) checkProfitReduce() {
 	for _, a := range actions {
 		info := a.info
 		if a.targetReducePct == -1 {
-			// Reset tracker
+			// Reset tracker and log it so restart recovery can detect the reset
 			at.gridState.mu.Lock()
 			if info.side == "long" {
 				at.gridState.LongProfitReducedPct = 0
@@ -1286,6 +1290,8 @@ func (at *AutoTrader) checkProfitReduce() {
 				at.gridState.ShortProfitReducedPct = 0
 			}
 			at.gridState.mu.Unlock()
+			at.logGridTrade("profit_reduce", "profit_reduce_reset", info.side, symbol,
+				"profit went to zero/negative — reset tracker", "", 0, 0, 0, 0, 0, 0, true, "")
 			continue
 		}
 
