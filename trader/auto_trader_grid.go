@@ -1364,6 +1364,9 @@ func (at *AutoTrader) checkProfitReduce() {
 // ResetProfitTracker manually resets the profit-reduce tracker for a side.
 // Called via API; writes a log entry so restart recovery skips restore.
 func (at *AutoTrader) ResetProfitTracker(side string) {
+	if at.gridState == nil {
+		return
+	}
 	gridConfig := at.config.StrategyConfig.GridConfig
 	at.gridState.mu.Lock()
 	if side == "long" {
@@ -2555,7 +2558,7 @@ type GridRiskInfo struct {
 // GetGridRiskInfo returns current risk information for frontend display
 func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 	gridConfig := at.config.StrategyConfig.GridConfig
-	if gridConfig == nil {
+	if gridConfig == nil || at.gridState == nil {
 		return &GridRiskInfo{}
 	}
 
