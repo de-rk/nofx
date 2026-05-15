@@ -349,11 +349,10 @@ type TrappedPositionInfo struct {
 	SuggestReducePct     float64 `json:"suggest_reduce_pct"`      // suggested reduction percentage
 	LastReduceMinutes    int     `json:"last_reduce_minutes"`    // minutes since last reduction (-1 = never)
 	// T-trade state (T字状态)
-	TTradePhase          string  `json:"t_trade_phase"`           // "idle" | "waiting_buy_fill" | "ready_to_reduce" | "waiting_reduce_fill"
-	TTradeReadyPrepPrice float64 `json:"t_trade_ready_prep_price"` // fill price of prep order (reduce must be better)
-	TTradeBuyOrderID     string  `json:"t_trade_buy_order_id"`     // pending T-trade buy order ID (if waiting)
-	TTradeBuyPrice       float64 `json:"t_trade_buy_price"`        // price of pending T-trade buy
-	TTradePendingReduce  float64 `json:"t_trade_pending_reduce"`   // qty waiting to be reduced after buy fills
+	TTradePhase         string  `json:"t_trade_phase"`           // "idle" | "waiting_buy_fill" | "waiting_reduce_fill"
+	TTradeBuyOrderID    string  `json:"t_trade_buy_order_id"`    // first pending T-trade buy order ID (if waiting)
+	TTradeBuyPrice      float64 `json:"t_trade_buy_price"`       // price of first pending T-trade buy
+	TTradePendingReduce float64 `json:"t_trade_pending_reduce"`  // total qty tagged / pending reduce
 }
 
 // ============================================================================
@@ -381,21 +380,16 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 	if config.EnableTrappedReduce {
 		trappedSection = fmt.Sprintf(`
 ## T字操作（被套减仓）
-触发条件：亏损超过 %.1f%% 时系统自动标记最近网格挂单为触发单。
+触发条件：亏损超过 %.1f%% 时系统自动标记所有符合条件的网格挂单为触发单（多单被套→标记价格下方买单，空单被套→标记价格上方卖单）。
 
-**三个状态，你的职责不同：**
+**状态说明：**
 | 状态 | 含义 | 你需要做什么 |
 |------|------|------------|
 | idle | 无被套或未达阈值 | 不执行任何减仓，等待系统标记 |
-| waiting_buy_fill | 触发单挂出，等待成交 | 正常补网格单，禁止执行 reduce_long/reduce_short |
-| ready_to_reduce | 触发单已成交 | **立即执行 reduce_long 或 reduce_short** |
-| waiting_reduce_fill | 减仓单已挂出，等待成交 | 正常补网格单，禁止执行 reduce_long/reduce_short |
+| waiting_buy_fill | 触发单挂出，等待成交 | 正常补网格单，**禁止执行 reduce_long/reduce_short** |
+| waiting_reduce_fill | 减仓单已挂出，等待成交 | 正常补网格单，**禁止执行 reduce_long/reduce_short** |
 
-**ready_to_reduce 执行规则：**
-- 减仓数量由系统决定，你只需给出价格
-- 多头被套 → reduce_long，限价必须**高于**触发单成交价
-- 空头被套 → reduce_short，限价必须**低于**触发单成交价
-- 价差越大，T字套利效果越好
+**注意：** reduce_long/reduce_short 由系统在触发单成交后自动挂出，无需 AI 执行。
 `, config.TrappedReduceThresholdPct)
 	}
 
@@ -426,11 +420,9 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - quantity 必须使用层级表中的「建议数量」
 - state = "pending" 的层级已有挂单，禁止重复下单
 
-### 减仓指令（仅在T字操作 ready_to_reduce 状态下使用）
-- reduce_long：减多仓（限价单，reduce_only）
-- reduce_short：减空仓（限价单，reduce_only）
-- ⚠️ 减仓数量由系统决定，你只需提供价格
-- ⚠️ 禁止在 idle / waiting_buy_fill / waiting_reduce_fill 状态下使用减仓指令
+### 减仓指令（由系统自动执行，AI 禁止主动使用）
+- reduce_long / reduce_short 由系统在 T字操作触发单成交后自动挂出
+- ⚠️ AI 在任何状态下都不应主动执行 reduce_long/reduce_short
 
 ### 其他
 - cancel_order / cancel_all_orders：撤单
@@ -455,15 +447,10 @@ Trigger: system auto-tags the nearest pending grid order when loss exceeds %.1f%
 | State | Meaning | Your action |
 |-------|---------|-------------|
 | idle | No trap or below threshold | Do nothing, wait for system to tag |
-| waiting_buy_fill | Trigger order placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
-| ready_to_reduce | Trigger order filled | **Immediately execute reduce_long or reduce_short** |
-| waiting_reduce_fill | Reduce order placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
+| waiting_buy_fill | Trigger order(s) placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
+| waiting_reduce_fill | Reduce order(s) placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
 
-**ready_to_reduce execution rules:**
-- Quantity is determined by the system — you only provide the price
-- Long trapped → reduce_long, limit price MUST be **above** the trigger fill price
-- Short trapped → reduce_short, limit price MUST be **below** the trigger fill price
-- Wider spread = better T-trade profit
+**Note:** reduce_long/reduce_short are placed automatically by the system after trigger orders fill. AI must never use them.
 `, config.TrappedReduceThresholdPct)
 	}
 
@@ -494,11 +481,9 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 - quantity must use "Suggested Qty" from the level table
 - levels with state = "pending" already have an order — do NOT place another
 
-### Reduce Orders (only in T-trade ready_to_reduce state)
-- reduce_long: reduce long position (limit order, reduce_only)
-- reduce_short: reduce short position (limit order, reduce_only)
-- ⚠️ Quantity is set by the system — you only provide the price
-- ⚠️ Do NOT use reduce orders in idle, waiting_buy_fill, or waiting_reduce_fill state
+### Reduce Orders (auto-placed by system — AI must NOT use)
+- reduce_long / reduce_short are placed automatically after trigger orders fill
+- ⚠️ Do NOT use reduce_long or reduce_short in any state
 
 ### Other
 - cancel_order / cancel_all_orders: cancel orders
@@ -541,24 +526,11 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 			if t.Side == "sell" {
 				label = "卖单"
 			}
-			sb.WriteString(fmt.Sprintf("- T字状态: **等待%s成交** (orderID=%s, 价格=%.2f, 待减仓=%.4f)\n",
+			sb.WriteString(fmt.Sprintf("- T字状态: **等待%s成交** (首单=%s @ %.2f, 总待减仓=%.4f)\n",
 				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，正常补网格单\n")
-		case "ready_to_reduce":
-			action := "reduce_long"
-			priceHint := "高于"
-			trappedDesc := "多单被套"
-			if t.Side == "sell" {
-				action = "reduce_short"
-				priceHint = "低于"
-				trappedDesc = "空单被套"
-			}
-			minSpread := t.TTradeReadyPrepPrice * ctx.TTradeSpreadPct / 100
-			sb.WriteString(fmt.Sprintf("- T字状态: **🟢 准备减仓** — %s，触发单成交价=%.2f，执行 %s，数量由系统决定\n",
-				trappedDesc, t.TTradeReadyPrepPrice, action))
-			sb.WriteString(fmt.Sprintf("- ⚡ 限价必须**%s %.2f**（比触发单成交价更优），建议差价至少 %.1f%%（约 %.4f）\n", priceHint, t.TTradeReadyPrepPrice, ctx.TTradeSpreadPct, minSpread))
+			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，减仓单由系统自动挂出，正常补网格单\n")
 		case "waiting_reduce_fill":
-			sb.WriteString(fmt.Sprintf("- T字状态: **⏳ 减仓单已挂出，等待成交** (待减仓=%.4f)\n", t.TTradePendingReduce))
+			sb.WriteString(fmt.Sprintf("- T字状态: **⏳ 减仓单已挂出，等待成交** (总待减仓=%.4f)\n", t.TTradePendingReduce))
 			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，正常补网格单\n")
 		default:
 			sb.WriteString("- T字状态: 空闲\n")
@@ -679,24 +651,11 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 			if t.Side == "sell" {
 				label = "SELL"
 			}
-			sb.WriteString(fmt.Sprintf("- T-Trade: **WAITING FOR %s FILL** (orderID=%s, price=%.2f, pending=%.4f)\n",
+			sb.WriteString(fmt.Sprintf("- T-Trade: **WAITING FOR %s FILL** (first=%s @ %.2f, total pending=%.4f)\n",
 				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — continue normal grid orders\n")
-		case "ready_to_reduce":
-			action := "reduce_long"
-			priceHint := "above"
-			trappedDesc := "long trapped"
-			if t.Side == "sell" {
-				action = "reduce_short"
-				priceHint = "below"
-				trappedDesc = "short trapped"
-			}
-			minSpread := t.TTradeReadyPrepPrice * ctx.TTradeSpreadPct / 100
-			sb.WriteString(fmt.Sprintf("- T-Trade: **🟢 READY TO REDUCE** — %s, trigger filled at %.2f, execute %s, quantity set by system\n",
-				trappedDesc, t.TTradeReadyPrepPrice, action))
-			sb.WriteString(fmt.Sprintf("- ⚡ Limit price MUST be **%s %.2f** (better than trigger fill price), recommended spread at least %.1f%% (~%.4f)\n", priceHint, t.TTradeReadyPrepPrice, ctx.TTradeSpreadPct, minSpread))
+			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — reduces are auto-placed by system, continue normal grid orders\n")
 		case "waiting_reduce_fill":
-			sb.WriteString(fmt.Sprintf("- T-Trade: **⏳ REDUCE ORDER PLACED, AWAITING FILL** (pending=%.4f)\n", t.TTradePendingReduce))
+			sb.WriteString(fmt.Sprintf("- T-Trade: **⏳ REDUCE ORDER(S) PLACED, AWAITING FILL** (total pending=%.4f)\n", t.TTradePendingReduce))
 			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — continue normal grid orders\n")
 		default:
 			sb.WriteString("- T-Trade: IDLE\n")
