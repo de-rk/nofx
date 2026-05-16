@@ -1282,16 +1282,21 @@ func (at *AutoTrader) checkProfitReduce() {
 	for _, a := range actions {
 		info := a.info
 		if a.targetReducePct == -1 {
-			// Reset tracker and log it so restart recovery can detect the reset
+			// Reset tracker — only log if it was actually non-zero (avoid log spam every cycle)
 			at.gridState.mu.Lock()
+			var prev float64
 			if info.side == "long" {
+				prev = at.gridState.LongProfitReducedPct
 				at.gridState.LongProfitReducedPct = 0
 			} else {
+				prev = at.gridState.ShortProfitReducedPct
 				at.gridState.ShortProfitReducedPct = 0
 			}
 			at.gridState.mu.Unlock()
-			at.logGridTrade("profit_reduce", "profit_reduce_reset", info.side, symbol,
-				"profit went to zero/negative — reset tracker", "", 0, 0, 0, 0, 0, 0, true, "")
+			if prev > 0 {
+				at.logGridTrade("profit_reduce", "profit_reduce_reset", info.side, symbol,
+					"profit went to zero/negative — reset tracker", "", 0, 0, 0, 0, 0, 0, true, "")
+			}
 			continue
 		}
 
