@@ -2742,14 +2742,6 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		return
 	}
 
-	// Skip if all reduce orders are active — don't re-tag while reduces are pending
-	at.gridState.mu.RLock()
-	reduceOrderCount := len(at.gridState.TTradeReduceOrders)
-	at.gridState.mu.RUnlock()
-	if reduceOrderCount > 0 {
-		return
-	}
-
 	currentPrice, trapped, err := at.buildTrappedContext()
 	if err != nil || trapped == nil || !trapped.IsTrapped {
 		// If not trapped, clear any stale prep entries
