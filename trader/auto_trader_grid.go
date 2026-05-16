@@ -9,6 +9,7 @@ import (
 	"nofx/market"
 	"nofx/store"
 	"nofx/trader/types"
+	"strings"
 	"sync"
 	"time"
 )
@@ -2806,11 +2807,24 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		if _, alreadyTagged := at.gridState.TTradePrepOrders[o.OrderID]; alreadyTagged {
 			continue
 		}
+		// Skip reduce-only orders (profit_reduce, T-trade reduce orders — not grid opening orders)
+		if o.ReduceOnly {
+			continue
+		}
 		side := o.Side
 		if side == "BUY" {
 			side = "buy"
 		} else if side == "SELL" {
 			side = "sell"
+		}
+		// For hedge mode: BUY must open LONG, SELL must open SHORT
+		// Skip orders that are closing positions (wrong PositionSide for direction)
+		posSide := strings.ToUpper(o.PositionSide)
+		if side == "buy" && posSide == "SHORT" {
+			continue // BUY SHORT = closing short, not opening long
+		}
+		if side == "sell" && posSide == "LONG" {
+			continue // SELL LONG = closing long, not opening short
 		}
 		price := o.Price
 		if price <= 0 {
