@@ -331,41 +331,10 @@ export function GridRiskPanel({
               </div>
             </div>
 
-          </div>
-
-          {/* Row 3: Box State */}
-          <div className="p-2 rounded" style={{ background: '#1E2329' }}>
-            <div className="flex items-center gap-1 mb-2">
-              <Box className="w-3 h-3" style={{ color: '#F0B90B' }} />
-              <span className="text-xs font-medium" style={{ color: '#848E9C' }}>{t('boxState')}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-xs">
-              <div className="flex justify-between">
-                <span style={{ color: '#5E6673' }}>{t('shortBox')}</span>
-                <span className="font-mono" style={{ color: '#EAECEF' }}>
-                  {formatPrice(riskInfo.short_box_lower)} - {formatPrice(riskInfo.short_box_upper)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span style={{ color: '#5E6673' }}>{t('midBox')}</span>
-                <span className="font-mono" style={{ color: '#EAECEF' }}>
-                  {formatPrice(riskInfo.mid_box_lower)} - {formatPrice(riskInfo.mid_box_upper)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span style={{ color: '#5E6673' }}>{t('longBox')}</span>
-                <span className="font-mono" style={{ color: '#EAECEF' }}>
-                  {formatPrice(riskInfo.long_box_lower)} - {formatPrice(riskInfo.long_box_upper)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Row 4: Profit Reduce Tracker */}
-          {(riskInfo.long_profit_reduced_pct > 0 || riskInfo.short_profit_reduced_pct > 0) && (
-            <div className="px-3 pb-3">
-              <div className="rounded p-2" style={{ background: '#0D1117', border: '1px solid #2B3139' }}>
-                <div className="flex items-center gap-1.5 mb-2">
+            {/* Profit Reduce Tracker */}
+            {(riskInfo.long_profit_reduced_pct > 0 || riskInfo.short_profit_reduced_pct > 0) && (
+              <div className="p-2 rounded" style={{ background: '#1E2329' }}>
+                <div className="flex items-center gap-1 mb-2">
                   <TrendingUp className="w-3 h-3" style={{ color: '#F0B90B' }} />
                   <span className="text-xs font-medium" style={{ color: '#848E9C' }}>
                     {language === 'zh' ? '浮盈减仓进度' : 'Profit Reduce Progress'}
@@ -417,8 +386,37 @@ export function GridRiskPanel({
                   </div>
                 )}
               </div>
+            )}
+
+          </div>
+
+          {/* Row 3: Box State */}
+          <div className="p-2 rounded" style={{ background: '#1E2329' }}>
+            <div className="flex items-center gap-1 mb-2">
+              <Box className="w-3 h-3" style={{ color: '#F0B90B' }} />
+              <span className="text-xs font-medium" style={{ color: '#848E9C' }}>{t('boxState')}</span>
             </div>
-          )}
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="flex justify-between">
+                <span style={{ color: '#5E6673' }}>{t('shortBox')}</span>
+                <span className="font-mono" style={{ color: '#EAECEF' }}>
+                  {formatPrice(riskInfo.short_box_lower)} - {formatPrice(riskInfo.short_box_upper)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: '#5E6673' }}>{t('midBox')}</span>
+                <span className="font-mono" style={{ color: '#EAECEF' }}>
+                  {formatPrice(riskInfo.mid_box_lower)} - {formatPrice(riskInfo.mid_box_upper)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: '#5E6673' }}>{t('longBox')}</span>
+                <span className="font-mono" style={{ color: '#EAECEF' }}>
+                  {formatPrice(riskInfo.long_box_lower)} - {formatPrice(riskInfo.long_box_upper)}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
