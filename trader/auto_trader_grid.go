@@ -2807,10 +2807,6 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		if _, alreadyTagged := at.gridState.TTradePrepOrders[o.OrderID]; alreadyTagged {
 			continue
 		}
-		// Skip reduce-only orders (profit_reduce, T-trade reduce orders — not grid opening orders)
-		if o.ReduceOnly {
-			continue
-		}
 		side := o.Side
 		if side == "BUY" {
 			side = "buy"
