@@ -721,26 +721,34 @@ func (at *AutoTrader) InitializeGrid() error {
 					if sErr == nil {
 						statusStr, _ := statusMap["status"].(string)
 						if statusStr == "FILLED" {
-							fillPrice := entry.Price
-							if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
-								fillPrice = avg
+							// Check if reduce was already placed for this prep (via ttrade_fill log)
+							// If ttrade_fill exists after ttrade_tag, reduce was already dispatched — skip
+							fillEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "ttrade_fill", "")
+							alreadyHandled := fillEntry != nil && fillEntry.OrderID == entry.OrderID &&
+								fillEntry.CreatedAt.After(entry.CreatedAt)
+							if alreadyHandled {
+								logger.Infof("[Grid] T-trade prep %s already filled and handled — skipping restore", entry.OrderID)
+							} else {
+								fillPrice := entry.Price
+								if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+									fillPrice = avg
+								}
+								side := entry.Side
+								if side == "" {
+									side = "buy"
+								}
+								at.gridState.mu.Lock()
+								at.gridState.TTradePrepOrders[entry.OrderID] = &TTradePrepEntry{
+									OrderID:  entry.OrderID,
+									Price:    fillPrice,
+									Qty:      entry.Quantity,
+									Side:     side,
+									TaggedAt: entry.CreatedAt,
+								}
+								at.gridState.TTradePrepSide = side
+								at.gridState.mu.Unlock()
+								logger.Infof("[Grid] Restored T-trade filled prep from log: order %s @ %.4f — will auto-place reduce next cycle", entry.OrderID, fillPrice)
 							}
-							side := entry.Side
-							if side == "" {
-								side = "buy"
-							}
-							// Add a synthetic prep entry that checkTTradeOrderFillAndReduce will pick up
-							at.gridState.mu.Lock()
-							at.gridState.TTradePrepOrders[entry.OrderID] = &TTradePrepEntry{
-								OrderID:  entry.OrderID,
-								Price:    fillPrice,
-								Qty:      entry.Quantity,
-								Side:     side,
-								TaggedAt: entry.CreatedAt,
-							}
-							at.gridState.TTradePrepSide = side
-							at.gridState.mu.Unlock()
-							logger.Infof("[Grid] Restored T-trade filled prep from log: order %s @ %.4f — will auto-place reduce next cycle", entry.OrderID, fillPrice)
 						}
 					}
 				}
