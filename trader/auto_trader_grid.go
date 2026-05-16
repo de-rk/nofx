@@ -2796,7 +2796,8 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	}
 
 	// Add all qualifying orders not yet tagged
-	added := 0
+	type taggedEntry struct{ orderID string; price, qty float64 }
+	var newlyTagged []taggedEntry
 	for _, o := range openOrders {
 		levelIdx, ok := gridOrderIDs[o.OrderID]
 		if !ok {
@@ -2840,20 +2841,22 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 			Side:     side,
 			TaggedAt: time.Now(),
 		}
-		added++
+		newlyTagged = append(newlyTagged, taggedEntry{o.OrderID, price, qty})
 	}
 	at.gridState.TTradePrepSide = trapped.Side
 	at.gridState.mu.Unlock()
 
-	if added > 0 {
+	if len(newlyTagged) > 0 {
 		at.gridState.mu.RLock()
 		total := len(at.gridState.TTradePrepOrders)
 		at.gridState.mu.RUnlock()
 		logger.Infof("[Grid] T-trade: tagged %d new orders (%s trapped, loss=%.2f%%), total tagged=%d",
-			added, trapped.Side, trapped.LossPct, total)
-		at.logGridTrade("ttrade", "ttrade_tag", trapped.Side, gridConfig.Symbol,
-			fmt.Sprintf("tagged %d orders, loss=%.2f%%", added, trapped.LossPct),
-			"", 0, currentPrice, 0, 0, 0, trapped.PriceDiffPct, true, "")
+			len(newlyTagged), trapped.Side, trapped.LossPct, total)
+		for _, e := range newlyTagged {
+			at.logGridTrade("ttrade", "ttrade_tag", trapped.Side, gridConfig.Symbol,
+				fmt.Sprintf("loss=%.2f%%", trapped.LossPct),
+				e.orderID, e.qty, e.price, 0, 0, 0, trapped.PriceDiffPct, true, "")
+		}
 	}
 }
 
