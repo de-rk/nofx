@@ -2780,7 +2780,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		openOrderIDs[o.OrderID] = true
 	}
 
-	maxWait := 2 * time.Hour
+	maxWait := 3 * time.Hour
 
 	// Collect timed-out entries to check outside the lock
 	type timedOutEntry struct{ id string; prep *TTradePrepEntry }
@@ -2931,7 +2931,7 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 		openOrderIDs[o.OrderID] = true
 	}
 
-	maxWait := 2 * time.Hour
+	maxWait := 3 * time.Hour
 
 	for orderID, prep := range prepCopy {
 		// Timeout check — verify fill status before discarding
@@ -3104,7 +3104,7 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 		openOrderIDs[o.OrderID] = true
 	}
 
-	maxWait := 2 * time.Hour
+	maxWait := 3 * time.Hour
 
 	for reduceID, entry := range reduceCopy {
 		// Timeout: cancel and re-place at fresh price
