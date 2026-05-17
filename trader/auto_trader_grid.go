@@ -2782,11 +2782,16 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 
 	maxWait := 2 * time.Hour
 
+	// Collect timed-out entries to check outside the lock
+	type timedOutEntry struct{ id string; prep *TTradePrepEntry }
+	var timedOut []timedOutEntry
+
 	at.gridState.mu.Lock()
 	// Remove stale entries: timed out, no longer open, or price moved out of qualifying range
 	for id, prep := range at.gridState.TTradePrepOrders {
 		if time.Since(prep.TaggedAt) > maxWait {
-			logger.Infof("[Grid] T-trade prep %s timed out — removing tag (order kept alive)", id)
+			// Don't silently remove — collect for fill check outside lock
+			timedOut = append(timedOut, timedOutEntry{id, prep})
 			delete(at.gridState.TTradePrepOrders, id)
 			continue
 		}
@@ -2864,6 +2869,28 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	at.gridState.TTradePrepSide = trapped.Side
 	at.gridState.mu.Unlock()
 
+	// Check timed-out entries for fills (they may have filled just before timeout)
+	for _, e := range timedOut {
+		logger.Infof("[Grid] T-trade prep %s timed out — checking fill status before discarding", e.id)
+		statusMap, err := at.trader.GetOrderStatus(gridConfig.Symbol, e.id)
+		if err == nil {
+			statusStr, _ := statusMap["status"].(string)
+			if statusStr == "FILLED" {
+				fillPrice := e.prep.Price
+				if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+					fillPrice = avg
+				}
+				logger.Infof("[Grid] T-trade prep %s FILLED just before timeout — placing reduce", e.id)
+				at.logGridTrade("ttrade", "ttrade_fill", e.prep.Side, gridConfig.Symbol,
+					fmt.Sprintf("prep %s filled @ %.2f (detected at timeout)", e.id, fillPrice),
+					e.id, e.prep.Qty, fillPrice, 0, 0, 0, 0, true, "")
+				go at.placeTTradeReduceOrder(e.prep.Side, fillPrice, e.prep.Qty, e.id)
+			} else {
+				logger.Infof("[Grid] T-trade prep %s timed out (status=%s) — removing tag (order kept alive)", e.id, statusStr)
+			}
+		}
+	}
+
 	if len(newlyTagged) > 0 {
 		at.gridState.mu.RLock()
 		total := len(at.gridState.TTradePrepOrders)
@@ -2907,13 +2934,30 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 	maxWait := 2 * time.Hour
 
 	for orderID, prep := range prepCopy {
-		// Timeout check
+		// Timeout check — verify fill status before discarding
 		if !prep.TaggedAt.IsZero() && time.Since(prep.TaggedAt) > maxWait {
-			logger.Warnf("[Grid] ⚠️ T-trade prep %s timed out after %.0f min — removing (order kept alive)",
-				orderID, time.Since(prep.TaggedAt).Minutes())
+			statusMap, err := at.trader.GetOrderStatus(gridConfig.Symbol, orderID)
 			at.gridState.mu.Lock()
 			delete(at.gridState.TTradePrepOrders, orderID)
 			at.gridState.mu.Unlock()
+			if err == nil {
+				statusStr, _ := statusMap["status"].(string)
+				if statusStr == "FILLED" {
+					fillPrice := prep.Price
+					if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+						fillPrice = avg
+					}
+					logger.Infof("[Grid] T-trade prep %s FILLED at timeout check — placing reduce", orderID)
+					at.logGridTrade("ttrade", "ttrade_fill", prep.Side, gridConfig.Symbol,
+						fmt.Sprintf("prep %s filled @ %.2f (timeout check)", orderID, fillPrice),
+						orderID, prep.Qty, fillPrice, 0, 0, 0, 0, true, "")
+					go at.placeTTradeReduceOrder(prep.Side, fillPrice, prep.Qty, orderID)
+				} else {
+					logger.Warnf("[Grid] ⚠️ T-trade prep %s timed out (status=%s) — removing (order kept alive)", orderID, statusStr)
+				}
+			} else {
+				logger.Warnf("[Grid] ⚠️ T-trade prep %s timed out — GetOrderStatus failed, removing", orderID)
+			}
 			continue
 		}
 
