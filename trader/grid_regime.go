@@ -120,7 +120,7 @@ func detectBoxBreakout(box *market.BoxData) (market.BreakoutLevel, string) {
 // Task 8: Breakout Confirmation Logic
 // ============================================================================
 
-const BreakoutConfirmRequired = 3 // 3 candles to confirm breakout
+const BreakoutConfirmRequired = 2 // 2 candles to confirm breakout
 
 // BreakoutState tracks the current breakout state
 type BreakoutState struct {
