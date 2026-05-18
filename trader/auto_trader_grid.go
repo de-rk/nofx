@@ -33,8 +33,11 @@ type TTradeReduceEntry struct {
 	ReduceOrderID string
 	PrepOrderID   string    // which prep order triggered this
 	PrepFillPrice float64   // fill price of prep (spread is relative to this)
+	ReducePrice   float64   // limit price the reduce was placed at
+	SpreadPct     float64   // spread used when placing
 	Qty           float64
 	Side          string    // "sell" (reduce_long) or "buy" (reduce_short)
+	PrepSide      string    // original prep side ("buy" or "sell")
 	PlacedAt      time.Time
 }
 
@@ -3066,8 +3069,11 @@ func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64,
 			ReduceOrderID: orderID,
 			PrepOrderID:   prepOrderID,
 			PrepFillPrice: fillPrice,
+			ReducePrice:   reducePrice,
+			SpreadPct:     spreadPct,
 			Qty:           qty,
 			Side:          orderSide,
+			PrepSide:      prepSide,
 			PlacedAt:      time.Now(),
 		}
 		at.gridState.LastTrappedReduceAt = time.Now()
@@ -3075,9 +3081,6 @@ func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64,
 		logger.Infof("[Grid] ✅ T-trade reduce order placed: %s @ %.4f", orderID, reducePrice)
 	}
 
-	at.logGridTrade("ttrade", "ttrade_reduce", prepSide, gridConfig.Symbol,
-		fmt.Sprintf("auto-reduce from prep %s fill=%.4f spread=%.1f%%", prepOrderID, fillPrice, spreadPct),
-		orderID, qty, reducePrice, fillPrice, 0, 0, 0, err == nil, errMsg)
 }
 
 // checkTTradeReduceOrderStatus monitors all active T-trade reduce orders.
@@ -3142,13 +3145,12 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 			if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
 				fillPrice = avg
 			}
-			side := entry.Side
-			action := "ttrade_reduce_fill"
 			logger.Infof("[Grid] ✅ T-trade reduce %s FILLED @ %.4f — clearing", reduceID, fillPrice)
 			delete(at.gridState.TTradeReduceOrders, reduceID)
 			at.gridState.mu.Unlock()
-			at.logGridTrade("ttrade", action, side, gridConfig.Symbol, "", reduceID,
-				entry.Qty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
+			at.logGridTrade("ttrade", "ttrade_reduce", entry.PrepSide, gridConfig.Symbol,
+				fmt.Sprintf("auto-reduce from prep %s fill=%.4f spread=%.1f%%", entry.PrepOrderID, entry.PrepFillPrice, entry.SpreadPct),
+				reduceID, entry.Qty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
 			continue
 		case "CANCELED", "EXPIRED":
 			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing", reduceID)
