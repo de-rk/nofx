@@ -3057,10 +3057,8 @@ func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64,
 		ReduceOnly:   true,
 	})
 
-	errMsg := ""
 	orderID := ""
 	if err != nil {
-		errMsg = err.Error()
 		logger.Warnf("[Grid] T-trade auto-reduce failed: %v", err)
 	} else if result != nil {
 		orderID = result.OrderID
