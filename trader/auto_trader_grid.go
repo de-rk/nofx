@@ -3138,8 +3138,18 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 		at.gridState.mu.Lock()
 		switch statusStr {
 		case "FILLED":
-			logger.Infof("[Grid] ✅ T-trade reduce %s FILLED — clearing", reduceID)
+			fillPrice := entry.PrepFillPrice
+			if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+				fillPrice = avg
+			}
+			side := entry.Side
+			action := "ttrade_reduce_fill"
+			logger.Infof("[Grid] ✅ T-trade reduce %s FILLED @ %.4f — clearing", reduceID, fillPrice)
 			delete(at.gridState.TTradeReduceOrders, reduceID)
+			at.gridState.mu.Unlock()
+			at.logGridTrade("ttrade", action, side, gridConfig.Symbol, "", reduceID,
+				entry.Qty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
+			continue
 		case "CANCELED", "EXPIRED":
 			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing", reduceID)
 			delete(at.gridState.TTradeReduceOrders, reduceID)
