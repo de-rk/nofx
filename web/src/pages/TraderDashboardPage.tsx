@@ -918,8 +918,11 @@ const ACTION_ICONS: Record<string, string> = {
     resume_grid: '▶️',
     ttrade_tag: '🏷',
     ttrade_fill: '✅',
+    ttrade_reduce: '🔁',
     profit_reduce: '💰',
     profit_reduce_close: '💰',
+    profit_drawdown_close: '💰',
+    profit_reduce_reset: '🔄',
 }
 
 function GridTradeLogList({ logs, language }: { logs?: GridTradeLog[]; language: string }) {
