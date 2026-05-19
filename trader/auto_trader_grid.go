@@ -1154,6 +1154,61 @@ func (at *AutoTrader) RunGridCycle() error {
 			if err == nil {
 				at.syncOpenOrdersFromExchange(freshOrders)
 				at.autoTagTTradeFromExistingOrders(freshOrders)
+
+				// Check if any newly placed order filled immediately (taker fill).
+				// Such orders never appear in freshOrders, so autoTagTTradeFromExistingOrders skips them.
+				freshOrderIDs := make(map[string]bool, len(freshOrders))
+				for _, o := range freshOrders {
+					freshOrderIDs[o.OrderID] = true
+				}
+				currentPrice, trapped, tErr := at.buildTrappedContext()
+				if tErr == nil && trapped != nil && trapped.IsTrapped {
+					at.gridState.mu.RLock()
+					for _, r := range results {
+						if r.err != nil {
+							continue
+						}
+						if r.d.Action != "place_buy_limit" && r.d.Action != "place_sell_limit" {
+							continue
+						}
+						if r.d.LevelIndex < 0 || r.d.LevelIndex >= len(at.gridState.Levels) {
+							continue
+						}
+						orderID := at.gridState.Levels[r.d.LevelIndex].OrderID
+						if orderID == "" || freshOrderIDs[orderID] {
+							continue // still open, handled normally
+						}
+						// Order not in open list — may have filled immediately
+						orderSide := "buy"
+						if r.d.Action == "place_sell_limit" {
+							orderSide = "sell"
+						}
+						qualifies := (trapped.Side == "buy" && orderSide == "buy" && r.d.Price < currentPrice) ||
+							(trapped.Side == "sell" && orderSide == "sell" && r.d.Price > currentPrice)
+						if !qualifies {
+							continue
+						}
+						qty := at.gridState.Levels[r.d.LevelIndex].OrderQuantity
+						at.gridState.mu.RUnlock()
+						statusMap, sErr := at.trader.GetOrderStatus(gridConfig.Symbol, orderID)
+						if sErr == nil {
+							statusStr, _ := statusMap["status"].(string)
+							if statusStr == "FILLED" {
+								fillPrice := r.d.Price
+								if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+									fillPrice = avg
+								}
+								logger.Infof("[Grid] 🏷 T-trade immediate fill detected: %s %s @ %.4f — placing reduce", orderID, orderSide, fillPrice)
+								at.logGridTrade("ttrade", "ttrade_fill", orderSide, gridConfig.Symbol,
+									fmt.Sprintf("prep %s filled @ %.4f (immediate taker fill)", orderID, fillPrice),
+									orderID, qty, fillPrice, 0, 0, 0, 0, true, "")
+								go at.placeTTradeReduceOrder(orderSide, fillPrice, qty, orderID)
+							}
+						}
+						at.gridState.mu.RLock()
+					}
+					at.gridState.mu.RUnlock()
+				}
 			}
 		}
 	}
