@@ -246,8 +246,8 @@ export function TraderDashboardPage({
         }
     }
 
-    // If API failed with error, show empty state (likely backend not running)
-    if (tradersError) {
+    // Only show connection failed if we have no cached data — transient errors during polling shouldn't wipe the UI
+    if (tradersError && !traders) {
         return (
             <div className="flex items-center justify-center min-h-[60vh] relative z-10">
                 <div className="text-center max-w-md mx-auto px-6">

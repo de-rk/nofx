@@ -196,7 +196,9 @@ function App() {
     api.getTraders,
     {
       refreshInterval: 10000,
-      shouldRetryOnError: false, // 避免在后端未运行时无限重试
+      shouldRetryOnError: true,
+      errorRetryCount: 3,
+      errorRetryInterval: 5000,
     }
   )
 
