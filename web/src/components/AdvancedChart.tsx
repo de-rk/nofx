@@ -672,8 +672,8 @@ export function AdvancedChart({
 
     loadData(false) // 首次加载
 
-    // 实时自动刷新 (5秒更新一次)
-    const refreshInterval = setInterval(() => loadData(true), 5000)
+    // 实时自动刷新 (15秒更新一次)
+    const refreshInterval = setInterval(() => loadData(true), 15000)
     return () => clearInterval(refreshInterval)
   }, [symbol, interval, traderID, exchange])
 
