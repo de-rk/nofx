@@ -1543,6 +1543,12 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 
 // executeGridDecision executes a single grid decision
 func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridContext) error {
+	// Normalize hallucinated action prefixes (e.g. "place_place_buy_limit" → "place_buy_limit")
+	for _, canonical := range []string{"place_buy_limit", "place_sell_limit", "cancel_order", "cancel_all_orders", "reduce_long", "reduce_short", "hold"} {
+		if d.Action != canonical && strings.HasSuffix(d.Action, canonical) {
+			d.Action = canonical
+		}
+	}
 	logger.Infof("[Grid] AI action: %s | qty=%.4f price=%.2f | reason: %s",
 		d.Action, d.Quantity, d.Price, d.Reasoning)
 	symbol := at.config.StrategyConfig.GridConfig.Symbol
