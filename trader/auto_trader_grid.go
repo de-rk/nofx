@@ -3026,51 +3026,37 @@ func (at *AutoTrader) executeLockHedge(trapped *kernel.TrappedPositionInfo, curr
 	symbol := gridConfig.Symbol
 	qty := trapped.TrappedPositionSize
 
-	gridTrader, ok := at.trader.(GridTrader)
-	if !ok {
-		gridTrader = NewGridTraderAdapter(at.trader)
-	}
+	var hedgeSide string
+	var result map[string]interface{}
+	var err error
 
-	var side, posSide, hedgeSide string
-	var hedgePrice float64
 	if trapped.Side == "buy" {
 		// Long trapped → open short hedge
-		side, posSide, hedgeSide = "SELL", "SHORT", "sell"
-		hedgePrice = currentPrice * 0.999
+		hedgeSide = "sell"
+		result, err = at.trader.OpenShort(symbol, qty, gridConfig.Leverage)
 	} else {
 		// Short trapped → open long hedge
-		side, posSide, hedgeSide = "BUY", "LONG", "buy"
-		hedgePrice = currentPrice * 1.001
+		hedgeSide = "buy"
+		result, err = at.trader.OpenLong(symbol, qty, gridConfig.Leverage)
 	}
 
-	result, err := gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
-		Symbol:       symbol,
-		Side:         side,
-		PositionSide: posSide,
-		Price:        hedgePrice,
-		Quantity:     qty,
-		Leverage:     gridConfig.Leverage,
-		PostOnly:     false,
-		ReduceOnly:   false,
-		ClientID:     fmt.Sprintf("hedge_%d", time.Now().UnixMilli()),
-	})
 	if err != nil {
 		at.logGridTrade("hedge_lock", "hedge_lock_failed", hedgeSide, symbol,
-			fmt.Sprintf("failed to place hedge: %v", err), "", qty, hedgePrice,
+			fmt.Sprintf("failed to place hedge: %v", err), "", qty, currentPrice,
 			trapped.AvgEntryPrice, currentPrice, 0, trapped.TotalUnrealizedLoss, false, err.Error())
 		return fmt.Errorf("hedge lock failed: %w", err)
 	}
 
 	orderID := ""
 	if result != nil {
-		orderID = result.OrderID
+		orderID, _ = result["orderId"].(string)
 	}
 
 	at.gridState.mu.Lock()
 	at.gridState.HedgeLocked = true
 	at.gridState.HedgeSide = hedgeSide
 	at.gridState.HedgeQty = qty
-	at.gridState.HedgeEntryPrice = hedgePrice
+	at.gridState.HedgeEntryPrice = currentPrice
 	at.gridState.HedgeLockedAt = time.Now()
 	at.gridState.mu.Unlock()
 
