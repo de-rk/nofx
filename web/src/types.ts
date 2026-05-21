@@ -516,6 +516,7 @@ export interface GridStrategyConfig {
   profit_reduce_step_pct?: number;
   // Minimum spread % for T-trade reduce orders (default 0.2, range 0.2-1.0)
   t_trade_spread_pct?: number;
+  hedge_lock_threshold_pct?: number;
 }
 
 export interface CoinSourceConfig {
