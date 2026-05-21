@@ -3062,10 +3062,10 @@ func (at *AutoTrader) executeLockHedge(trapped *kernel.TrappedPositionInfo, curr
 
 	at.logGridTrade("hedge_lock", "hedge_lock_open", hedgeSide, symbol,
 		fmt.Sprintf("hedge activated: loss=%.2f%% qty=%.4f", trapped.LossPct, qty),
-		orderID, qty, hedgePrice, trapped.AvgEntryPrice, currentPrice, 0, trapped.TotalUnrealizedLoss, true, "")
+		orderID, qty, currentPrice, trapped.AvgEntryPrice, currentPrice, 0, trapped.TotalUnrealizedLoss, true, "")
 
 	logger.Infof("[Grid] 🔒 Hedge lock activated: side=%s qty=%.4f price=%.4f loss=%.2f%%",
-		hedgeSide, qty, hedgePrice, trapped.LossPct)
+		hedgeSide, qty, currentPrice, trapped.LossPct)
 	return nil
 }
 
