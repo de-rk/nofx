@@ -731,6 +731,13 @@ export interface GridRiskInfo {
   long_profit_reduced_pct: number
   short_profit_reduced_pct: number
   profit_reduce_step: number
+
+  // Hedge lock status
+  hedge_locked: boolean
+  hedge_side: string
+  hedge_qty: number
+  hedge_entry_price: number
+  hedge_locked_at: string
 }
 
 export interface GridTradeLog {

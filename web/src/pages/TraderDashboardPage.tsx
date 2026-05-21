@@ -923,6 +923,10 @@ const ACTION_ICONS: Record<string, string> = {
     profit_reduce_close: '💰',
     profit_drawdown_close: '💰',
     profit_reduce_reset: '🔄',
+    hedge_lock_open: '🔒',
+    hedge_lock_failed: '⚠️',
+    hedge_unlock_close: '🔓',
+    hedge_unlock_failed: '⚠️',
 }
 
 function GridTradeLogList({ logs, language }: { logs?: GridTradeLog[]; language: string }) {

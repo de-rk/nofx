@@ -113,6 +113,13 @@ type GridState struct {
 	// Profit-based reduce tracking (per side)
 	LongProfitReducedPct  float64 // cumulative % already reduced for long (multiples of 10)
 	ShortProfitReducedPct float64 // cumulative % already reduced for short (multiples of 10)
+
+	// Hedge lock state (对冲锁仓状态)
+	HedgeLocked     bool      // whether hedge lock is active
+	HedgeSide       string    // "buy" (hedging short trap) or "sell" (hedging long trap)
+	HedgeQty        float64   // quantity of hedge position
+	HedgeEntryPrice float64   // price at which hedge was placed
+	HedgeLockedAt   time.Time // when hedge was activated
 }
 
 // NewGridState creates a new grid state
@@ -770,6 +777,8 @@ func (at *AutoTrader) InitializeGrid() error {
 	logger.Infof("📊 [Grid] Initialized: %d levels, $%.2f - $%.2f, spacing $%.2f",
 		gridConfig.GridCount, at.gridState.LowerPrice, at.gridState.UpperPrice, at.gridState.GridSpacing)
 
+	at.recoverHedgeLockState()
+
 	return nil
 }
 
@@ -1020,6 +1029,11 @@ func (at *AutoTrader) RunGridCycle() error {
 		logger.Infof("False breakout recovery check error: %v", err)
 	}
 
+	// Check hedge lock / unlock
+	if err := at.checkHedgeLock(); err != nil {
+		logger.Infof("[Grid] Hedge lock check error: %v", err)
+	}
+
 	// Check if grid is paused
 	at.gridState.mu.RLock()
 	isPaused := at.gridState.IsPaused
@@ -1103,6 +1117,12 @@ func (at *AutoTrader) RunGridCycle() error {
 		if !running {
 			logger.Infof("[Grid] Trader stopped, skipping remaining %d decisions", len(decision.Decisions))
 			break
+		}
+
+		// Suppress new position-opening orders while hedge lock is active
+		if at.gridState.HedgeLocked && (d.Action == "place_buy_limit" || d.Action == "place_sell_limit") {
+			logger.Infof("[Grid] 🔒 Hedge lock active: skipping AI order %s @ %.4f", d.Action, d.Price)
+			continue
 		}
 
 		err := at.executeGridDecision(&d, gridCtx)
@@ -1295,7 +1315,15 @@ func (at *AutoTrader) checkProfitReduce() {
 	var actions []reduceAction
 
 	at.gridState.mu.RLock()
+	hedgeSideForSkip := at.gridState.HedgeSide
+	at.gridState.mu.RUnlock()
+
+	at.gridState.mu.RLock()
 	for _, info := range sides {
+		// Skip the hedge side — its P&L is intentional and should not trigger profit reduce
+		if at.gridState.HedgeLocked && info.side == hedgeSideForSkip {
+			continue
+		}
 		if info.entryPrice == 0 || info.markPrice == 0 {
 			continue
 		}
@@ -1472,6 +1500,7 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	ctx.LowerPrice = at.gridState.LowerPrice
 	ctx.GridSpacing = at.gridState.GridSpacing
 	ctx.IsPaused = at.gridState.IsPaused
+	ctx.HedgeLocked = at.gridState.HedgeLocked
 	ctx.TotalProfit = at.gridState.TotalProfit
 	ctx.TotalTrades = at.gridState.TotalTrades
 	ctx.WinningTrades = at.gridState.WinningTrades
@@ -2631,6 +2660,13 @@ type GridRiskInfo struct {
 	LongProfitReducedPct  float64 `json:"long_profit_reduced_pct"`
 	ShortProfitReducedPct float64 `json:"short_profit_reduced_pct"`
 	ProfitReduceStep      float64 `json:"profit_reduce_step"`
+
+	// Hedge lock status
+	HedgeLocked     bool    `json:"hedge_locked"`
+	HedgeSide       string  `json:"hedge_side"`
+	HedgeQty        float64 `json:"hedge_qty"`
+	HedgeEntryPrice float64 `json:"hedge_entry_price"`
+	HedgeLockedAt   string  `json:"hedge_locked_at"`
 }
 
 // GetGridRiskInfo returns current risk information for frontend display
@@ -2764,6 +2800,17 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 		LongProfitReducedPct:  at.gridState.LongProfitReducedPct,
 		ShortProfitReducedPct: at.gridState.ShortProfitReducedPct,
 		ProfitReduceStep:      gridConfig.ProfitReduceStepPct,
+
+		HedgeLocked:     at.gridState.HedgeLocked,
+		HedgeSide:       at.gridState.HedgeSide,
+		HedgeQty:        at.gridState.HedgeQty,
+		HedgeEntryPrice: at.gridState.HedgeEntryPrice,
+		HedgeLockedAt: func() string {
+			if at.gridState.HedgeLockedAt.IsZero() {
+				return ""
+			}
+			return at.gridState.HedgeLockedAt.Format(time.RFC3339)
+		}(),
 	}
 }
 
@@ -2812,6 +2859,14 @@ func (at *AutoTrader) logGridTrade(source, action, side, symbol, reason, orderID
 func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
+		return
+	}
+
+	// While hedge lock is active, T-trade tagging is unnecessary — hedge already neutralises loss
+	at.gridState.mu.RLock()
+	hedgeLocked := at.gridState.HedgeLocked
+	at.gridState.mu.RUnlock()
+	if hedgeLocked {
 		return
 	}
 
@@ -3224,6 +3279,252 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 		}
 		at.gridState.mu.Unlock()
 	}
+}
+
+// ============================================================================
+// Hedge Lock / Unlock
+// ============================================================================
+
+// isHedgeUnlockConditionMet returns true when the hedge should be released:
+// Bollinger Band width (4h) < 1.5% AND price is within ±2% of trapped side avg entry.
+func (at *AutoTrader) isHedgeUnlockConditionMet(bollingerWidth, currentPrice float64) bool {
+	at.gridState.mu.RLock()
+	locked := at.gridState.HedgeLocked
+	hedgeSide := at.gridState.HedgeSide
+	at.gridState.mu.RUnlock()
+
+	if !locked {
+		return false
+	}
+
+	// Determine which side is trapped (opposite of hedge side)
+	trappedSide := "sell"
+	if hedgeSide == "sell" {
+		trappedSide = "buy"
+	}
+
+	trapped := at.buildTrappedPositionInfo(currentPrice)
+	if trapped == nil || !trapped.IsTrapped || trapped.Side != trappedSide {
+		// Trapped position resolved — safe to unlock
+		return true
+	}
+
+	avgEntry := trapped.AvgEntryPrice
+	if avgEntry <= 0 {
+		return false
+	}
+
+	priceProximityPct := math.Abs(currentPrice-avgEntry) / avgEntry * 100
+	return bollingerWidth < 1.5 && priceProximityPct <= 2.0
+}
+
+// executeLockHedge opens a full-size opposite-direction position to lock in the current loss.
+// Uses PlaceLimitOrder with a tight price (not OpenLong/OpenShort which cancel all grid orders).
+func (at *AutoTrader) executeLockHedge(trapped *kernel.TrappedPositionInfo, currentPrice float64) error {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	symbol := gridConfig.Symbol
+	qty := trapped.TrappedPositionSize
+
+	gridTrader, ok := at.trader.(GridTrader)
+	if !ok {
+		gridTrader = NewGridTraderAdapter(at.trader)
+	}
+
+	var side, posSide, hedgeSide string
+	var hedgePrice float64
+	if trapped.Side == "buy" {
+		// Long trapped → open short hedge
+		side, posSide, hedgeSide = "SELL", "SHORT", "sell"
+		hedgePrice = currentPrice * 0.999
+	} else {
+		// Short trapped → open long hedge
+		side, posSide, hedgeSide = "BUY", "LONG", "buy"
+		hedgePrice = currentPrice * 1.001
+	}
+
+	result, err := gridTrader.PlaceLimitOrder(&types.LimitOrderRequest{
+		Symbol:       symbol,
+		Side:         side,
+		PositionSide: posSide,
+		Price:        hedgePrice,
+		Quantity:     qty,
+		Leverage:     gridConfig.Leverage,
+		PostOnly:     false,
+		ReduceOnly:   false,
+		ClientID:     fmt.Sprintf("hedge_%d", time.Now().UnixMilli()),
+	})
+	if err != nil {
+		at.logGridTrade("hedge_lock", "hedge_lock_failed", hedgeSide, symbol,
+			fmt.Sprintf("failed to place hedge: %v", err), "", qty, hedgePrice,
+			trapped.AvgEntryPrice, currentPrice, 0, trapped.TotalUnrealizedLoss, false, err.Error())
+		return fmt.Errorf("hedge lock failed: %w", err)
+	}
+
+	orderID := ""
+	if result != nil {
+		orderID = result.OrderID
+	}
+
+	at.gridState.mu.Lock()
+	at.gridState.HedgeLocked = true
+	at.gridState.HedgeSide = hedgeSide
+	at.gridState.HedgeQty = qty
+	at.gridState.HedgeEntryPrice = hedgePrice
+	at.gridState.HedgeLockedAt = time.Now()
+	at.gridState.mu.Unlock()
+
+	at.logGridTrade("hedge_lock", "hedge_lock_open", hedgeSide, symbol,
+		fmt.Sprintf("hedge activated: loss=%.2f%% qty=%.4f", trapped.LossPct, qty),
+		orderID, qty, hedgePrice, trapped.AvgEntryPrice, currentPrice, 0, trapped.TotalUnrealizedLoss, true, "")
+
+	logger.Infof("[Grid] 🔒 Hedge lock activated: side=%s qty=%.4f price=%.4f loss=%.2f%%",
+		hedgeSide, qty, hedgePrice, trapped.LossPct)
+	return nil
+}
+
+// executeUnlockHedge closes the hedge position and resumes normal grid operation.
+func (at *AutoTrader) executeUnlockHedge(currentPrice float64) error {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	symbol := gridConfig.Symbol
+
+	at.gridState.mu.RLock()
+	hedgeSide := at.gridState.HedgeSide
+	hedgeQty := at.gridState.HedgeQty
+	hedgeEntry := at.gridState.HedgeEntryPrice
+	at.gridState.mu.RUnlock()
+
+	var err error
+	if hedgeSide == "buy" {
+		_, err = at.trader.CloseLong(symbol, hedgeQty)
+	} else {
+		_, err = at.trader.CloseShort(symbol, hedgeQty)
+	}
+	if err != nil {
+		at.logGridTrade("hedge_lock", "hedge_unlock_failed", hedgeSide, symbol,
+			fmt.Sprintf("failed to close hedge: %v", err), "", hedgeQty, currentPrice,
+			hedgeEntry, currentPrice, 0, 0, false, err.Error())
+		return fmt.Errorf("hedge unlock failed: %w", err)
+	}
+
+	at.gridState.mu.Lock()
+	at.gridState.HedgeLocked = false
+	at.gridState.HedgeSide = ""
+	at.gridState.HedgeQty = 0
+	at.gridState.HedgeEntryPrice = 0
+	at.gridState.HedgeLockedAt = time.Time{}
+	at.gridState.mu.Unlock()
+
+	at.logGridTrade("hedge_lock", "hedge_unlock_close", hedgeSide, symbol,
+		"hedge released: BB narrow + price near entry",
+		"", hedgeQty, currentPrice, hedgeEntry, currentPrice, 0, 0, true, "")
+
+	logger.Infof("[Grid] 🔓 Hedge lock released: side=%s qty=%.4f", hedgeSide, hedgeQty)
+	return nil
+}
+
+// checkHedgeLock runs each cycle: triggers hedge lock when trapped loss >= threshold,
+// and releases it when Bollinger Band narrows and price returns near avg entry.
+func (at *AutoTrader) checkHedgeLock() error {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	if gridConfig.HedgeLockThresholdPct <= 0 {
+		return nil
+	}
+
+	mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 50)
+	if err != nil {
+		return nil // non-fatal
+	}
+	currentPrice := mktData.CurrentPrice
+	if currentPrice <= 0 {
+		return nil
+	}
+
+	// Compute 4h Bollinger Band width
+	bollingerWidth := 0.0
+	if tf, ok := mktData.TimeframeData["4h"]; ok && len(tf.BOLLUpper) > 0 {
+		n := len(tf.BOLLUpper)
+		mid := tf.BOLLMiddle[n-1]
+		if mid > 0 {
+			bollingerWidth = (tf.BOLLUpper[n-1] - tf.BOLLLower[n-1]) / mid * 100
+		}
+	}
+
+	at.gridState.mu.RLock()
+	isLocked := at.gridState.HedgeLocked
+	at.gridState.mu.RUnlock()
+
+	if isLocked {
+		if at.isHedgeUnlockConditionMet(bollingerWidth, currentPrice) {
+			return at.executeUnlockHedge(currentPrice)
+		}
+		logger.Infof("[Grid] 🔒 Hedge lock active — bb_width=%.2f%% (unlock<1.5%%), price=%.4f", bollingerWidth, currentPrice)
+		return nil
+	}
+
+	trapped := at.buildTrappedPositionInfo(currentPrice)
+	if trapped == nil || !trapped.IsTrapped {
+		return nil
+	}
+	if trapped.LossPct < gridConfig.HedgeLockThresholdPct {
+		return nil
+	}
+
+	logger.Infof("[Grid] 🔒 Hedge lock trigger: loss=%.2f%% >= threshold=%.2f%%",
+		trapped.LossPct, gridConfig.HedgeLockThresholdPct)
+	return at.executeLockHedge(trapped, currentPrice)
+}
+
+// recoverHedgeLockState restores hedge lock state after a restart by checking trade logs
+// and verifying the hedge position still exists on exchange.
+func (at *AutoTrader) recoverHedgeLockState() {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	if gridConfig.HedgeLockThresholdPct <= 0 || at.store == nil {
+		return
+	}
+
+	lockEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "hedge_lock_open", "")
+	if lockEntry == nil {
+		return
+	}
+	unlockEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "hedge_unlock_close", "")
+	if unlockEntry != nil && unlockEntry.CreatedAt.After(lockEntry.CreatedAt) {
+		return // already unlocked before shutdown
+	}
+
+	// Hedge was active at shutdown — verify position still on exchange
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return
+	}
+	hedgeSide := lockEntry.Side
+	hedgeQty := lockEntry.Quantity
+	found := false
+	for _, pos := range positions {
+		sym, _ := pos["symbol"].(string)
+		if sym != gridConfig.Symbol {
+			continue
+		}
+		posSide, _ := pos["side"].(string)
+		size, _ := pos["positionAmt"].(float64)
+		if math.Abs(size) > 0 && posSide == hedgeSide {
+			found = true
+			hedgeQty = math.Abs(size)
+			break
+		}
+	}
+	if !found {
+		logger.Infof("[Grid] Hedge lock recovery: position no longer on exchange — clearing state")
+		return
+	}
+
+	at.gridState.mu.Lock()
+	at.gridState.HedgeLocked = true
+	at.gridState.HedgeSide = hedgeSide
+	at.gridState.HedgeQty = hedgeQty
+	at.gridState.HedgeEntryPrice = lockEntry.Price
+	at.gridState.HedgeLockedAt = lockEntry.CreatedAt
+	at.gridState.mu.Unlock()
+	logger.Infof("[Grid] 🔒 Hedge lock restored from log: side=%s qty=%.4f", hedgeSide, hedgeQty)
 }
 
 // buildTrappedContext fetches only what autoTagTTradeFromExistingOrders needs:

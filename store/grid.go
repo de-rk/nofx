@@ -75,6 +75,9 @@ type GridConfigModel struct {
 	// Profit-based position reduction settings (盈利分批减仓)
 	EnableProfitReduce    bool    `json:"enable_profit_reduce" gorm:"default:true"`
 	ProfitReduceStepPct   float64 `json:"profit_reduce_step_pct" gorm:"default:10.0"`
+
+	// Hedge lock settings (对冲锁仓)
+	HedgeLockThresholdPct float64 `json:"hedge_lock_threshold_pct" gorm:"default:0"`
 }
 
 func (GridConfigModel) TableName() string {

@@ -283,6 +283,7 @@ type GridContext struct {
 	ActiveOrderCount  int             `json:"active_order_count"`
 	FilledLevelCount  int             `json:"filled_level_count"`
 	IsPaused          bool            `json:"is_paused"`
+	HedgeLocked       bool            `json:"hedge_locked"`
 
 	// Market data
 	ATR14           float64 `json:"atr14"`

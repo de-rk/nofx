@@ -110,6 +110,8 @@ type GridStrategyConfig struct {
 	DirectionHysteresisMin int `json:"direction_hysteresis_min"`
 	// Minimum spread % between T-trade prep fill price and reduce order price (default 0.2, range 0.2-1.0)
 	TTradeSpreadPct float64 `json:"t_trade_spread_pct"`
+	// Loss % threshold to trigger hedge lock (0 = disabled)
+	HedgeLockThresholdPct float64 `json:"hedge_lock_threshold_pct"`
 }
 
 // PromptSectionsConfig editable sections of System Prompt

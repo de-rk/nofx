@@ -43,6 +43,11 @@ export function GridRiskPanel({
       liquidationInfo: { zh: '清算', en: 'Liquidation' },
       marketState: { zh: '市场', en: 'Market' },
       boxState: { zh: '箱体', en: 'Box' },
+      hedgeLock: { zh: '对冲锁仓', en: 'Hedge Lock' },
+      hedgeSide: { zh: '方向', en: 'Side' },
+      hedgeQty: { zh: '数量', en: 'Qty' },
+      hedgeEntry: { zh: '入场价', en: 'Entry' },
+      hedgeLockedAt: { zh: '锁仓时间', en: 'Locked At' },
 
       // Leverage
       currentLeverage: { zh: '当前', en: 'Current' },
@@ -417,6 +422,37 @@ export function GridRiskPanel({
               </div>
             </div>
           </div>
+
+          {/* Row 4: Hedge Lock Status */}
+          {riskInfo.hedge_locked && (
+            <div className="p-2 rounded border" style={{ background: 'rgba(240,185,11,0.08)', borderColor: 'rgba(240,185,11,0.3)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-sm">🔒</span>
+                  <span className="text-xs font-medium" style={{ color: '#F0B90B' }}>{t('hedgeLock')}</span>
+                </div>
+                <span className="text-xs" style={{ color: '#848E9C' }}>
+                  {riskInfo.hedge_locked_at ? new Date(riskInfo.hedge_locked_at).toLocaleTimeString() : ''}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <div style={{ color: '#5E6673' }}>{t('hedgeSide')}</div>
+                  <div className="font-mono font-medium" style={{ color: riskInfo.hedge_side === 'buy' ? '#0ECB81' : '#F6465D' }}>
+                    {riskInfo.hedge_side === 'buy' ? (language === 'zh' ? '做多' : 'Long') : (language === 'zh' ? '做空' : 'Short')}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: '#5E6673' }}>{t('hedgeQty')}</div>
+                  <div className="font-mono" style={{ color: '#EAECEF' }}>{riskInfo.hedge_qty?.toFixed(4)}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#5E6673' }}>{t('hedgeEntry')}</div>
+                  <div className="font-mono" style={{ color: '#EAECEF' }}>{formatPrice(riskInfo.hedge_entry_price)}</div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
