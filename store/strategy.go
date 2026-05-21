@@ -92,10 +92,6 @@ type GridStrategyConfig struct {
 	MaxPositionSizePct float64 `json:"max_position_size_pct"`
 	// Use maker-only orders for lower fees
 	UseMakerOnly bool `json:"use_maker_only"`
-	// Enable automatic grid direction adjustment based on box breakouts
-	EnableDirectionAdjust bool `json:"enable_direction_adjust"`
-	// Direction bias ratio for long_bias/short_bias modes (default 0.7 = 70%/30%)
-	DirectionBiasRatio float64 `json:"direction_bias_ratio"`
 	// Profit drawdown threshold for auto close (default 50%)
 	ProfitDrawdownThreshold float64 `json:"profit_drawdown_threshold"`
 	// Enable AI batch position reduction when trapped (被套时分批减仓)
@@ -106,8 +102,6 @@ type GridStrategyConfig struct {
 	EnableProfitReduce bool `json:"enable_profit_reduce"`
 	// Profit reduce step percentage (default 10.0%)
 	ProfitReduceStepPct float64 `json:"profit_reduce_step_pct"`
-	// Minimum minutes between direction changes to prevent oscillation (default 30, 0 = disabled)
-	DirectionHysteresisMin int `json:"direction_hysteresis_min"`
 	// Minimum spread % between T-trade prep fill price and reduce order price (default 0.2, range 0.2-1.0)
 	TTradeSpreadPct float64 `json:"t_trade_spread_pct"`
 	// Loss % threshold to trigger hedge lock (0 = disabled)

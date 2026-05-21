@@ -1,4 +1,4 @@
-import { Grid, DollarSign, TrendingUp, Shield, Compass } from 'lucide-react'
+import { Grid, DollarSign, TrendingUp, Shield } from 'lucide-react'
 import type { GridStrategyConfig } from '../../types'
 
 interface GridConfigEditorProps {
@@ -20,8 +20,6 @@ export const defaultGridConfig: GridStrategyConfig = {
   atr_multiplier: 2.0,
   distribution: 'gaussian',
   use_maker_only: true,
-  enable_direction_adjust: false,
-  direction_bias_ratio: 0.7,
   profit_drawdown_threshold: 50,
   enable_trapped_reduce: false,
   trapped_reduce_threshold_pct: 3.0,
@@ -77,21 +75,6 @@ export function GridConfigEditor({
       profitDrawdownDesc: { zh: '盈利回撤超过此值时自动平仓 (当利润>5%时)', en: 'Auto close when profit drawdown exceeds this (when profit>5%)' },
       useMakerOnly: { zh: '仅使用 Maker 订单', en: 'Maker Only Orders' },
       useMakerOnlyDesc: { zh: '使用限价单以降低手续费', en: 'Use limit orders for lower fees' },
-
-      // Direction adjustment
-      directionAdjust: { zh: '方向自动调整', en: 'Direction Auto-Adjust' },
-      enableDirectionAdjust: { zh: '启用方向调整', en: 'Enable Direction Adjust' },
-      enableDirectionAdjustDesc: { zh: '根据箱体突破自动调整网格方向', en: 'Auto-adjust grid direction based on box breakouts' },
-      directionBiasRatio: { zh: '倾向强度', en: 'Bias Strength' },
-      directionBiasRatioDesc: { zh: 'LongBias/ShortBias 模式下的买单占比（X）', en: 'Buy ratio for LongBias/ShortBias modes' },
-      directionBiasExplain: { zh: 'X>50%=顺势（LongBias 多买）；X<50%=反向对冲（LongBias 多卖）', en: 'X>50% = trend-follow (LongBias favors buys); X<50% = reverse hedge (LongBias favors sells)' },
-      directionExplain: { zh: '短期箱体突破 → 偏向，中期箱体突破 → 全仓，价格回归 → 逐步恢复中性', en: 'Short box breakout → bias, Mid box breakout → full, Price return → gradually recover to neutral' },
-      directionModes: { zh: '方向模式说明', en: 'Direction Modes' },
-      modeNeutral: { zh: '中性：50%买 + 50%卖（默认）', en: 'Neutral: 50% buy + 50% sell (default)' },
-      modeLongBias: { zh: '偏多：X%买 + (100-X)%卖', en: 'Long Bias: X% buy + (100-X)% sell' },
-      modeLong: { zh: '全多：100%买 + 0%卖', en: 'Long: 100% buy + 0% sell' },
-      modeShortBias: { zh: '偏空：(100-X)%买 + X%卖', en: 'Short Bias: (100-X)% buy + X% sell' },
-      modeShort: { zh: '全空：0%买 + 100%卖', en: 'Short: 0% buy + 100% sell' },
 
       // T-trade section (combines profit reduce + trapped reduce)
       tTradeSection: { zh: 'T字操作', en: 'T-Trade Operations' },
@@ -415,100 +398,6 @@ export function GridConfigEditor({
             </label>
           </div>
         </div>
-      </div>
-
-      {/* Direction Auto-Adjust */}
-      <div>
-        <div className="flex items-center gap-2 mb-4">
-          <Compass className="w-5 h-5" style={{ color: '#F0B90B' }} />
-          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
-            {t('directionAdjust')}
-          </h3>
-        </div>
-
-        {/* Enable Toggle */}
-        <div className="p-4 rounded-lg mb-4" style={sectionStyle}>
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="block text-sm" style={{ color: '#EAECEF' }}>
-                {t('enableDirectionAdjust')}
-              </label>
-              <p className="text-xs" style={{ color: '#848E9C' }}>
-                {t('enableDirectionAdjustDesc')}
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.enable_direction_adjust ?? false}
-                onChange={(e) => updateField('enable_direction_adjust', e.target.checked)}
-                disabled={disabled}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F0B90B]"></div>
-            </label>
-          </div>
-        </div>
-
-        {config.enable_direction_adjust && (
-          <>
-            {/* Direction Modes Explanation */}
-            <div className="p-4 rounded-lg mb-4" style={{ background: '#1E2329', border: '1px solid #F0B90B33' }}>
-              <p className="text-xs font-medium mb-2" style={{ color: '#F0B90B' }}>
-                📊 {t('directionModes')}
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs" style={{ color: '#848E9C' }}>
-                <div>• {t('modeNeutral')}</div>
-                <div>• <span style={{ color: '#0ECB81' }}>{t('modeLongBias')}</span></div>
-                <div>• <span style={{ color: '#0ECB81' }}>{t('modeLong')}</span></div>
-                <div>• <span style={{ color: '#F6465D' }}>{t('modeShortBias')}</span></div>
-                <div>• <span style={{ color: '#F6465D' }}>{t('modeShort')}</span></div>
-              </div>
-              <p className="text-xs mt-3 pt-2 border-t border-zinc-700" style={{ color: '#848E9C' }}>
-                💡 {t('directionExplain')}
-              </p>
-            </div>
-
-            {/* Bias Strength */}
-            <div className="p-4 rounded-lg" style={sectionStyle}>
-              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-                {t('directionBiasRatio')} (X)
-              </label>
-              <p className="text-xs mb-1" style={{ color: '#848E9C' }}>
-                {t('directionBiasRatioDesc')}
-              </p>
-              <p className="text-xs mb-3" style={{ color: '#F0B90B' }}>
-                {t('directionBiasExplain')}
-              </p>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  value={(config.direction_bias_ratio ?? 0.7) * 100}
-                  onChange={(e) => updateField('direction_bias_ratio', parseInt(e.target.value) / 100)}
-                  disabled={disabled}
-                  min={10}
-                  max={90}
-                  step={5}
-                  className="flex-1 h-2 rounded-lg appearance-none cursor-pointer"
-                  style={{ background: '#2B3139' }}
-                />
-                <span className="text-sm font-mono w-20 text-right" style={{ color: '#F0B90B' }}>
-                  X = {Math.round((config.direction_bias_ratio ?? 0.7) * 100)}%
-                </span>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                <div className="p-2 rounded" style={{ background: '#0ECB8115', border: '1px solid #0ECB8130' }}>
-                  <span style={{ color: '#0ECB81' }}>LongBias: </span>
-                  <span style={{ color: '#EAECEF' }}>{Math.round((config.direction_bias_ratio ?? 0.7) * 100)}% {language === 'zh' ? '买' : 'buy'} + {Math.round((1 - (config.direction_bias_ratio ?? 0.7)) * 100)}% {language === 'zh' ? '卖' : 'sell'}</span>
-                </div>
-                <div className="p-2 rounded" style={{ background: '#F6465D15', border: '1px solid #F6465D30' }}>
-                  <span style={{ color: '#F6465D' }}>ShortBias: </span>
-                  <span style={{ color: '#EAECEF' }}>{Math.round((1 - (config.direction_bias_ratio ?? 0.7)) * 100)}% {language === 'zh' ? '买' : 'buy'} + {Math.round((config.direction_bias_ratio ?? 0.7) * 100)}% {language === 'zh' ? '卖' : 'sell'}</span>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
       </div>
 
       {/* ===== T字操作 Section (Profit Reduce + Trapped Reduce) ===== */}

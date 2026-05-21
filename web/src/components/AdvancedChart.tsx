@@ -12,7 +12,6 @@ import {
 import { useLanguage } from '../contexts/LanguageContext'
 import { httpClient } from '../lib/httpClient'
 import { type Kline } from '../utils/indicators'
-import { Compass } from 'lucide-react'
 
 // 订单接口定义
 interface OrderMarker {
@@ -104,7 +103,6 @@ export function AdvancedChart({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showOrderMarkers, setShowOrderMarkers] = useState(true)
-  const [gridDirection, setGridDirection] = useState<string | null>(null)
   const isInitialLoadRef = useRef(true) // 跟踪是否为初始加载
   const [tooltipData, setTooltipData] = useState<any>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -827,18 +825,6 @@ export function AdvancedChart({
     }
   }, [showOrderMarkers])
 
-  // Fetch grid direction from grid-risk endpoint
-  useEffect(() => {
-    if (!traderID) return
-    httpClient.get<any>(`/api/traders/${traderID}/grid-risk`).then(result => {
-      if (result.success && result.data?.enable_direction_adjust) {
-        setGridDirection(result.data.current_grid_direction ?? 'neutral')
-      } else {
-        setGridDirection(null)
-      }
-    }).catch(() => {})
-  }, [traderID])
-
   return (
     <div
       className="relative shadow-xl"
@@ -914,32 +900,6 @@ export function AdvancedChart({
             <span className="text-[10px] text-yellow-400 animate-pulse mr-2">
               {language === 'zh' ? '更新中...' : 'Updating...'}
             </span>
-          )}
-          {gridDirection && (
-            <div
-              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium"
-              style={{
-                background: gridDirection === 'long' || gridDirection === 'long_bias'
-                  ? 'rgba(16, 185, 129, 0.15)'
-                  : gridDirection === 'short' || gridDirection === 'short_bias'
-                  ? 'rgba(239, 68, 68, 0.15)'
-                  : 'rgba(107, 114, 128, 0.15)',
-                color: gridDirection === 'long' || gridDirection === 'long_bias'
-                  ? '#10B981'
-                  : gridDirection === 'short' || gridDirection === 'short_bias'
-                  ? '#EF4444'
-                  : '#6B7280',
-              }}
-            >
-              <Compass className="w-3 h-3" />
-              <span>
-                {gridDirection === 'long' ? (language === 'zh' ? '全多' : 'Long')
-                  : gridDirection === 'long_bias' ? (language === 'zh' ? '偏多' : 'LongBias')
-                  : gridDirection === 'short' ? (language === 'zh' ? '全空' : 'Short')
-                  : gridDirection === 'short_bias' ? (language === 'zh' ? '偏空' : 'ShortBias')
-                  : (language === 'zh' ? '中性' : 'Neutral')}
-              </span>
-            </div>
           )}
 
           <button

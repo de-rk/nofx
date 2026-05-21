@@ -322,9 +322,6 @@ type GridContext struct {
 	// Box indicators (Donchian Channels)
 	BoxData *market.BoxData `json:"box_data,omitempty"`
 
-	// Grid direction (neutral, long, short, long_bias, short_bias)
-	CurrentDirection string `json:"current_direction,omitempty"`
-
 	// T-trade spread config
 	TTradeSpreadPct float64 `json:"t_trade_spread_pct"`
 
@@ -596,12 +593,6 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	sb.WriteString("## 网格状态\n")
 	sb.WriteString(fmt.Sprintf("- 范围: $%.2f - $%.2f | 间距: $%.2f | 活跃订单: %d | 已成交: %d | 暂停: %v\n",
 		ctx.LowerPrice, ctx.UpperPrice, ctx.GridSpacing, ctx.ActiveOrderCount, ctx.FilledLevelCount, ctx.IsPaused))
-	if ctx.CurrentDirection != "" {
-		dirMap := map[string]string{
-			"neutral": "中性", "long": "做多", "short": "做空", "long_bias": "偏多", "short_bias": "偏空",
-		}
-		sb.WriteString(fmt.Sprintf("- 方向: %s\n", dirMap[ctx.CurrentDirection]))
-	}
 	sb.WriteString("\n")
 
 	// Grid levels
@@ -721,12 +712,6 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	sb.WriteString("## Grid Status\n")
 	sb.WriteString(fmt.Sprintf("- Range: $%.2f - $%.2f | Spacing: $%.2f | Active: %d | Filled: %d | Paused: %v\n",
 		ctx.LowerPrice, ctx.UpperPrice, ctx.GridSpacing, ctx.ActiveOrderCount, ctx.FilledLevelCount, ctx.IsPaused))
-	if ctx.CurrentDirection != "" {
-		dirMap := map[string]string{
-			"neutral": "Neutral", "long": "Long", "short": "Short", "long_bias": "Long Bias", "short_bias": "Short Bias",
-		}
-		sb.WriteString(fmt.Sprintf("- Direction: %s\n", dirMap[ctx.CurrentDirection]))
-	}
 	sb.WriteString("\n")
 
 	// Grid levels

@@ -504,10 +504,6 @@ export interface GridStrategyConfig {
   daily_loss_limit_pct?: number;
   // Use maker-only orders for lower fees
   use_maker_only: boolean;
-  // Enable automatic grid direction adjustment based on box breakouts
-  enable_direction_adjust?: boolean;
-  // Direction bias ratio for long_bias/short_bias modes (default 0.7 = 70%/30%)
-  direction_bias_ratio?: number;
   // Profit drawdown threshold for auto close (default 50%)
   profit_drawdown_threshold?: number;
   // Enable AI batch position reduction when trapped (被套时分批减仓)
@@ -723,10 +719,6 @@ export interface GridRiskInfo {
   breakout_direction: string
 
   // Grid direction
-  current_grid_direction: string
-  direction_change_count: number
-  enable_direction_adjust: boolean
-
   // Profit reduce tracker
   long_profit_reduced_pct: number
   short_profit_reduced_pct: number
