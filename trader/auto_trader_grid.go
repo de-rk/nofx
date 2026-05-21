@@ -781,9 +781,6 @@ func (at *AutoTrader) initializeGridLevels(currentPrice float64, config *store.G
 	at.gridState.Levels = levels
 }
 
-// RunGridCycle
-}
-
 // RunGridCycle executes one grid trading cycle
 func (at *AutoTrader) RunGridCycle() error {
 	// Check if trader is stopped (early exit to prevent trades after Stop() is called)
