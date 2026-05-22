@@ -970,33 +970,36 @@ func (at *AutoTrader) RunGridCycle() error {
 				for _, o := range freshOrders {
 					freshOrderIDs[o.OrderID] = true
 				}
-				currentPrice, trapped, tErr := at.buildTrappedContext()
-				if tErr == nil && trapped != nil && trapped.IsTrapped {
-					at.gridState.mu.RLock()
-					for _, r := range results {
-						if r.err != nil {
-							continue
-						}
-						if r.d.Action != "place_buy_limit" && r.d.Action != "place_sell_limit" {
-							continue
-						}
-						if r.d.LevelIndex < 0 || r.d.LevelIndex >= len(at.gridState.Levels) {
-							continue
-						}
-						orderID := at.gridState.Levels[r.d.LevelIndex].OrderID
-						if orderID == "" || freshOrderIDs[orderID] {
-							continue // still open, handled normally
-						}
-						// Order not in open list — may have filled immediately
-						orderSide := "buy"
-						if r.d.Action == "place_sell_limit" {
-							orderSide = "sell"
-						}
-						qualifies := (trapped.Side == "buy" && orderSide == "buy" && r.d.Price < currentPrice) ||
-							(trapped.Side == "sell" && orderSide == "sell" && r.d.Price > currentPrice)
-						if !qualifies {
-							continue
-						}
+				// Re-use current price from market data fetched inside autoTagTTradeFromExistingOrders
+				mktSnap, mktErr := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
+				if mktErr == nil && mktSnap != nil {
+					currentPrice := mktSnap.CurrentPrice
+					longInfo, shortInfo, tErr := at.buildTTradeContext(currentPrice)
+					if tErr == nil && (longInfo.Active || shortInfo.Active) {
+						at.gridState.mu.RLock()
+						for _, r := range results {
+							if r.err != nil {
+								continue
+							}
+							if r.d.Action != "place_buy_limit" && r.d.Action != "place_sell_limit" {
+								continue
+							}
+							if r.d.LevelIndex < 0 || r.d.LevelIndex >= len(at.gridState.Levels) {
+								continue
+							}
+							orderID := at.gridState.Levels[r.d.LevelIndex].OrderID
+							if orderID == "" || freshOrderIDs[orderID] {
+								continue
+							}
+							orderSide := "buy"
+							if r.d.Action == "place_sell_limit" {
+								orderSide = "sell"
+							}
+							qualifies := (longInfo.Active && orderSide == "buy" && r.d.Price < currentPrice) ||
+								(shortInfo.Active && orderSide == "sell" && r.d.Price > currentPrice)
+							if !qualifies {
+								continue
+							}
 						qty := at.gridState.Levels[r.d.LevelIndex].OrderQuantity
 						at.gridState.mu.RUnlock()
 						statusMap, sErr := at.trader.GetOrderStatus(gridConfig.Symbol, orderID)
@@ -1017,6 +1020,7 @@ func (at *AutoTrader) RunGridCycle() error {
 						at.gridState.mu.RLock()
 					}
 					at.gridState.mu.RUnlock()
+				}
 				}
 			}
 		}
@@ -2563,7 +2567,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		return
 	}
 
-	// While hedge lock is active, T-trade tagging is unnecessary — hedge already neutralises loss
+	// While hedge lock is active, T-trade tagging is unnecessary
 	at.gridState.mu.RLock()
 	hedgeLocked := at.gridState.HedgeLocked
 	at.gridState.mu.RUnlock()
@@ -2571,13 +2575,27 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		return
 	}
 
-	currentPrice, trapped, err := at.buildTrappedContext()
-	if err != nil || trapped == nil || !trapped.IsTrapped {
-		// If not trapped, clear any stale prep entries
+	// Get current price
+	mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
+	if err != nil || mktData == nil {
+		return
+	}
+	currentPrice := mktData.CurrentPrice
+	if currentPrice <= 0 {
+		return
+	}
+
+	// Check per-side position size threshold
+	longInfo, shortInfo, err := at.buildTTradeContext(currentPrice)
+	if err != nil {
+		return
+	}
+
+	if !longInfo.Active && !shortInfo.Active {
+		// Neither side exceeds threshold — clear all stale preps
 		at.gridState.mu.Lock()
 		if len(at.gridState.TTradePrepOrders) > 0 {
 			at.gridState.TTradePrepOrders = make(map[string]*TTradePrepEntry)
-			at.gridState.TTradePrepSide = ""
 		}
 		at.gridState.mu.Unlock()
 		return
@@ -2594,7 +2612,6 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	leverage := gridConfig.Leverage
 	at.gridState.mu.RUnlock()
 
-	// Build set of currently open order IDs for stale cleanup
 	openOrderIDs := make(map[string]bool, len(openOrders))
 	for _, o := range openOrders {
 		openOrderIDs[o.OrderID] = true
@@ -2602,35 +2619,45 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 
 	maxWait := 3 * time.Hour
 
-	// Collect timed-out entries to check outside the lock
-	type timedOutEntry struct{ id string; prep *TTradePrepEntry }
+	type timedOutEntry struct {
+		id   string
+		prep *TTradePrepEntry
+	}
 	var timedOut []timedOutEntry
 
 	at.gridState.mu.Lock()
-	// Remove stale entries: timed out, no longer open, or price moved out of qualifying range
+	// Clean up stale preps — per-prep side check, not global trapped side
 	for id, prep := range at.gridState.TTradePrepOrders {
 		if time.Since(prep.TaggedAt) > maxWait {
-			// Don't silently remove — collect for fill check outside lock
 			timedOut = append(timedOut, timedOutEntry{id, prep})
 			delete(at.gridState.TTradePrepOrders, id)
 			continue
 		}
 		if !openOrderIDs[id] {
-			// Order disappeared — will be handled by checkTTradeOrderFillAndReduce
+			// Disappeared — handled by checkTTradeOrderFillAndReduce
 			continue
 		}
-		// Remove if price moved out of qualifying range
-		if trapped.Side == "buy" && prep.Price >= currentPrice {
-			logger.Infof("[Grid] T-trade prep %s @ %.2f no longer below current price %.2f — removing", id, prep.Price, currentPrice)
-			delete(at.gridState.TTradePrepOrders, id)
-		} else if trapped.Side == "sell" && prep.Price <= currentPrice {
-			logger.Infof("[Grid] T-trade prep %s @ %.2f no longer above current price %.2f — removing", id, prep.Price, currentPrice)
-			delete(at.gridState.TTradePrepOrders, id)
+		// Remove if side's position is no longer active or price moved out of range
+		if prep.Side == "buy" {
+			if !longInfo.Active || prep.Price >= currentPrice {
+				logger.Infof("[Grid] T-trade prep %s (buy) @ %.2f removed — active=%v price=%.2f", id, prep.Price, longInfo.Active, currentPrice)
+				delete(at.gridState.TTradePrepOrders, id)
+			}
+		} else if prep.Side == "sell" {
+			if !shortInfo.Active || prep.Price <= currentPrice {
+				logger.Infof("[Grid] T-trade prep %s (sell) @ %.2f removed — active=%v price=%.2f", id, prep.Price, shortInfo.Active, currentPrice)
+				delete(at.gridState.TTradePrepOrders, id)
+			}
 		}
 	}
 
-	// Add all qualifying orders not yet tagged
-	type taggedEntry struct{ orderID string; price, qty float64 }
+	// Tag qualifying orders for active sides
+	type taggedEntry struct {
+		orderID string
+		side    string
+		price   float64
+		qty     float64
+	}
 	var newlyTagged []taggedEntry
 	for _, o := range openOrders {
 		levelIdx, ok := gridOrderIDs[o.OrderID]
@@ -2640,29 +2667,24 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		if _, alreadyTagged := at.gridState.TTradePrepOrders[o.OrderID]; alreadyTagged {
 			continue
 		}
-		side := o.Side
-		if side == "BUY" {
-			side = "buy"
-		} else if side == "SELL" {
-			side = "sell"
-		}
-		// For hedge mode: BUY must open LONG, SELL must open SHORT
-		// Skip orders that are closing positions (wrong PositionSide for direction)
+		side := strings.ToLower(o.Side)
 		posSide := strings.ToUpper(o.PositionSide)
+		// Skip reduce-only / closing orders
 		if side == "buy" && posSide == "SHORT" {
-			continue // BUY SHORT = closing short, not opening long
+			continue
 		}
 		if side == "sell" && posSide == "LONG" {
-			continue // SELL LONG = closing long, not opening short
+			continue
 		}
 		price := o.Price
 		if price <= 0 {
 			continue
 		}
 		qualifies := false
-		if trapped.Side == "buy" && side == "buy" && price < currentPrice {
+		if longInfo.Active && side == "buy" && price < currentPrice {
 			qualifies = true
-		} else if trapped.Side == "sell" && side == "sell" && price > currentPrice {
+		}
+		if shortInfo.Active && side == "sell" && price > currentPrice {
 			qualifies = true
 		}
 		if !qualifies {
@@ -2684,16 +2706,15 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 			Side:     side,
 			TaggedAt: time.Now(),
 		}
-		newlyTagged = append(newlyTagged, taggedEntry{o.OrderID, price, qty})
+		newlyTagged = append(newlyTagged, taggedEntry{o.OrderID, side, price, qty})
 	}
-	at.gridState.TTradePrepSide = trapped.Side
 	at.gridState.mu.Unlock()
 
-	// Check timed-out entries for fills (they may have filled just before timeout)
+	// Handle timed-out entries
 	for _, e := range timedOut {
 		logger.Infof("[Grid] T-trade prep %s timed out — checking fill status before discarding", e.id)
-		statusMap, err := at.trader.GetOrderStatus(gridConfig.Symbol, e.id)
-		if err == nil {
+		statusMap, sErr := at.trader.GetOrderStatus(gridConfig.Symbol, e.id)
+		if sErr == nil {
 			statusStr, _ := statusMap["status"].(string)
 			if statusStr == "FILLED" {
 				fillPrice := e.prep.Price
@@ -2706,7 +2727,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 					e.id, e.prep.Qty, fillPrice, 0, 0, 0, 0, true, "")
 				go at.placeTTradeReduceOrder(e.prep.Side, fillPrice, e.prep.Qty, e.id)
 			} else {
-				logger.Infof("[Grid] T-trade prep %s timed out (status=%s) — removing tag (order kept alive)", e.id, statusStr)
+				logger.Infof("[Grid] T-trade prep %s timed out (status=%s) — removing", e.id, statusStr)
 			}
 		}
 	}
@@ -2715,12 +2736,21 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 		at.gridState.mu.RLock()
 		total := len(at.gridState.TTradePrepOrders)
 		at.gridState.mu.RUnlock()
-		logger.Infof("[Grid] T-trade: tagged %d new orders (%s trapped, loss=%.2f%%), total tagged=%d",
-			len(newlyTagged), trapped.Side, trapped.LossPct, total)
+		// Build reason string
+		reason := ""
+		if longInfo.Active {
+			reason += fmt.Sprintf("long=%.1f%%", longInfo.PositionPct)
+		}
+		if shortInfo.Active {
+			if reason != "" {
+				reason += " "
+			}
+			reason += fmt.Sprintf("short=%.1f%%", shortInfo.PositionPct)
+		}
+		logger.Infof("[Grid] T-trade: tagged %d new orders (%s), total tagged=%d", len(newlyTagged), reason, total)
 		for _, e := range newlyTagged {
-			at.logGridTrade("ttrade", "ttrade_tag", trapped.Side, gridConfig.Symbol,
-				fmt.Sprintf("loss=%.2f%%", trapped.LossPct),
-				e.orderID, e.qty, e.price, 0, 0, 0, trapped.PriceDiffPct, true, "")
+			at.logGridTrade("ttrade", "ttrade_tag", e.side, gridConfig.Symbol,
+				reason, e.orderID, e.qty, e.price, 0, 0, 0, 0, true, "")
 		}
 	}
 }
@@ -3212,6 +3242,66 @@ func (at *AutoTrader) recoverHedgeLockState() {
 	at.gridState.HedgeLockedAt = lockEntry.CreatedAt
 	at.gridState.mu.Unlock()
 	logger.Infof("[Grid] 🔒 Hedge lock restored from log: side=%s qty=%.4f", hedgeSide, hedgeQty)
+}
+
+// tTradeSideInfo holds per-side T-trade activation state based on position size.
+type tTradeSideInfo struct {
+	Active       bool
+	PositionSize float64 // in base asset
+	PositionPct  float64 // as % of totalInvestment
+	AvgEntry     float64
+}
+
+// buildTTradeContext returns per-side T-trade active status based on position size threshold.
+// A side is "active" when its position value (notional / leverage) >= TTradePositionThresholdPct of total investment.
+func (at *AutoTrader) buildTTradeContext(currentPrice float64) (longInfo, shortInfo tTradeSideInfo, err error) {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	threshold := gridConfig.TTradePositionThresholdPct
+	if threshold <= 0 {
+		threshold = 30.0
+	}
+	totalInvestment := gridConfig.TotalInvestment
+	if totalInvestment <= 0 {
+		err = fmt.Errorf("total investment is zero")
+		return
+	}
+
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return
+	}
+
+	for _, pos := range positions {
+		symbol, _ := pos["symbol"].(string)
+		if symbol != gridConfig.Symbol {
+			continue
+		}
+		side, _ := pos["side"].(string)
+		size, _ := pos["positionAmt"].(float64)
+		entry, _ := pos["entryPrice"].(float64)
+		if size <= 0 || entry <= 0 {
+			continue
+		}
+		posValue := size * entry / float64(gridConfig.Leverage)
+		posPct := posValue / totalInvestment * 100
+
+		if side == "long" {
+			longInfo = tTradeSideInfo{
+				Active:       posPct >= threshold,
+				PositionSize: size,
+				PositionPct:  posPct,
+				AvgEntry:     entry,
+			}
+		} else if side == "short" {
+			shortInfo = tTradeSideInfo{
+				Active:       posPct >= threshold,
+				PositionSize: size,
+				PositionPct:  posPct,
+				AvgEntry:     entry,
+			}
+		}
+	}
+	return
 }
 
 // buildTrappedContext fetches only what autoTagTTradeFromExistingOrders needs:

@@ -98,6 +98,8 @@ type GridStrategyConfig struct {
 	EnableTrappedReduce bool `json:"enable_trapped_reduce"`
 	// Unrealized loss percentage to trigger batch reduction (default 3.0%)
 	TrappedReduceThresholdPct float64 `json:"trapped_reduce_threshold_pct"`
+	// Position size % of total investment that triggers T-trade on that side (default 30.0, 0 = use loss-based)
+	TTradePositionThresholdPct float64 `json:"t_trade_position_threshold_pct"`
 	// Enable profit-based position reduction (盈利分批减仓, default true)
 	EnableProfitReduce bool `json:"enable_profit_reduce"`
 	// Profit reduce step percentage (default 10.0%)

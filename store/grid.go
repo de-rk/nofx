@@ -65,8 +65,9 @@ type GridConfigModel struct {
 	IsActive   bool   `json:"is_active" gorm:"default:false"`
 
 	// Trapped position batch reduction settings (被套分批减仓)
-	EnableTrappedReduce       bool    `json:"enable_trapped_reduce" gorm:"default:false"`
-	TrappedReduceThresholdPct float64 `json:"trapped_reduce_threshold_pct" gorm:"default:3.0"`
+	EnableTrappedReduce        bool    `json:"enable_trapped_reduce" gorm:"default:false"`
+	TrappedReduceThresholdPct  float64 `json:"trapped_reduce_threshold_pct" gorm:"default:3.0"`
+	TTradePositionThresholdPct float64 `json:"t_trade_position_threshold_pct" gorm:"default:30.0"`
 
 	// Profit-based position reduction settings (盈利分批减仓)
 	EnableProfitReduce    bool    `json:"enable_profit_reduce" gorm:"default:true"`

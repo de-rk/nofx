@@ -23,6 +23,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   profit_drawdown_threshold: 50,
   enable_trapped_reduce: false,
   trapped_reduce_threshold_pct: 3.0,
+  t_trade_position_threshold_pct: 30,
   enable_profit_reduce: true,
   profit_reduce_step_pct: 10,
   hedge_lock_threshold_pct: 0,
@@ -89,14 +90,14 @@ export function GridConfigEditor({
       profitReduceStepDesc: { zh: '每隔多少%盈利触发一次减仓（默认10%）', en: 'Profit increment that triggers each reduction (default 10%)' },
 
       // Trapped reduce
-      trappedReduce: { zh: 'AI被套减仓 (T字操作)', en: 'AI Trapped Reduction (T-Trade)' },
-      enableTrappedReduce: { zh: '启用被套减仓', en: 'Enable Trapped Reduction' },
-      enableTrappedReduceDesc: { zh: '被套时AI通过T字操作分批减仓，降低持仓成本，逐步扭亏为盈', en: 'AI uses T-trade to batch-reduce trapped positions, lowering cost basis to turn losses around' },
-      trappedReduceThreshold: { zh: '触发阈值 (%)', en: 'Trigger Threshold (%)' },
-      trappedReduceThresholdDesc: { zh: '未实现亏损占持仓保证金的百分比超过此值时触发', en: 'Trigger when unrealized loss exceeds this % of position margin' },
-      trappedReduceBatch: { zh: '每批减仓比例 (%)', en: 'Batch Reduce Percent (%)' },
-      trappedReduceBatchDesc: { zh: '每次减仓的仓位比例（25%=每次平掉1/4被套仓位）', en: 'Position percent to reduce per batch (25% = close 1/4 each time)' },
-      trappedReduceExplain: { zh: '💡 T字操作原理：被套时等待最近网格挂单成交，再在更优价格减仓，利用价差降低持仓成本，不需要等价格回到原开仓价', en: '💡 T-Trade principle: wait for nearest grid order to fill, then reduce at a better price to capture the spread and lower cost basis without waiting for price to return to entry' },
+      trappedReduce: { zh: 'AI减仓 (T字操作)', en: 'AI Position Reduce (T-Trade)' },
+      enableTrappedReduce: { zh: '启用T字操作', en: 'Enable T-Trade' },
+      enableTrappedReduceDesc: { zh: '仓位超过阈值时自动T字操作，等网格单成交后差价减仓', en: 'Auto T-trade when position exceeds threshold — reduce at spread after grid order fills' },
+      tTradePositionThreshold: { zh: 'T字触发仓位 (%)', en: 'T-Trade Position Threshold (%)' },
+      tTradePositionThresholdDesc: { zh: '任一方向仓位占总资金超过此比例时启用T字操作（默认30%）', en: 'Enable T-trade when either side position exceeds this % of total investment (default 30%)' },
+      trappedReduceThreshold: { zh: '对冲锁仓触发阈值 (%)', en: 'Hedge Lock Loss Threshold (%)' },
+      trappedReduceThresholdDesc: { zh: '未实现亏损达到此值时触发对冲锁仓（hedge_lock_threshold_pct）', en: 'Unrealized loss threshold for hedge lock (see hedge_lock_threshold_pct)' },
+      trappedReduceExplain: { zh: '💡 T字操作原理：仓位超阈值时，等待最近网格挂单成交，再在更优价格减仓，利用价差降低持仓成本', en: '💡 T-Trade: when position exceeds threshold, wait for nearest grid order to fill, then reduce at a better price to capture the spread' },
       tTradeSpread: { zh: 'T字差价 (%)', en: 'T-Trade Spread (%)' },
       tTradeSpreadDesc: { zh: '减仓限价单与触发单成交价的最小差价百分比（0.2%~1%）', en: 'Minimum spread % between reduce limit price and prep fill price (0.2%–1%)' },
       hedgeLockSection: { zh: '对冲锁仓', en: 'Hedge Lock' },
@@ -477,20 +478,22 @@ export function GridConfigEditor({
             </div>
           </div>
           {config.enable_trapped_reduce && (
-            <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('trappedReduceThreshold')}</label>
-              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('trappedReduceThresholdDesc')}</p>
-              <input
-                type="number"
-                value={config.trapped_reduce_threshold_pct ?? 3.0}
-                onChange={(e) => updateField('trapped_reduce_threshold_pct', parseFloat(e.target.value))}
-                disabled={disabled}
-                min={1}
-                max={20}
-                step={0.5}
-                className="w-full px-3 py-2 rounded text-sm"
-                style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
-              />
+            <div className="space-y-3">
+              <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+                <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('tTradePositionThreshold')}</label>
+                <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('tTradePositionThresholdDesc')}</p>
+                <input
+                  type="number"
+                  value={config.t_trade_position_threshold_pct ?? 30}
+                  onChange={(e) => updateField('t_trade_position_threshold_pct', parseFloat(e.target.value))}
+                  disabled={disabled}
+                  min={10}
+                  max={80}
+                  step={5}
+                  className="w-full px-3 py-2 rounded text-sm"
+                  style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+                />
+              </div>
             </div>
           )}
 
