@@ -376,19 +376,23 @@ func BuildGridSystemPrompt(strategyConfig *store.StrategyConfig, lang string) st
 func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 	trappedSection := ""
 	if config.EnableTrappedReduce {
+		threshold := config.TTradePositionThresholdPct
+		if threshold <= 0 {
+			threshold = 30.0
+		}
 		trappedSection = fmt.Sprintf(`
-## T字操作（被套减仓）
-触发条件：亏损超过 %.1f%% 时系统自动标记所有符合条件的网格挂单为触发单（多单被套→标记价格下方买单，空单被套→标记价格上方卖单）。
+## T字操作（仓位控制减仓）
+触发条件：任一方向仓位占总资金超过 %.0f%% 时，系统自动标记该方向所有符合条件的网格挂单为触发单（多仓超阈值→标记价格下方买单；空仓超阈值→标记价格上方卖单）。多空两个方向可同时独立运行。
 
 **状态说明：**
 | 状态 | 含义 | 你需要做什么 |
 |------|------|------------|
-| idle | 无被套或未达阈值 | 不执行任何减仓，等待系统标记 |
-| waiting_buy_fill | 触发单挂出，等待成交 | 正常补网格单，**禁止执行 reduce_long/reduce_short** |
+| idle | 两个方向仓位均未超阈值 | 正常补单，系统自动监控 |
+| waiting_buy_fill | 多仓触发单挂出，等待成交 | 正常补网格单，**禁止执行 reduce_long/reduce_short** |
 | waiting_reduce_fill | 减仓单已挂出，等待成交 | 正常补网格单，**禁止执行 reduce_long/reduce_short** |
 
 **注意：** reduce_long/reduce_short 由系统在触发单成交后自动挂出，无需 AI 执行。
-`, config.TrappedReduceThresholdPct)
+`, threshold)
 	}
 
 	return fmt.Sprintf(`# 网格交易 AI — %s
@@ -437,19 +441,23 @@ JSON 数组，每个决策一个对象：
 func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
 	trappedSection := ""
 	if config.EnableTrappedReduce {
+		threshold := config.TTradePositionThresholdPct
+		if threshold <= 0 {
+			threshold = 30.0
+		}
 		trappedSection = fmt.Sprintf(`
-## T-Trade (Trapped Position Recovery)
-Trigger: system auto-tags the nearest pending grid order when loss exceeds %.1f%%.
+## T-Trade (Position Size Reduction)
+Trigger: system auto-tags qualifying grid orders when either side's position exceeds %.0f%% of total investment (long > threshold → tag buy orders below price; short > threshold → tag sell orders above price). Both sides run independently and simultaneously.
 
 **Three states — your responsibility differs per state:**
 | State | Meaning | Your action |
 |-------|---------|-------------|
-| idle | No trap or below threshold | Do nothing, wait for system to tag |
+| idle | Neither side exceeds threshold | Normal grid orders, system monitors |
 | waiting_buy_fill | Trigger order(s) placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
 | waiting_reduce_fill | Reduce order(s) placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
 
 **Note:** reduce_long/reduce_short are placed automatically by the system after trigger orders fill. AI must never use them.
-`, config.TrappedReduceThresholdPct)
+`, threshold)
 	}
 
 	return fmt.Sprintf(`# Grid Trading AI — %s
