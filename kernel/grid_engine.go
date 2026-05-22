@@ -410,8 +410,8 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 | 状态 | 条件 | 操作 |
 |------|------|------|
 | 震荡 | 布林带宽 < 3%%, EMA距离 < 1%% | 正常补单，多空均衡 |
-| 趋势上行 | 布林带宽 > 4%%, 价格持续突破上轨 | 偏多：优先补买单 |
-| 趋势下行 | 布林带宽 > 4%%, 价格持续突破下轨 | 偏空：优先补卖单 |
+| 趋势上行 | 布林带宽 > 4%%, 价格持续突破上轨 | 反向布局：买单40%，卖单60%，逢高挂卖单吃回调 |
+| 趋势下行 | 布林带宽 > 4%%, 价格持续突破下轨 | 反向布局：买单60%，卖单40%，逢低挂买单吃反弹 |
 | 高波动 | ATR 异常放大 | pause_grid |
 
 ## 操作指令
@@ -475,8 +475,8 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 | State | Conditions | Action |
 |-------|-----------|--------|
 | Ranging | BB width < 3%%, EMA distance < 1%% | Normal grid, balanced long/short |
-| Uptrend | BB width > 4%%, price breaking upper band | Long bias: prioritize buy orders |
-| Downtrend | BB width > 4%%, price breaking lower band | Short bias: prioritize sell orders |
+| Uptrend | BB width > 4%%, price breaking upper band | Contrarian: 40% buy / 60% sell — place sell orders into strength |
+| Downtrend | BB width > 4%%, price breaking lower band | Contrarian: 60% buy / 40% sell — place buy orders into weakness |
 | High volatility | ATR abnormally large | pause_grid |
 
 ## Instructions
