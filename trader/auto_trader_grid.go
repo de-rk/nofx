@@ -614,7 +614,10 @@ func (at *AutoTrader) InitializeGrid() error {
 		}
 	}
 
-	// Restore T-trade state from trade log on restart — handles all tagged orders, not just latest
+	// Restore T-trade state from trade log on restart.
+	// Only restores orders that FILLED while the system was down but haven't had a reduce placed yet.
+	// Pending orders are skipped — autoTagTTradeFromExistingOrders re-tags them on the next cycle.
+	// Cancelled/expired orders are skipped.
 	if at.store != nil && gridConfig.EnableTrappedReduce {
 		tagEntries, _ := at.store.Grid().GetGridTradeLogsByAction(at.id, "ttrade_tag", 50)
 		if len(tagEntries) > 0 {
