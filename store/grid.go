@@ -688,6 +688,17 @@ func (s *GridStore) GetGridTradeLogByActionAndOrderID(instanceID, action, orderI
 	return &entry, nil
 }
 
+// GetGridTradeLogsByAction returns all log entries matching action, ordered by newest first.
+func (s *GridStore) GetGridTradeLogsByAction(instanceID, action string, limit int) ([]GridTradeLogModel, error) {
+	var entries []GridTradeLogModel
+	q := s.db.Where("instance_id = ? AND action = ?", instanceID, action).Order("created_at DESC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Find(&entries).Error
+	return entries, err
+}
+
 func (s *GridStore) GetGridTradeLogs(instanceID string, limit int) ([]GridTradeLogModel, error) {
 	var logs []GridTradeLogModel
 	q := s.db.Where("instance_id = ?", instanceID).Order("created_at desc")
