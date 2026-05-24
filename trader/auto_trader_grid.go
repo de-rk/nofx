@@ -683,7 +683,6 @@ func (at *AutoTrader) InitializeGrid() error {
 				logger.Infof("[Grid] Restored T-trade filled prep: order %s @ %.4f — reduce will be placed next cycle", entry.OrderID, fillPrice)
 				restored++
 			}
-			}
 			if restored > 0 {
 				logger.Infof("[Grid] T-trade recovery: restored %d prep orders", restored)
 			}
