@@ -2588,6 +2588,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	// Check per-side position size threshold
 	longInfo, shortInfo, err := at.buildTTradeContext(currentPrice)
 	if err != nil {
+		logger.Warnf("[Grid] T-trade: buildTTradeContext failed (%v) — skipping to preserve preps", err)
 		return
 	}
 
@@ -3270,12 +3271,19 @@ func (at *AutoTrader) buildTTradeContext(currentPrice float64) (longInfo, shortI
 	if err != nil {
 		return
 	}
+	if len(positions) == 0 {
+		// Empty positions likely means transient API failure — treat as unknown, not "no position"
+		err = fmt.Errorf("GetPositions returned empty list")
+		return
+	}
 
+	found := false
 	for _, pos := range positions {
 		symbol, _ := pos["symbol"].(string)
 		if symbol != gridConfig.Symbol {
 			continue
 		}
+		found = true
 		side, _ := pos["side"].(string)
 		size, _ := pos["positionAmt"].(float64)
 		entry, _ := pos["entryPrice"].(float64)
@@ -3300,6 +3308,10 @@ func (at *AutoTrader) buildTTradeContext(currentPrice float64) (longInfo, shortI
 				AvgEntry:     entry,
 			}
 		}
+	}
+	if !found {
+		// Symbol not found in positions — treat as unknown to avoid clearing active preps
+		err = fmt.Errorf("symbol %s not found in positions", gridConfig.Symbol)
 	}
 	return
 }
