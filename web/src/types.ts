@@ -515,6 +515,8 @@ export interface GridStrategyConfig {
   enable_profit_reduce?: boolean;
   // Profit reduce step percentage (default 10%)
   profit_reduce_step_pct?: number;
+  // Reset profit-reduce tracker after 55% accumulated reduction (default false)
+  enable_profit_reduce_reset?: boolean;
   // Minimum spread % for T-trade reduce orders (default 0.2, range 0.2-1.0)
   t_trade_spread_pct?: number;
   hedge_lock_threshold_pct?: number;

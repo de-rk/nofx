@@ -102,6 +102,8 @@ type GridStrategyConfig struct {
 	TTradePositionThresholdPct float64 `json:"t_trade_position_threshold_pct"`
 	// Enable profit-based position reduction (盈利分批减仓, default true)
 	EnableProfitReduce bool `json:"enable_profit_reduce"`
+	// Reset profit-reduce tracker after 55% accumulated reduction (default false)
+	EnableProfitReduceReset bool `json:"enable_profit_reduce_reset"`
 	// Profit reduce step percentage (default 10.0%)
 	ProfitReduceStepPct float64 `json:"profit_reduce_step_pct"`
 	// Minimum spread % between T-trade prep fill price and reduce order price (default 0.2, range 0.2-1.0)

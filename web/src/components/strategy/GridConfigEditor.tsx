@@ -26,6 +26,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   t_trade_position_threshold_pct: 30,
   enable_profit_reduce: true,
   profit_reduce_step_pct: 10,
+  enable_profit_reduce_reset: false,
   hedge_lock_threshold_pct: 0,
 }
 
@@ -436,20 +437,44 @@ export function GridConfigEditor({
             </div>
           </div>
           {(config.enable_profit_reduce ?? true) && (
-            <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('profitReduceStep')}</label>
-              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('profitReduceStepDesc')}</p>
-              <input
-                type="number"
-                value={config.profit_reduce_step_pct ?? 10}
-                onChange={(e) => updateField('profit_reduce_step_pct', parseFloat(e.target.value) || 10)}
-                disabled={disabled}
-                min={5}
-                max={30}
-                step={5}
-                className="w-full px-3 py-2 rounded text-sm"
-                style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
-              />
+            <div className="space-y-3">
+              <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+                <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('profitReduceStep')}</label>
+                <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('profitReduceStepDesc')}</p>
+                <input
+                  type="number"
+                  value={config.profit_reduce_step_pct ?? 10}
+                  onChange={(e) => updateField('profit_reduce_step_pct', parseFloat(e.target.value) || 10)}
+                  disabled={disabled}
+                  min={5}
+                  max={30}
+                  step={5}
+                  className="w-full px-3 py-2 rounded text-sm"
+                  style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+                />
+              </div>
+              <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="block text-sm" style={{ color: '#EAECEF' }}>
+                      {language === 'zh' ? '累计55%后重置进度' : 'Reset after 55% accumulated'}
+                    </label>
+                    <p className="text-xs" style={{ color: '#848E9C' }}>
+                      {language === 'zh' ? '累计减仓达55%后清空进度，下次从第一档重新开始' : 'Clear tracker after 55% cumulative reduce — next cycle restarts from step 1'}
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.enable_profit_reduce_reset ?? false}
+                      onChange={(e) => updateField('enable_profit_reduce_reset', e.target.checked)}
+                      disabled={disabled}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F0B90B]"></div>
+                  </label>
+                </div>
+              </div>
             </div>
           )}
         </div>
