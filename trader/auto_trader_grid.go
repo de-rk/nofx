@@ -655,10 +655,9 @@ func (at *AutoTrader) InitializeGrid() error {
 						statusStr, _ := statusMap["status"].(string)
 						if statusStr == "FILLED" {
 							// Check if reduce was already placed for this prep (via ttrade_fill log)
-							// If ttrade_fill exists after ttrade_tag, reduce was already dispatched — skip
-							fillEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "ttrade_fill", "")
-							alreadyHandled := fillEntry != nil && fillEntry.OrderID == entry.OrderID &&
-								fillEntry.CreatedAt.After(entry.CreatedAt)
+							// Query specifically for this order's fill, not just any recent fill
+							fillEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_fill", entry.OrderID)
+							alreadyHandled := fillEntry != nil && fillEntry.CreatedAt.After(entry.CreatedAt)
 							if alreadyHandled {
 								logger.Infof("[Grid] T-trade prep %s already filled and handled — skipping restore", entry.OrderID)
 							} else {
