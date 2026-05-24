@@ -1144,6 +1144,10 @@ func (at *AutoTrader) checkProfitReduce() {
 		if info.side == "short" {
 			alreadyReduced = at.gridState.ShortProfitReducedPct
 		}
+		// After 55% accumulated reduce, reset progress so the cycle restarts from step 1
+		if alreadyReduced >= 55.0 {
+			alreadyReduced = 0
+		}
 		targetReducePct := math.Floor(profitPct/step) * step
 		if targetReducePct <= alreadyReduced {
 			continue
@@ -1244,10 +1248,16 @@ func (at *AutoTrader) checkProfitReduce() {
 				at.gridState.ShortProfitReducedPct = 0
 			}
 		} else {
+			newPct := a.targetReducePct
+			// After reaching 55%, reset progress so the cycle restarts from step 1 next time
+			if newPct >= 55.0 {
+				newPct = 0
+				logger.Infof("[Grid] Profit-reduce: %s tracker reset after reaching 55%% — cycle will restart", info.side)
+			}
 			if info.side == "long" {
-				at.gridState.LongProfitReducedPct = a.targetReducePct
+				at.gridState.LongProfitReducedPct = newPct
 			} else {
-				at.gridState.ShortProfitReducedPct = a.targetReducePct
+				at.gridState.ShortProfitReducedPct = newPct
 			}
 		}
 		at.gridState.mu.Unlock()
