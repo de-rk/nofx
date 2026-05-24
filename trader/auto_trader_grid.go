@@ -641,53 +641,40 @@ func (at *AutoTrader) InitializeGrid() error {
 					continue // already filled and processed
 				}
 
-				if o, stillOpen := openOrderMap[entry.OrderID]; stillOpen {
-					// Order still pending on exchange
-					side := strings.ToLower(o.Side)
-					if side != "buy" {
-						side = "sell"
-					}
-					at.gridState.mu.Lock()
-					at.gridState.TTradePrepOrders[entry.OrderID] = &TTradePrepEntry{
-						OrderID:  entry.OrderID,
-						Price:    entry.Price,
-						Qty:      entry.Quantity,
-						Side:     side,
-						TaggedAt: entry.CreatedAt,
-					}
-					at.gridState.mu.Unlock()
-					logger.Infof("[Grid] Restored T-trade tag: order %s @ %.4f (still open)", entry.OrderID, entry.Price)
-					restored++
-				} else {
-					// Order not in open list — check if it filled while down
-					statusMap, sErr := at.trader.GetOrderStatus(gridConfig.Symbol, entry.OrderID)
-					if sErr != nil {
-						continue
-					}
-					statusStr, _ := statusMap["status"].(string)
-					if statusStr != "FILLED" {
-						continue
-					}
-					fillPrice := entry.Price
-					if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
-						fillPrice = avg
-					}
-					side := entry.Side
-					if side == "" {
-						side = "sell"
-					}
-					at.gridState.mu.Lock()
-					at.gridState.TTradePrepOrders[entry.OrderID] = &TTradePrepEntry{
-						OrderID:  entry.OrderID,
-						Price:    fillPrice,
-						Qty:      entry.Quantity,
-						Side:     side,
-						TaggedAt: entry.CreatedAt,
-					}
-					at.gridState.mu.Unlock()
-					logger.Infof("[Grid] Restored T-trade filled prep: order %s @ %.4f — reduce will be placed next cycle", entry.OrderID, fillPrice)
-					restored++
+				// Skip orders that are still pending — autoTagTTradeFromExistingOrders will re-tag them
+				if _, stillOpen := openOrderMap[entry.OrderID]; stillOpen {
+					continue
 				}
+
+				// Order not in open list — only restore if it actually FILLED while down
+				statusMap, sErr := at.trader.GetOrderStatus(gridConfig.Symbol, entry.OrderID)
+				if sErr != nil {
+					continue
+				}
+				statusStr, _ := statusMap["status"].(string)
+				if statusStr != "FILLED" {
+					continue // cancelled/expired — don't restore
+				}
+				fillPrice := entry.Price
+				if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+					fillPrice = avg
+				}
+				side := entry.Side
+				if side == "" {
+					side = "sell"
+				}
+				at.gridState.mu.Lock()
+				at.gridState.TTradePrepOrders[entry.OrderID] = &TTradePrepEntry{
+					OrderID:  entry.OrderID,
+					Price:    fillPrice,
+					Qty:      entry.Quantity,
+					Side:     side,
+					TaggedAt: entry.CreatedAt,
+				}
+				at.gridState.mu.Unlock()
+				logger.Infof("[Grid] Restored T-trade filled prep: order %s @ %.4f — reduce will be placed next cycle", entry.OrderID, fillPrice)
+				restored++
+			}
 			}
 			if restored > 0 {
 				logger.Infof("[Grid] T-trade recovery: restored %d prep orders", restored)
