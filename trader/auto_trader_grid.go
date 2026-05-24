@@ -638,10 +638,15 @@ func (at *AutoTrader) InitializeGrid() error {
 				if time.Since(entry.CreatedAt) > 3*time.Hour {
 					break // entries are newest-first, so all subsequent are older
 				}
-				// Skip if already handled — check for fill log with this specific orderID
+				// Skip if the full T-trade cycle already completed — reduce order filled
+				reduceEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce", entry.OrderID)
+				if reduceEntry != nil && reduceEntry.CreatedAt.After(entry.CreatedAt) {
+					continue // reduce already filled, nothing to restore
+				}
+				// Also skip if prep fill was logged but no reduce needed (edge case)
 				fillEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_fill", entry.OrderID)
 				if fillEntry != nil && fillEntry.CreatedAt.After(entry.CreatedAt) {
-					continue // already filled and processed
+					// Prep filled but reduce not yet done — fall through to restore
 				}
 
 				// Skip orders that are still pending — autoTagTTradeFromExistingOrders will re-tag them
@@ -2992,7 +2997,7 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 			at.gridState.mu.Unlock()
 			at.logGridTrade("ttrade", "ttrade_reduce", entry.PrepSide, gridConfig.Symbol,
 				fmt.Sprintf("auto-reduce from prep %s fill=%.4f spread=%.1f%%", entry.PrepOrderID, entry.PrepFillPrice, entry.SpreadPct),
-				reduceID, entry.Qty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
+				entry.PrepOrderID, entry.Qty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
 			continue
 		case "CANCELED", "EXPIRED":
 			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing", reduceID)
