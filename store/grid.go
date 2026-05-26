@@ -73,7 +73,6 @@ type GridConfigModel struct {
 	EnableProfitReduce    bool    `json:"enable_profit_reduce" gorm:"default:true"`
 	ProfitReduceStepPct   float64 `json:"profit_reduce_step_pct" gorm:"default:10.0"`
 }
-}
 
 func (GridConfigModel) TableName() string {
 	return "grid_configs"
