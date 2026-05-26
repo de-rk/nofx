@@ -26,8 +26,6 @@ export const defaultGridConfig: GridStrategyConfig = {
   t_trade_position_threshold_pct: 30,
   enable_profit_reduce: true,
   profit_reduce_step_pct: 10,
-  enable_profit_reduce_reset: false,
-  hedge_lock_threshold_pct: 0,
 }
 
 export function GridConfigEditor({
@@ -96,14 +94,9 @@ export function GridConfigEditor({
       enableTrappedReduceDesc: { zh: '仓位超过阈值时自动T字操作，等网格单成交后差价减仓', en: 'Auto T-trade when position exceeds threshold — reduce at spread after grid order fills' },
       tTradePositionThreshold: { zh: 'T字触发仓位 (%)', en: 'T-Trade Position Threshold (%)' },
       tTradePositionThresholdDesc: { zh: '任一方向仓位占总资金超过此比例时启用T字操作（默认30%）', en: 'Enable T-trade when either side position exceeds this % of total investment (default 30%)' },
-      trappedReduceThreshold: { zh: '对冲锁仓触发阈值 (%)', en: 'Hedge Lock Loss Threshold (%)' },
-      trappedReduceThresholdDesc: { zh: '未实现亏损达到此值时触发对冲锁仓（hedge_lock_threshold_pct）', en: 'Unrealized loss threshold for hedge lock (see hedge_lock_threshold_pct)' },
       trappedReduceExplain: { zh: '💡 T字操作原理：仓位超阈值时，等待最近网格挂单成交，再在更优价格减仓，利用价差降低持仓成本', en: '💡 T-Trade: when position exceeds threshold, wait for nearest grid order to fill, then reduce at a better price to capture the spread' },
       tTradeSpread: { zh: 'T字差价 (%)', en: 'T-Trade Spread (%)' },
       tTradeSpreadDesc: { zh: '减仓限价单与触发单成交价的最小差价百分比（0.2%~1%）', en: 'Minimum spread % between reduce limit price and prep fill price (0.2%–1%)' },
-      hedgeLockSection: { zh: '对冲锁仓', en: 'Hedge Lock' },
-      hedgeLockThreshold: { zh: '触发阈值 (%)', en: 'Trigger Threshold (%)' },
-      hedgeLockThresholdDesc: { zh: '被套方向亏损达到此百分比时自动开对冲单（0 = 禁用）', en: 'Open hedge when trapped loss reaches this % (0 = disabled)' },
     }
     return translations[key]?.[language] || key
   }
@@ -453,28 +446,6 @@ export function GridConfigEditor({
                   style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
                 />
               </div>
-              <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="block text-sm" style={{ color: '#EAECEF' }}>
-                      {language === 'zh' ? '累计55%后重置进度' : 'Reset after 55% accumulated'}
-                    </label>
-                    <p className="text-xs" style={{ color: '#848E9C' }}>
-                      {language === 'zh' ? '累计减仓达55%后清空进度，下次从第一档重新开始' : 'Clear tracker after 55% cumulative reduce — next cycle restarts from step 1'}
-                    </p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={config.enable_profit_reduce_reset ?? false}
-                      onChange={(e) => updateField('enable_profit_reduce_reset', e.target.checked)}
-                      disabled={disabled}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F0B90B]"></div>
-                  </label>
-                </div>
-              </div>
             </div>
           )}
         </div>
@@ -541,30 +512,6 @@ export function GridConfigEditor({
         </div>
       </div>
 
-      {/* ===== Hedge Lock Section ===== */}
-      <div className="p-4 rounded-lg" style={{ background: '#1A1D23', border: '1px solid #2B3139' }}>
-        <div className="flex items-center gap-2 mb-4">
-          <Shield className="w-5 h-5" style={{ color: '#F0B90B' }} />
-          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
-            {t('hedgeLockSection')}
-          </h3>
-        </div>
-        <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-          <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('hedgeLockThreshold')}</label>
-          <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('hedgeLockThresholdDesc')}</p>
-          <input
-            type="number"
-            value={config.hedge_lock_threshold_pct ?? 0}
-            onChange={(e) => updateField('hedge_lock_threshold_pct', parseFloat(e.target.value) || 0)}
-            disabled={disabled}
-            min={0}
-            max={100}
-            step={5}
-            className="w-full px-3 py-2 rounded text-sm"
-            style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
-          />
-        </div>
-      </div>
     </div>
   )
 }
