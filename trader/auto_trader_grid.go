@@ -980,8 +980,8 @@ func (at *AutoTrader) RunGridCycle() error {
 							if r.d.Action == "place_sell_limit" {
 								orderSide = "sell"
 							}
-							qualifies := (longInfo.Active && orderSide == "buy" && r.d.Price <= currentPrice) ||
-								(shortInfo.Active && orderSide == "sell" && r.d.Price >= currentPrice)
+							qualifies := (longInfo.Active && orderSide == "buy") ||
+								(shortInfo.Active && orderSide == "sell")
 							if !qualifies {
 								continue
 							}
