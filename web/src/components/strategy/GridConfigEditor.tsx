@@ -26,6 +26,8 @@ export const defaultGridConfig: GridStrategyConfig = {
   t_trade_position_threshold_pct: 30,
   enable_profit_reduce: true,
   profit_reduce_step_pct: 10,
+  enable_investment_refresh: false,
+  investment_refresh_days: 2,
 }
 
 export function GridConfigEditor({
@@ -49,6 +51,9 @@ export function GridConfigEditor({
       // Investment
       totalInvestment: { zh: '投资金额 (USDT)', en: 'Investment (USDT)' },
       totalInvestmentDesc: { zh: '跟随实际账户余额，运行时自动获取', en: 'Follows actual account balance at runtime' },
+      investmentRefresh: { zh: '定期刷新投资额', en: 'Periodic Investment Refresh' },
+      investmentRefreshDesc: { zh: '每隔指定天数从账户余额刷新投资额', en: 'Refresh investment amount from wallet balance every N days' },
+      investmentRefreshDays: { zh: '刷新间隔 (天)', en: 'Refresh Interval (days)' },
       leverage: { zh: '杠杆倍数', en: 'Leverage' },
       leverageDesc: { zh: '交易使用的杠杆倍数 (1-5)', en: 'Leverage for trading (1-5)' },
 
@@ -172,6 +177,42 @@ export function GridConfigEditor({
             >
               {language === 'zh' ? '自动 (账户余额)' : 'Auto (Account Balance)'}
             </div>
+          </div>
+
+          {/* Periodic investment refresh */}
+          <div className="p-4 rounded-lg" style={sectionStyle}>
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <label className="block text-sm" style={{ color: '#EAECEF' }}>{t('investmentRefresh')}</label>
+                <p className="text-xs" style={{ color: '#848E9C' }}>{t('investmentRefreshDesc')}</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.enable_investment_refresh ?? false}
+                  onChange={(e) => updateField('enable_investment_refresh', e.target.checked)}
+                  disabled={disabled}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F0B90B]"></div>
+              </label>
+            </div>
+            {(config.enable_investment_refresh) && (
+              <div className="mt-3">
+                <label className="block text-xs mb-1" style={{ color: '#EAECEF' }}>{t('investmentRefreshDays')}</label>
+                <input
+                  type="number"
+                  value={config.investment_refresh_days ?? 2}
+                  onChange={(e) => updateField('investment_refresh_days', parseInt(e.target.value) || 2)}
+                  disabled={disabled}
+                  min={1}
+                  max={30}
+                  step={1}
+                  className="w-full px-3 py-2 rounded text-sm"
+                  style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Leverage */}

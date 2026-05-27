@@ -517,6 +517,10 @@ export interface GridStrategyConfig {
   profit_reduce_step_pct?: number;
   // Minimum spread % for T-trade reduce orders (default 0.2, range 0.2-1.0)
   t_trade_spread_pct?: number;
+  // Periodically refresh total investment from wallet balance
+  enable_investment_refresh?: boolean;
+  // Refresh interval in days (default 2)
+  investment_refresh_days?: number;
 }
 
 export interface CoinSourceConfig {

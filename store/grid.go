@@ -72,6 +72,10 @@ type GridConfigModel struct {
 	// Profit-based position reduction settings (盈利分批减仓)
 	EnableProfitReduce    bool    `json:"enable_profit_reduce" gorm:"default:true"`
 	ProfitReduceStepPct   float64 `json:"profit_reduce_step_pct" gorm:"default:10.0"`
+
+	// Periodic investment amount refresh
+	EnableInvestmentRefresh bool `json:"enable_investment_refresh" gorm:"default:false"`
+	InvestmentRefreshDays   int  `json:"investment_refresh_days" gorm:"default:2"`
 }
 
 func (GridConfigModel) TableName() string {

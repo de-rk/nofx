@@ -109,6 +109,9 @@ type GridState struct {
 	LongProfitReducedPct  float64 // cumulative % already reduced for long (multiples of 10)
 	ShortProfitReducedPct float64 // cumulative % already reduced for short (multiples of 10)
 
+	// Periodic investment refresh
+	LastInvestmentRefreshAt time.Time
+
 }
 
 // NewGridState creates a new grid state
@@ -844,6 +847,11 @@ func (at *AutoTrader) RunGridCycle() error {
 		at.checkProfitReduce()
 	}
 
+	// Periodic investment amount refresh
+	if gridConfig.EnableInvestmentRefresh {
+		at.checkInvestmentRefresh()
+	}
+
 	// Build grid context
 	gridCtx, err := at.buildGridContext()
 	if err != nil {
@@ -1421,6 +1429,42 @@ func (at *AutoTrader) refreshTotalInvestment() {
 		gridConfig.TotalInvestment = walletBal
 		logger.Infof("[Grid] Refreshed total investment after close: %.2f -> %.2f USDT", old, walletBal)
 	}
+}
+
+// checkInvestmentRefresh refreshes TotalInvestment from wallet balance on a configurable interval.
+func (at *AutoTrader) checkInvestmentRefresh() {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	days := gridConfig.InvestmentRefreshDays
+	if days <= 0 {
+		days = 2
+	}
+	interval := time.Duration(days) * 24 * time.Hour
+
+	at.gridState.mu.RLock()
+	last := at.gridState.LastInvestmentRefreshAt
+	at.gridState.mu.RUnlock()
+
+	if !last.IsZero() && time.Since(last) < interval {
+		return
+	}
+
+	bal, err := at.trader.GetBalance()
+	if err != nil {
+		logger.Warnf("[Grid] Investment refresh: failed to get balance: %v", err)
+		return
+	}
+	walletBal, ok := bal["totalWalletBalance"].(float64)
+	if !ok || walletBal <= 0 {
+		return
+	}
+	old := gridConfig.TotalInvestment
+	gridConfig.TotalInvestment = walletBal
+
+	at.gridState.mu.Lock()
+	at.gridState.LastInvestmentRefreshAt = time.Now()
+	at.gridState.mu.Unlock()
+
+	logger.Infof("[Grid] Periodic investment refresh: %.2f -> %.2f USDT (interval=%dd)", old, walletBal, days)
 }
 
 // checkTotalPositionLimit checks if adding a new position would exceed total limits.

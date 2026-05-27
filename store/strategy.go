@@ -106,6 +106,10 @@ type GridStrategyConfig struct {
 	ProfitReduceStepPct float64 `json:"profit_reduce_step_pct"`
 	// Minimum spread % between T-trade prep fill price and reduce order price (default 0.2, range 0.2-1.0)
 	TTradeSpreadPct float64 `json:"t_trade_spread_pct"`
+	// Periodically refresh TotalInvestment from wallet balance
+	EnableInvestmentRefresh bool `json:"enable_investment_refresh"`
+	// How often to refresh (in days, default 2)
+	InvestmentRefreshDays int `json:"investment_refresh_days"`
 }
 
 // PromptSectionsConfig editable sections of System Prompt
