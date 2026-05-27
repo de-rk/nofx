@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"nofx/auth"
-	"nofx/backtest"
 	"nofx/config"
 	"nofx/crypto"
 	"nofx/logger"
@@ -43,13 +42,12 @@ type Server struct {
 	traderManager   *manager.TraderManager
 	store           *store.Store
 	cryptoHandler   *CryptoHandler
-	backtestManager *backtest.Manager
 	httpServer      *http.Server
 	port            int
 }
 
 // NewServer Creates API server
-func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoService *crypto.CryptoService, backtestManager *backtest.Manager, port int) *Server {
+func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoService *crypto.CryptoService, port int) *Server {
 	// Set to Release mode (reduce log output)
 	gin.SetMode(gin.ReleaseMode)
 
@@ -66,7 +64,6 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		traderManager:   traderManager,
 		store:           st,
 		cryptoHandler:   cryptoHandler,
-		backtestManager: backtestManager,
 		port:            port,
 	}
 
@@ -194,10 +191,6 @@ func (s *Server) setupRoutes() {
 			protected.GET("/decisions", s.handleDecisions)
 			protected.GET("/decisions/latest", s.handleLatestDecisions)
 			protected.GET("/statistics", s.handleStatistics)
-
-			// Backtest routes
-			backtest := protected.Group("/backtest")
-			s.registerBacktestRoutes(backtest)
 		}
 	}
 }

@@ -23,7 +23,6 @@ import { t } from './i18n/translations'
 import { useSystemConfig } from './hooks/useSystemConfig'
 
 import { OFFICIAL_LINKS } from './constants/branding'
-import { BacktestPage } from './components/BacktestPage'
 import type {
   SystemStatus,
   AccountInfo,
@@ -39,7 +38,6 @@ type Page =
   | 'competition'
   | 'traders'
   | 'trader'
-  | 'backtest'
   | 'strategy'
   | 'strategy-market'
   | 'prompt-test'
@@ -66,7 +64,6 @@ function App() {
     const hash = window.location.hash.slice(1) // 去掉 #
 
     if (path === '/traders' || hash === 'traders') return 'traders'
-    if (path === '/backtest' || hash === 'backtest') return 'backtest'
     if (path === '/strategy' || hash === 'strategy') return 'strategy'
     if (path === '/strategy-market' || hash === 'strategy-market') return 'strategy-market'
     if (path === '/prompt-test' || hash === 'prompt-test') return 'prompt-test'
@@ -91,7 +88,6 @@ function App() {
       'strategy-market': '/strategy-market',
       'traders': '/traders',
       'trader': '/dashboard',
-      'backtest': '/backtest',
       'strategy': '/strategy',
       'prompt-test': '/prompt-test',
       'faq': '/faq',
@@ -148,8 +144,6 @@ function App() {
 
       if (path === '/traders' || hash === 'traders') {
         setCurrentPage('traders')
-      } else if (path === '/backtest' || hash === 'backtest') {
-        setCurrentPage('backtest')
       } else if (path === '/strategy' || hash === 'strategy') {
         setCurrentPage('strategy')
       } else if (path === '/strategy-market' || hash === 'strategy-market') {
@@ -435,8 +429,6 @@ function App() {
                   setCurrentPage('trader')
                 }}
               />
-            ) : currentPage === 'backtest' ? (
-              <BacktestPage />
             ) : currentPage === 'strategy' ? (
               <StrategyStudioPage />
             ) : currentPage === 'prompt-test' ? (

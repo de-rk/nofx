@@ -10,7 +10,6 @@ type Page =
   | 'competition'
   | 'traders'
   | 'trader'
-  | 'backtest'
   | 'strategy'
   | 'strategy-market'
   | 'prompt-test'
@@ -104,7 +103,6 @@ export default function HeaderBar({
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'prompt-test', path: '/prompt-test', label: language === 'zh' ? 'Prompt测试' : 'Prompt Test', requiresAuth: true },
                 { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
-                { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
                 { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
               ]
 
@@ -332,7 +330,6 @@ export default function HeaderBar({
                     { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                     { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                     { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
-                    { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
                     { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
                   ]
 

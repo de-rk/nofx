@@ -35,7 +35,7 @@ export interface FAQCategory {
  * 4. Trading - How trading works, common issues
  * 5. Technical Issues - Troubleshooting common problems
  * 6. Security - API keys, encryption, best practices
- * 7. Features - Strategy Studio, Backtest
+ * 7. Features - Strategy Studio
  * 8. Contributing - How to contribute to the project
  */
 export const faqCategories: FAQCategory[] = [
@@ -293,11 +293,6 @@ export const faqCategories: FAQCategory[] = [
         id: 'strategy-studio',
         questionKey: 'faqStrategyStudio',
         answerKey: 'faqStrategyStudioAnswer',
-      },
-      {
-        id: 'backtest-lab',
-        questionKey: 'faqBacktestLab',
-        answerKey: 'faqBacktestLabAnswer',
       },
       {
         id: 'competition-mode',

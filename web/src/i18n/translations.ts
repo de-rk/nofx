@@ -9,7 +9,6 @@ export const translations = {
     details: 'Details',
     tradingPanel: 'Trading Panel',
     competition: 'Competition',
-    backtest: 'Backtest',
     running: 'RUNNING',
     stopped: 'STOPPED',
     adminMode: 'Admin Mode',
@@ -95,170 +94,6 @@ export const translations = {
     popularSymbols: 'Popular Symbols',
     fullscreen: 'Fullscreen',
     exitFullscreen: 'Exit Fullscreen',
-
-    // Backtest Page
-    backtestPage: {
-      title: 'Backtest Lab',
-      subtitle:
-        'Pick a model + time range to replay the full AI decision loop.',
-      start: 'Start Backtest',
-      starting: 'Starting...',
-      quickRanges: {
-        h24: '24h',
-        d3: '3d',
-        d7: '7d',
-      },
-      actions: {
-        pause: 'Pause',
-        resume: 'Resume',
-        stop: 'Stop',
-      },
-      states: {
-        running: 'Running',
-        paused: 'Paused',
-        completed: 'Completed',
-        failed: 'Failed',
-        liquidated: 'Liquidated',
-      },
-      form: {
-        aiModelLabel: 'AI Model',
-        selectAiModel: 'Select AI model',
-        providerLabel: 'Provider',
-        statusLabel: 'Status',
-        enabled: 'Enabled',
-        disabled: 'Disabled',
-        noModelWarning:
-          'Please add and enable an AI model on the Model Config page first.',
-        runIdLabel: 'Run ID',
-        runIdPlaceholder: 'Leave blank to auto-generate',
-        decisionTfLabel: 'Decision TF',
-        cadenceLabel: 'Decision cadence (bars)',
-        timeRangeLabel: 'Time range',
-        symbolsLabel: 'Symbols (comma-separated)',
-        customTfPlaceholder: 'Custom TFs (comma separated, e.g. 2h,6h)',
-        initialBalanceLabel: 'Initial balance (USDT)',
-        feeLabel: 'Fee (bps)',
-        slippageLabel: 'Slippage (bps)',
-        btcEthLeverageLabel: 'BTC/ETH leverage (x)',
-        altcoinLeverageLabel: 'Altcoin leverage (x)',
-        fillPolicies: {
-          nextOpen: 'Next open',
-          barVwap: 'Bar VWAP',
-          midPrice: 'Mid price',
-        },
-        promptPresets: {
-          baseline: 'Baseline',
-          aggressive: 'Aggressive',
-          conservative: 'Conservative',
-          scalping: 'Scalping',
-        },
-        cacheAiLabel: 'Reuse AI cache',
-        replayOnlyLabel: 'Replay only',
-        overridePromptLabel: 'Use only custom prompt',
-        customPromptLabel: 'Custom prompt (optional)',
-        customPromptPlaceholder:
-          'Append or fully customize the strategy prompt',
-      },
-      runList: {
-        title: 'Runs',
-        count: 'Total {count} records',
-      },
-      filters: {
-        allStates: 'All states',
-        searchPlaceholder: 'Run ID / label',
-      },
-      tableHeaders: {
-        runId: 'Run ID',
-        label: 'Label',
-        state: 'State',
-        progress: 'Progress',
-        equity: 'Equity',
-        lastError: 'Last Error',
-        updated: 'Updated',
-      },
-      emptyStates: {
-        noRuns: 'No runs yet',
-        selectRun: 'Select a run to view details',
-      },
-      detail: {
-        tfAndSymbols: 'TF: {tf} · Symbols {count}',
-        labelPlaceholder: 'Label note',
-        saveLabel: 'Save',
-        deleteLabel: 'Delete',
-        exportLabel: 'Export',
-        errorLabel: 'Error',
-      },
-      toasts: {
-        selectModel: 'Please select an AI model first.',
-        modelDisabled: 'AI model {name} is disabled.',
-        invalidRange: 'End time must be later than start time.',
-        startSuccess: 'Backtest {id} started.',
-        startFailed: 'Failed to start. Please try again later.',
-        actionSuccess: '{action} {id} succeeded.',
-        actionFailed: 'Operation failed. Please try again later.',
-        labelSaved: 'Label updated.',
-        labelFailed: 'Failed to update label.',
-        confirmDelete: 'Delete backtest {id}? This action cannot be undone.',
-        deleteSuccess: 'Backtest record deleted.',
-        deleteFailed: 'Failed to delete. Please try again later.',
-        traceFailed: 'Failed to fetch AI trace.',
-        exportSuccess: 'Exported data for {id}.',
-        exportFailed: 'Failed to export.',
-      },
-      aiTrace: {
-        title: 'AI Trace',
-        clear: 'Clear',
-        cyclePlaceholder: 'Cycle',
-        fetch: 'Fetch',
-        prompt: 'Prompt',
-        cot: 'Chain of thought',
-        output: 'Output',
-        cycleTag: 'Cycle #{cycle}',
-      },
-      decisionTrail: {
-        title: 'AI Decision Trail',
-        subtitle: 'Showing last {count} cycles',
-        empty: 'No records yet',
-        emptyHint:
-          'The AI thought & execution log will appear once the run starts.',
-      },
-      charts: {
-        equityTitle: 'Equity Curve',
-        equityEmpty: 'No data yet',
-      },
-      metrics: {
-        title: 'Metrics',
-        totalReturn: 'Total Return %',
-        maxDrawdown: 'Max Drawdown %',
-        sharpe: 'Sharpe',
-        profitFactor: 'Profit Factor',
-        pending: 'Calculating...',
-        realized: 'Realized PnL',
-        unrealized: 'Unrealized PnL',
-      },
-      trades: {
-        title: 'Trade Events',
-        headers: {
-          time: 'Time',
-          symbol: 'Symbol',
-          action: 'Action',
-          qty: 'Qty',
-          leverage: 'Leverage',
-          pnl: 'PnL',
-        },
-        empty: 'No trades yet',
-      },
-      metadata: {
-        title: 'Metadata',
-        created: 'Created',
-        updated: 'Updated',
-        processedBars: 'Processed Bars',
-        maxDrawdown: 'Max DD',
-        liquidated: 'Liquidated',
-        yes: 'Yes',
-        no: 'No',
-      },
-    },
 
     // Competition Page
     aiCompetition: 'AI Competition',
@@ -861,7 +696,7 @@ export const translations = {
     // ===== GETTING STARTED =====
     faqWhatIsNOFX: 'What is NOFX?',
     faqWhatIsNOFXAnswer:
-      'NOFX is an open-source AI-powered trading operating system for cryptocurrency and US stock markets. It uses large language models (LLMs) like DeepSeek, GPT, Claude, Gemini to analyze market data and make autonomous trading decisions. Key features include: multi-AI model support, multi-exchange trading, visual strategy builder, and backtesting.',
+      'NOFX is an open-source AI-powered trading operating system for cryptocurrency and US stock markets. It uses large language models (LLMs) like DeepSeek, GPT, Claude, Gemini to analyze market data and make autonomous trading decisions. Key features include: multi-AI model support, multi-exchange trading, and visual strategy builder.',
 
     faqHowDoesItWork: 'How does NOFX work?',
     faqHowDoesItWorkAnswer:
@@ -869,7 +704,7 @@ export const translations = {
 
     faqIsProfitable: 'Is NOFX profitable?',
     faqIsProfitableAnswer:
-      'AI trading is experimental and NOT guaranteed to be profitable. Cryptocurrency futures are highly volatile and risky. NOFX is designed for educational and research purposes. We strongly recommend: starting with small amounts (10-50 USDT), never investing more than you can afford to lose, thoroughly testing with backtests before live trading, and understanding that past performance does not guarantee future results.',
+      'AI trading is experimental and NOT guaranteed to be profitable. Cryptocurrency futures are highly volatile and risky. NOFX is designed for educational and research purposes. We strongly recommend: starting with small amounts (10-50 USDT), never investing more than you can afford to lose, thoroughly testing strategies before live trading, and understanding that past performance does not guarantee future results.',
 
     faqSupportedExchanges: 'Which exchanges are supported?',
     faqSupportedExchangesAnswer:
@@ -1021,10 +856,6 @@ export const translations = {
     faqStrategyStudioAnswer:
       'Strategy Studio is a visual strategy builder where you configure: 1) Coin Sources - which cryptocurrencies to trade (static list, AI500 top coins, OI ranking); 2) Technical Indicators - EMA, MACD, RSI, ATR, Volume, Open Interest, Funding Rate; 3) Risk Controls - leverage limits, position sizing, margin caps; 4) Custom Prompts - specific instructions for AI. No coding required.',
 
-    faqBacktestLab: 'What is Backtest Lab?',
-    faqBacktestLabAnswer:
-      'Backtest Lab tests your strategy against historical data without risking real funds. Features: 1) Configure AI model, date range, initial balance; 2) Watch real-time progress with equity curve; 3) View metrics: Return %, Max Drawdown, Sharpe Ratio, Win Rate; 4) Analyze individual trades and AI reasoning. Essential for validating strategies before live trading.',
-
     faqCompetitionMode: 'What is Competition Mode?',
     faqCompetitionModeAnswer:
       'Competition page shows a real-time leaderboard of all your traders. Compare: ROI, P&L, Sharpe ratio, win rate, number of trades. Use this to A/B test different AI models, strategies, or configurations. Traders can be marked as "Show in Competition" to appear on the leaderboard.',
@@ -1048,7 +879,7 @@ export const translations = {
 
     faqCompareAIModels: 'How do I compare different AI models?',
     faqCompareAIModelsAnswer:
-      'Create multiple traders with different AI models but same strategy/exchange. Run them simultaneously and compare on Competition page. Metrics to watch: ROI, win rate, Sharpe ratio, max drawdown. Alternatively, use Backtest Lab to test models against same historical data.',
+      'Create multiple traders with different AI models but same strategy/exchange. Run them simultaneously and compare on Competition page. Metrics to watch: ROI, win rate, Sharpe ratio, max drawdown.',
 
     // ===== CONTRIBUTING =====
     faqHowToContribute: 'How can I contribute to NOFX?',
@@ -1188,7 +1019,6 @@ export const translations = {
     details: '详情',
     tradingPanel: '交易面板',
     competition: '竞赛',
-    backtest: '回测',
     running: '运行中',
     stopped: '已停止',
     adminMode: '管理员模式',
@@ -1274,166 +1104,6 @@ export const translations = {
     popularSymbols: '热门币种',
     fullscreen: '全屏',
     exitFullscreen: '退出全屏',
-
-    // Backtest Page
-    backtestPage: {
-      title: '回测实验室',
-      subtitle: '选择模型与时间范围，快速复盘 AI 决策链路。',
-      start: '启动回测',
-      starting: '启动中...',
-      quickRanges: {
-        h24: '24小时',
-        d3: '3天',
-        d7: '7天',
-      },
-      actions: {
-        pause: '暂停',
-        resume: '恢复',
-        stop: '停止',
-      },
-      states: {
-        running: '运行中',
-        paused: '已暂停',
-        completed: '已完成',
-        failed: '失败',
-        liquidated: '已爆仓',
-      },
-      form: {
-        aiModelLabel: 'AI 模型',
-        selectAiModel: '选择AI模型',
-        providerLabel: 'Provider',
-        statusLabel: '状态',
-        enabled: '已启用',
-        disabled: '未启用',
-        noModelWarning: '请先在「模型配置」页面添加并启用AI模型。',
-        runIdLabel: 'Run ID',
-        runIdPlaceholder: '留空则自动生成',
-        decisionTfLabel: '决策周期',
-        cadenceLabel: '决策节奏（根数）',
-        timeRangeLabel: '时间范围',
-        symbolsLabel: '交易标的（逗号分隔）',
-        customTfPlaceholder: '自定义周期（逗号分隔，例如 2h,6h）',
-        initialBalanceLabel: '初始资金 (USDT)',
-        feeLabel: '手续费 (bps)',
-        slippageLabel: '滑点 (bps)',
-        btcEthLeverageLabel: 'BTC/ETH 杠杆 (倍)',
-        altcoinLeverageLabel: '山寨币杠杆 (倍)',
-        fillPolicies: {
-          nextOpen: '下一根开盘价',
-          barVwap: 'K线 VWAP',
-          midPrice: '中间价',
-        },
-        promptPresets: {
-          baseline: '基础版',
-          aggressive: '激进版',
-          conservative: '稳健版',
-          scalping: '剥头皮',
-        },
-        cacheAiLabel: '复用AI缓存',
-        replayOnlyLabel: '仅回放记录',
-        overridePromptLabel: '仅使用自定义提示词',
-        customPromptLabel: '自定义提示词（可选）',
-        customPromptPlaceholder: '追加或完全自定义策略提示词',
-      },
-      runList: {
-        title: '运行列表',
-        count: '共 {count} 条记录',
-      },
-      filters: {
-        allStates: '全部状态',
-        searchPlaceholder: 'Run ID / 标签',
-      },
-      tableHeaders: {
-        runId: 'Run ID',
-        label: '标签',
-        state: '状态',
-        progress: '进度',
-        equity: '净值',
-        lastError: '最后错误',
-        updated: '更新时间',
-      },
-      emptyStates: {
-        noRuns: '暂无记录',
-        selectRun: '请选择一个运行查看详情',
-      },
-      detail: {
-        tfAndSymbols: '周期: {tf} · 币种 {count}',
-        labelPlaceholder: '备注标签',
-        saveLabel: '保存',
-        deleteLabel: '删除',
-        exportLabel: '导出',
-        errorLabel: '错误',
-      },
-      toasts: {
-        selectModel: '请先选择一个AI模型。',
-        modelDisabled: 'AI模型 {name} 尚未启用。',
-        invalidRange: '结束时间必须晚于开始时间。',
-        startSuccess: '回测 {id} 已启动。',
-        startFailed: '启动失败，请稍后再试。',
-        actionSuccess: '{action} {id} 成功。',
-        actionFailed: '操作失败，请稍后再试。',
-        labelSaved: '标签已更新。',
-        labelFailed: '更新标签失败。',
-        confirmDelete: '确认删除回测 {id} 吗？该操作不可恢复。',
-        deleteSuccess: '回测记录已删除。',
-        deleteFailed: '删除失败，请稍后再试。',
-        traceFailed: '获取AI思维链失败。',
-        exportSuccess: '已导出 {id} 的数据。',
-        exportFailed: '导出失败。',
-      },
-      aiTrace: {
-        title: 'AI 思维链',
-        clear: '清除',
-        cyclePlaceholder: '循环编号',
-        fetch: '获取',
-        prompt: '提示词',
-        cot: '思考链',
-        output: '输出',
-        cycleTag: '周期 #{cycle}',
-      },
-      decisionTrail: {
-        title: 'AI 决策轨迹',
-        subtitle: '展示最近 {count} 次循环',
-        empty: '暂无记录',
-        emptyHint: '回测运行后将自动记录每次 AI 思考与执行',
-      },
-      charts: {
-        equityTitle: '净值曲线',
-        equityEmpty: '暂无数据',
-      },
-      metrics: {
-        title: '指标',
-        totalReturn: '总收益率 %',
-        maxDrawdown: '最大回撤 %',
-        sharpe: '夏普比率',
-        profitFactor: '盈亏因子',
-        pending: '计算中...',
-        realized: '已实现盈亏',
-        unrealized: '未实现盈亏',
-      },
-      trades: {
-        title: '交易事件',
-        headers: {
-          time: '时间',
-          symbol: '币种',
-          action: '操作',
-          qty: '数量',
-          leverage: '杠杆',
-          pnl: '盈亏',
-        },
-        empty: '暂无交易',
-      },
-      metadata: {
-        title: '元信息',
-        created: '创建时间',
-        updated: '更新时间',
-        processedBars: '已处理K线',
-        maxDrawdown: '最大回撤',
-        liquidated: '是否爆仓',
-        yes: '是',
-        no: '否',
-      },
-    },
 
     // Competition Page
     aiCompetition: 'AI竞赛',
@@ -2144,10 +1814,6 @@ export const translations = {
     faqStrategyStudio: '什么是策略工作室？',
     faqStrategyStudioAnswer:
       '策略工作室是可视化策略构建器，您可以配置：1）币种来源 - 交易哪些加密货币（静态列表、AI500 热门币、OI 排行）；2）技术指标 - EMA、MACD、RSI、ATR、成交量、持仓量、资金费率；3）风控 - 杠杆限制、仓位大小、保证金上限；4）自定义提示词 - AI 的特定指令。无需编程。',
-
-    faqBacktestLab: '什么是回测实验室？',
-    faqBacktestLabAnswer:
-      '回测实验室用历史数据测试您的策略，无需冒真金风险。功能：1）配置 AI 模型、日期范围、初始余额；2）实时观看进度和权益曲线；3）查看指标：收益率、最大回撤、夏普比率、胜率；4）分析单笔交易和 AI 推理。实盘交易前验证策略的必备工具。',
 
     faqCompetitionMode: '什么是竞赛模式？',
     faqCompetitionModeAnswer:

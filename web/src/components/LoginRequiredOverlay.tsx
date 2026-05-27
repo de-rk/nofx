@@ -16,11 +16,10 @@ export function LoginRequiredOverlay({ isOpen, onClose, featureName }: LoginRequ
     zh: {
       title: '系统访问受限',
       subtitle: featureName ? `访问「${featureName}」需要更高权限` : '此模块需要授权访问',
-      description: '初始化身份验证协议以解锁完整系统功能：AI 交易员配置、策略市场数据流、回测模拟核心。',
+      description: '初始化身份验证协议以解锁完整系统功能：AI 交易员配置、策略市场数据流。',
       benefits: [
         'AI 交易员控制权',
         '高频策略核心市场',
-        '历史数据回测引擎',
         '全系统数据可视化'
       ],
       login: '执行登录指令',
@@ -30,11 +29,10 @@ export function LoginRequiredOverlay({ isOpen, onClose, featureName }: LoginRequ
     en: {
       title: 'SYSTEM ACCESS DENIED',
       subtitle: featureName ? `Module "${featureName}" requires elevated privileges` : 'Authorization required for this module',
-      description: 'Initialize authentication protocol to unlock full system capabilities: AI Trader configuration, Strategy Market data streams, and Backtest Simulation core.',
+      description: 'Initialize authentication protocol to unlock full system capabilities: AI Trader configuration and Strategy Market data streams.',
       benefits: [
         'AI Trader Control',
         'HFT Strategy Market',
-        'Historical Backtest Engine',
         'Full System Visualization'
       ],
       login: 'EXECUTE LOGIN',
