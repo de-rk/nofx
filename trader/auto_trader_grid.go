@@ -1480,7 +1480,7 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 	at.gridState.LastInvestmentRefreshAt = time.Now()
 	at.gridState.mu.Unlock()
 
-	logger.Infof("[Grid] Periodic investment refresh: %.2f -> %.2f USDT (interval=%dd)", old, walletBal, days)
+	logger.Infof("[Grid] Periodic investment refresh: %.2f -> %.2f USDT (interval=%dd)", old, inv, days)
 }
 
 // checkTotalPositionLimit checks if adding a new position would exceed total limits.
