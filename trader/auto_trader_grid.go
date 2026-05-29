@@ -1432,7 +1432,7 @@ func (at *AutoTrader) refreshTotalInvestment() {
 
 // investmentFromBalance extracts the effective total investment from a balance map.
 // Cross margin: totalWalletBalance (entire account equity excl. unrealized PnL).
-// Isolated margin: totalEquity - availableBalance (margin already committed to positions).
+// Isolated margin: totalEquity (committed margin + unrealized PnL + free balance).
 func (at *AutoTrader) investmentFromBalance(bal map[string]interface{}) float64 {
 	if at.config.IsCrossMargin {
 		if w, ok := bal["totalWalletBalance"].(float64); ok && w > 0 {
@@ -1440,14 +1440,9 @@ func (at *AutoTrader) investmentFromBalance(bal map[string]interface{}) float64 
 		}
 		return 0
 	}
-	// Isolated: committed margin = total equity minus free balance
-	equity, hasEquity := bal["totalEquity"].(float64)
-	avail, hasAvail := bal["availableBalance"].(float64)
-	if hasEquity && hasAvail {
-		committed := equity - avail
-		if committed > 0 {
-			return committed
-		}
+	// Isolated: use total equity (includes free balance + committed margin + unrealized PnL)
+	if equity, ok := bal["totalEquity"].(float64); ok && equity > 0 {
+		return equity
 	}
 	return 0
 }
