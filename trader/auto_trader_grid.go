@@ -522,18 +522,16 @@ func (at *AutoTrader) InitializeGrid() error {
 
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Use wallet balance (available + margin in positions, excl. unrealized PnL) as total investment
+	// Use wallet balance for cross margin, committed margin for isolated margin
 	balance, err := at.trader.GetBalance()
 	if err != nil {
 		logger.Warnf("[Grid] Failed to get balance for total investment, using config value: %v", err)
 	} else {
-		walletBal := 0.0
-		if w, ok := balance["totalWalletBalance"].(float64); ok {
-			walletBal = w
-		}
-		if walletBal > 0 {
-			logger.Infof("[Grid] Using wallet balance as total investment: %.2f USDT (config was: %.2f)", walletBal, gridConfig.TotalInvestment)
-			gridConfig.TotalInvestment = walletBal
+		if inv := at.investmentFromBalance(balance); inv > 0 {
+			logger.Infof("[Grid] Using %s investment: %.2f USDT (config was: %.2f)",
+				map[bool]string{true: "cross-margin wallet", false: "isolated committed margin"}[at.config.IsCrossMargin],
+				inv, gridConfig.TotalInvestment)
+			gridConfig.TotalInvestment = inv
 		}
 	}
 
@@ -1424,11 +1422,34 @@ func (at *AutoTrader) refreshTotalInvestment() {
 		logger.Warnf("[Grid] Failed to refresh total investment: %v", err)
 		return
 	}
-	if walletBal, ok := bal["totalWalletBalance"].(float64); ok && walletBal > 0 {
+	inv := at.investmentFromBalance(bal)
+	if inv > 0 {
 		old := gridConfig.TotalInvestment
-		gridConfig.TotalInvestment = walletBal
-		logger.Infof("[Grid] Refreshed total investment after close: %.2f -> %.2f USDT", old, walletBal)
+		gridConfig.TotalInvestment = inv
+		logger.Infof("[Grid] Refreshed total investment after close: %.2f -> %.2f USDT", old, inv)
 	}
+}
+
+// investmentFromBalance extracts the effective total investment from a balance map.
+// Cross margin: totalWalletBalance (entire account equity excl. unrealized PnL).
+// Isolated margin: totalEquity - availableBalance (margin already committed to positions).
+func (at *AutoTrader) investmentFromBalance(bal map[string]interface{}) float64 {
+	if at.config.IsCrossMargin {
+		if w, ok := bal["totalWalletBalance"].(float64); ok && w > 0 {
+			return w
+		}
+		return 0
+	}
+	// Isolated: committed margin = total equity minus free balance
+	equity, hasEquity := bal["totalEquity"].(float64)
+	avail, hasAvail := bal["availableBalance"].(float64)
+	if hasEquity && hasAvail {
+		committed := equity - avail
+		if committed > 0 {
+			return committed
+		}
+	}
+	return 0
 }
 
 // checkInvestmentRefresh refreshes TotalInvestment from wallet balance on a configurable interval.
@@ -1453,12 +1474,12 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 		logger.Warnf("[Grid] Investment refresh: failed to get balance: %v", err)
 		return
 	}
-	walletBal, ok := bal["totalWalletBalance"].(float64)
-	if !ok || walletBal <= 0 {
+	inv := at.investmentFromBalance(bal)
+	if inv <= 0 {
 		return
 	}
 	old := gridConfig.TotalInvestment
-	gridConfig.TotalInvestment = walletBal
+	gridConfig.TotalInvestment = inv
 
 	at.gridState.mu.Lock()
 	at.gridState.LastInvestmentRefreshAt = time.Now()
