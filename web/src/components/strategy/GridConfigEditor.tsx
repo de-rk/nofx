@@ -83,7 +83,7 @@ export function GridConfigEditor({
       useMakerOnly: { zh: '仅使用 Maker 订单', en: 'Maker Only Orders' },
       useMakerOnlyDesc: { zh: '使用限价单以降低手续费', en: 'Use limit orders for lower fees' },
       enableSmallPositionClose: { zh: '小仓位自动平仓', en: 'Auto-close Small Positions' },
-      enableSmallPositionCloseDesc: { zh: '仓位市值<100U且盈利超过步长×1.2时，自动全部平仓锁定利润', en: 'Close entire position when value < 100 USDT and profit exceeds step×1.2' },
+      enableSmallPositionCloseDesc: { zh: '仓位市值<100U且盈利超过步长×2时，自动全部平仓锁定利润', en: 'Close entire position when value < 100 USDT and profit exceeds step×2' },
 
       // T-trade section (combines profit reduce + trapped reduce)
       tTradeSection: { zh: 'T字操作', en: 'T-Trade Operations' },
