@@ -1110,7 +1110,7 @@ func (at *AutoTrader) checkProfitReduce() {
 		}
 
 		positionValue := info.size * info.markPrice
-		if profitPct > step*1.2 && positionValue < 100 {
+		if gridConfig.EnableSmallPositionClose && profitPct > step*1.2 && positionValue < 100 {
 			actions = append(actions, reduceAction{info: *info, qty: info.size, closeAll: true})
 			continue
 		}

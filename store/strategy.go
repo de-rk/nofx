@@ -92,6 +92,8 @@ type GridStrategyConfig struct {
 	MaxPositionSizePct float64 `json:"max_position_size_pct"`
 	// Use maker-only orders for lower fees
 	UseMakerOnly bool `json:"use_maker_only"`
+	// Auto-close small positions (value < 100 USDT) when profit exceeds step*1.2 (default true)
+	EnableSmallPositionClose bool `json:"enable_small_position_close"`
 	// Profit drawdown threshold for auto close (default 50%)
 	ProfitDrawdownThreshold float64 `json:"profit_drawdown_threshold"`
 	// Enable AI batch position reduction when trapped (被套时分批减仓)

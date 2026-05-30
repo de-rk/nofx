@@ -336,6 +336,8 @@ export interface GridStrategyConfig {
   daily_loss_limit_pct?: number;
   // Use maker-only orders for lower fees
   use_maker_only: boolean;
+  // Auto-close small positions (value < 100 USDT) when profit exceeds step*1.2 (default true)
+  enable_small_position_close?: boolean;
   // Profit drawdown threshold for auto close (default 50%)
   profit_drawdown_threshold?: number;
   // Enable AI batch position reduction when trapped (被套时分批减仓)

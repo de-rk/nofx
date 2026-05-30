@@ -23,6 +23,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   profit_drawdown_threshold: 50,
   enable_trapped_reduce: false,
   trapped_reduce_threshold_pct: 3.0,
+  enable_small_position_close: true,
   t_trade_position_threshold_pct: 30,
   enable_profit_reduce: true,
   profit_reduce_step_pct: 10,
@@ -81,6 +82,8 @@ export function GridConfigEditor({
       profitDrawdownDesc: { zh: '盈利回撤超过此值时自动平仓 (当利润>5%时)', en: 'Auto close when profit drawdown exceeds this (when profit>5%)' },
       useMakerOnly: { zh: '仅使用 Maker 订单', en: 'Maker Only Orders' },
       useMakerOnlyDesc: { zh: '使用限价单以降低手续费', en: 'Use limit orders for lower fees' },
+      enableSmallPositionClose: { zh: '小仓位自动平仓', en: 'Auto-close Small Positions' },
+      enableSmallPositionCloseDesc: { zh: '仓位市值<100U且盈利超过步长×1.2时，自动全部平仓锁定利润', en: 'Close entire position when value < 100 USDT and profit exceeds step×1.2' },
 
       // T-trade section (combines profit reduce + trapped reduce)
       tTradeSection: { zh: 'T字操作', en: 'T-Trade Operations' },
@@ -438,9 +441,27 @@ export function GridConfigEditor({
             </label>
           </div>
         </div>
-      </div>
 
-      {/* ===== T字操作 Section (Profit Reduce + Trapped Reduce) ===== */}
+        {/* Small Position Auto-close Toggle */}
+        <div className="p-4 rounded-lg" style={sectionStyle}>
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="block text-sm" style={{ color: '#EAECEF' }}>{t('enableSmallPositionClose')}</label>
+              <p className="text-xs" style={{ color: '#848E9C' }}>{t('enableSmallPositionCloseDesc')}</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.enable_small_position_close ?? true}
+                onChange={(e) => updateField('enable_small_position_close', e.target.checked)}
+                disabled={disabled}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F0B90B]"></div>
+            </label>
+          </div>
+        </div>
+      </div>
       <div className="p-4 rounded-lg" style={{ background: '#1A1D23', border: '1px solid #2B3139' }}>
         <div className="flex items-center gap-2 mb-4">
           <TrendingUp className="w-5 h-5" style={{ color: '#F0B90B' }} />

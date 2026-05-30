@@ -58,6 +58,7 @@ type GridConfigModel struct {
 
 	OrderRefreshSec  int     `json:"order_refresh_sec" gorm:"default:300"`
 	UseMakerOnly     bool    `json:"use_maker_only" gorm:"default:true"`
+	EnableSmallPositionClose bool `json:"enable_small_position_close" gorm:"default:true"`
 	SlippageTolerPct float64 `json:"slippage_toler_pct" gorm:"default:0.1"`
 
 	AIProvider string `json:"ai_provider" gorm:"default:deepseek"`
