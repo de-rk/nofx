@@ -1904,11 +1904,15 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			drawdownPct = ((peakPnLPct - currentPnLPct) / peakPnLPct) * 100
 		}
 
-		// Get drawdown threshold from config (default 50%)
+		// Get drawdown threshold from config; 0 = disabled
 		drawdownThreshold := 50.0
 		if at.config.StrategyConfig != nil && at.config.StrategyConfig.GridConfig != nil {
-			if threshold := at.config.StrategyConfig.GridConfig.ProfitDrawdownThreshold; threshold > 0 {
-				drawdownThreshold = threshold
+			configured := at.config.StrategyConfig.GridConfig.ProfitDrawdownThreshold
+			if configured == 0 {
+				continue // disabled
+			}
+			if configured > 0 {
+				drawdownThreshold = configured
 			}
 		}
 
