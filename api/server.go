@@ -2078,6 +2078,7 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			"initial_balance":     trader.InitialBalance,
 			"strategy_id":         trader.StrategyID,
 			"strategy_name":       strategyName,
+			"created_at":          trader.CreatedAt,
 		})
 	}
 
