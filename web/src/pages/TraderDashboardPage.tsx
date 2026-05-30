@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import useSWR, { mutate } from 'swr'
+import { mutate } from 'swr'
 import { api } from '../lib/api'
 import { ChartTabs } from '../components/ChartTabs'
 import { DecisionCard } from '../components/DecisionCard'
