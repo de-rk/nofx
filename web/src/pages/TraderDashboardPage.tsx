@@ -140,18 +140,6 @@ export function TraderDashboardPage({
     const [showWalletAddress, setShowWalletAddress] = useState<boolean>(false)
     const [copiedAddress, setCopiedAddress] = useState<boolean>(false)
 
-    // Fetch equity history to calculate days since first trade
-    const { data: equityHistory } = useSWR(
-        selectedTraderId ? `equity-history-${selectedTraderId}` : null,
-        () => api.getEquityHistory(selectedTraderId),
-        { revalidateOnFocus: false }
-    )
-
-    // Calculate days since first trade record
-    const daysSinceFirstTrade = equityHistory && equityHistory.length > 0
-        ? Math.ceil((Date.now() - new Date(equityHistory[0].timestamp).getTime()) / (1000 * 60 * 60 * 24))
-        : 0
-
     // Current positions pagination
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
     const [positionsCurrentPage, setPositionsCurrentPage] = useState<number>(1)
