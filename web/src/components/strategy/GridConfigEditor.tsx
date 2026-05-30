@@ -408,9 +408,9 @@ export function GridConfigEditor({
             <input
               type="number"
               value={config.profit_drawdown_threshold ?? 50}
-              onChange={(e) => updateField('profit_drawdown_threshold', parseFloat(e.target.value) || 50)}
+              onChange={(e) => updateField('profit_drawdown_threshold', parseFloat(e.target.value) || 0)}
               disabled={disabled}
-              min={20}
+              min={0}
               max={80}
               className="w-full px-3 py-2 rounded"
               style={inputStyle}
