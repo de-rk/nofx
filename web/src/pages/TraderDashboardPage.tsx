@@ -911,6 +911,7 @@ const ACTION_ICONS: Record<string, string> = {
     ttrade_tag: '☑️',
     ttrade_fill: '✅',
     ttrade_reduce: '🔁',
+    ttrade_reduce_placed: '📌',
     profit_reduce: '📉',
     profit_reduce_close: '🎯',
     profit_drawdown_close: '💰',

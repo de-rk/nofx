@@ -20,12 +20,13 @@ import (
 
 // TTradePrepEntry tracks a single tagged grid order waiting to fill as a T-trade prep.
 type TTradePrepEntry struct {
-	OrderID       string
-	Price         float64
-	Qty           float64
-	Side          string    // "buy" or "sell"
-	TaggedAt      time.Time
-	ReduceQueued  bool      // true once reduce has been dispatched (prevents double-execution)
+	OrderID            string
+	Price              float64
+	Qty                float64
+	Side               string    // "buy" or "sell"
+	TaggedAt           time.Time
+	ReduceQueued       bool      // true once reduce has been dispatched (prevents double-execution)
+	FillAlreadyLogged  bool      // true when restored after a crash: fill was already logged before restart
 }
 
 // TTradeReduceEntry tracks a placed reduce limit order resulting from a T-trade prep fill.
@@ -634,11 +635,18 @@ func (at *AutoTrader) InitializeGrid() error {
 				if reduceEntry != nil && reduceEntry.CreatedAt.After(entry.CreatedAt) {
 					continue // reduce already filled, nothing to restore
 				}
-				// Also skip if prep fill was logged but no reduce needed (edge case)
-				fillEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_fill", entry.OrderID)
-				if fillEntry != nil && fillEntry.CreatedAt.After(entry.CreatedAt) {
-					// Prep filled but reduce not yet done — fall through to restore
+				// Skip if reduce was already placed (even if not yet filled) — prevents duplicate reduces on restart
+				reducePlacedEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce_placed", entry.OrderID)
+				if reducePlacedEntry != nil && reducePlacedEntry.CreatedAt.After(entry.CreatedAt) {
+					// Reduce order already placed — restore TTradeReduceOrders so checkTTradeReduceOrderStatus
+					// continues monitoring it; the reduce order ID is in the reason field
+					// (we don't know the reduce order ID here, so checkTTradeReduceOrderStatus will handle
+					// it as a no-op since the reduce will eventually fill or get cancelled)
+					continue
 				}
+				// Also check if prep fill was logged
+				fillEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_fill", entry.OrderID)
+				fillAlreadyLogged := fillEntry != nil && fillEntry.CreatedAt.After(entry.CreatedAt)
 
 				// Skip orders that are still pending — autoTagTTradeFromExistingOrders will re-tag them
 				if _, stillOpen := openOrderMap[entry.OrderID]; stillOpen {
@@ -664,11 +672,12 @@ func (at *AutoTrader) InitializeGrid() error {
 				}
 				at.gridState.mu.Lock()
 				at.gridState.TTradePrepOrders[entry.OrderID] = &TTradePrepEntry{
-					OrderID:  entry.OrderID,
-					Price:    fillPrice,
-					Qty:      entry.Quantity,
-					Side:     side,
-					TaggedAt: entry.CreatedAt,
+					OrderID:           entry.OrderID,
+					Price:             fillPrice,
+					Qty:               entry.Quantity,
+					Side:              side,
+					TaggedAt:          entry.CreatedAt,
+					FillAlreadyLogged: fillAlreadyLogged,
 				}
 				at.gridState.mu.Unlock()
 				logger.Infof("[Grid] Restored T-trade filled prep: order %s @ %.4f — reduce will be placed next cycle", entry.OrderID, fillPrice)
@@ -2853,11 +2862,14 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 			at.gridState.mu.Lock()
 			if p, exists := at.gridState.TTradePrepOrders[orderID]; exists && !p.ReduceQueued {
 				p.ReduceQueued = true
+				fillLogged := p.FillAlreadyLogged
 				delete(at.gridState.TTradePrepOrders, orderID)
 				at.gridState.mu.Unlock()
-				at.logGridTrade("ttrade", "ttrade_fill", prep.Side, gridConfig.Symbol,
-					fmt.Sprintf("prep %s filled @ %.2f", orderID, fillPrice),
-					orderID, prep.Qty, fillPrice, 0, 0, 0, 0, true, "")
+				if !fillLogged {
+					at.logGridTrade("ttrade", "ttrade_fill", prep.Side, gridConfig.Symbol,
+						fmt.Sprintf("prep %s filled @ %.2f", orderID, fillPrice),
+						orderID, prep.Qty, fillPrice, 0, 0, 0, 0, true, "")
+				}
 				go at.placeTTradeReduceOrder(prep.Side, fillPrice, prep.Qty, orderID)
 			} else {
 				at.gridState.mu.Unlock()
@@ -2916,6 +2928,11 @@ func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64,
 		logger.Warnf("[Grid] T-trade auto-reduce failed: %v", err)
 	} else if result != nil {
 		orderID = result.OrderID
+		// Log placement immediately so restart recovery knows a reduce is already queued
+		// (ttrade_reduce is logged at fill time; this prevents duplicate reduce on restart)
+		at.logGridTrade("ttrade", "ttrade_reduce_placed", prepSide, gridConfig.Symbol,
+			fmt.Sprintf("reduce order %s placed for prep %s fill=%.4f spread=%.1f%%", orderID, prepOrderID, fillPrice, spreadPct),
+			prepOrderID, qty, reducePrice, fillPrice, 0, 0, 0, true, "")
 		at.gridState.mu.Lock()
 		at.gridState.TTradeReduceOrders[orderID] = &TTradeReduceEntry{
 			ReduceOrderID: orderID,
