@@ -106,6 +106,8 @@ type GridStrategyConfig struct {
 	EnableProfitReduce bool `json:"enable_profit_reduce"`
 	// Profit reduce step percentage (default 10.0%)
 	ProfitReduceStepPct float64 `json:"profit_reduce_step_pct"`
+	// Profit reduce amount multiplier (0.5-2.0, default 1.0): scales N% reduce per step
+	ProfitReduceMultiplier float64 `json:"profit_reduce_multiplier"`
 	// Minimum spread % between T-trade prep fill price and reduce order price (default 0.2, range 0.2-1.0)
 	TTradeSpreadPct float64 `json:"t_trade_spread_pct"`
 	// Periodically refresh TotalInvestment from wallet balance

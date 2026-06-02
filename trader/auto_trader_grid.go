@@ -1133,11 +1133,18 @@ func (at *AutoTrader) checkProfitReduce() {
 			continue
 		}
 		// Escalating reduce based on current position size at each step
-		// Step N×: reduce N×step% of remaining position
+		// Step N×: reduce multiplier×N×step% of remaining position
+		multiplier := gridConfig.ProfitReduceMultiplier
+		if multiplier <= 0 {
+			multiplier = 1.0
+		}
 		var reduceQty float64
 		remaining := info.size
 		for s := alreadyReduced + step; s <= targetReducePct; s += step {
-			stepPct := (s / step) * (step / 100) // 1×step→step%, 2×step→2×step%...
+			stepPct := (s / step) * (step / 100) * multiplier
+			if stepPct > 1.0 {
+				stepPct = 1.0 // cap at 100% of remaining
+			}
 			reduceQty += remaining * stepPct
 			remaining -= remaining * stepPct
 		}

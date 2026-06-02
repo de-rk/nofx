@@ -27,6 +27,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   t_trade_position_threshold_pct: 30,
   enable_profit_reduce: true,
   profit_reduce_step_pct: 10,
+  profit_reduce_multiplier: 1.0,
   enable_investment_refresh: false,
   investment_refresh_days: 2,
 }
@@ -95,6 +96,8 @@ export function GridConfigEditor({
       profitReduceExplain: { zh: '💡 盈利减仓规则：每盈利N%减仓N%，下一档再减2N%，以此类推（基于保证金收益率，每次减剩余仓位）', en: '💡 Profit reduce: at N% profit reduce N%, at 2N% reduce 2N% of remaining, etc. (margin-based)' },
       profitReduceStep: { zh: '触发步长 (%)', en: 'Step Size (%)' },
       profitReduceStepDesc: { zh: '每隔多少%盈利触发一次减仓（默认10%）', en: 'Profit increment that triggers each reduction (default 10%)' },
+      profitReduceMultiplier: { zh: '减仓倍率', en: 'Reduce Multiplier' },
+      profitReduceMultiplierDesc: { zh: '每档减仓比例的倍率，1x=N%减N%，0.5x减半，2x加倍', en: 'Scales the reduce % per step: 1x = N% at step N, 0.5x halves, 2x doubles' },
 
       // Trapped reduce
       trappedReduce: { zh: 'AI减仓 (T字操作)', en: 'AI Position Reduce (T-Trade)' },
@@ -493,20 +496,37 @@ export function GridConfigEditor({
           </div>
           {(config.enable_profit_reduce ?? true) && (
             <div className="space-y-3">
-              <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
-                <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('profitReduceStep')}</label>
-                <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('profitReduceStepDesc')}</p>
-                <input
-                  type="number"
-                  value={config.profit_reduce_step_pct ?? 10}
-                  onChange={(e) => updateField('profit_reduce_step_pct', parseFloat(e.target.value) || 10)}
-                  disabled={disabled}
-                  min={5}
-                  max={30}
-                  step={5}
-                  className="w-full px-3 py-2 rounded text-sm"
-                  style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+                  <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('profitReduceStep')}</label>
+                  <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('profitReduceStepDesc')}</p>
+                  <input
+                    type="number"
+                    value={config.profit_reduce_step_pct ?? 10}
+                    onChange={(e) => updateField('profit_reduce_step_pct', parseFloat(e.target.value) || 10)}
+                    disabled={disabled}
+                    min={5}
+                    max={30}
+                    step={5}
+                    className="w-full px-3 py-2 rounded text-sm"
+                    style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+                  />
+                </div>
+                <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+                  <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('profitReduceMultiplier')}</label>
+                  <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('profitReduceMultiplierDesc')}</p>
+                  <input
+                    type="number"
+                    value={config.profit_reduce_multiplier ?? 1.0}
+                    onChange={(e) => updateField('profit_reduce_multiplier', parseFloat(e.target.value) || 1.0)}
+                    disabled={disabled}
+                    min={0.5}
+                    max={2}
+                    step={0.5}
+                    className="w-full px-3 py-2 rounded text-sm"
+                    style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+                  />
+                </div>
               </div>
             </div>
           )}
