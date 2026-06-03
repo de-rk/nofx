@@ -140,6 +140,7 @@ type AutoTrader struct {
 	peakEquity            float64            // Peak equity for profit drawdown tracking
 	lastBalanceSyncTime   time.Time          // Last balance sync time
 	userID                string             // User ID
+	strategyID            string             // Strategy ID this trader is using
 	gridState             *GridState         // Grid trading state (only used when StrategyType == "grid_trading")
 	tpManager             *TPManager         // Take profit manager for partial TP
 }
@@ -1486,6 +1487,29 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 // GetID gets trader ID
 func (at *AutoTrader) GetID() string {
 	return at.id
+}
+
+func (at *AutoTrader) GetStrategyID() string {
+	return at.strategyID
+}
+
+func (at *AutoTrader) SetStrategyID(id string) {
+	at.strategyID = id
+}
+
+// UpdateStrategyConfig hot-reloads the strategy config on a running trader.
+// Safe to call concurrently; also updates gridState.Config if grid is active.
+func (at *AutoTrader) UpdateStrategyConfig(newConfig *store.StrategyConfig) {
+	at.mu.Lock()
+	at.config.StrategyConfig = newConfig
+	at.mu.Unlock()
+
+	if newConfig != nil && newConfig.GridConfig != nil && at.gridState != nil {
+		at.gridState.mu.Lock()
+		at.gridState.Config = newConfig.GridConfig
+		at.gridState.mu.Unlock()
+		logger.Infof("[Trader] Strategy config hot-reloaded: %s", at.name)
+	}
 }
 
 // GetUnderlyingTrader returns the underlying Trader interface implementation

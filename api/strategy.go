@@ -291,6 +291,11 @@ func (s *Server) handleActivateStrategy(c *gin.Context) {
 		return
 	}
 
+	// Push updated config to all running traders using this strategy
+	if err := s.traderManager.PushStrategyToTraders(userID, strategyID, s.store); err != nil {
+		logger.Warnf("Failed to push strategy to traders: %v", err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Strategy activated successfully"})
 }
 

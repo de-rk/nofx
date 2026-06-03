@@ -701,6 +701,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	if err != nil {
 		return fmt.Errorf("failed to create trader: %w", err)
 	}
+	at.SetStrategyID(traderCfg.StrategyID)
 
 	// Set custom prompt (if exists)
 	if traderCfg.CustomPrompt != "" {
@@ -731,5 +732,30 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		logger.Infof("✅ Trader '%s' auto-started successfully", traderCfg.Name)
 	}
 
+	return nil
+}
+
+// PushStrategyToTraders hot-reloads a strategy config on all running traders that use it.
+func (tm *TraderManager) PushStrategyToTraders(userID, strategyID string, st *store.Store) error {
+	strategy, err := st.Strategy().Get(userID, strategyID)
+	if err != nil {
+		return fmt.Errorf("failed to load strategy %s: %w", strategyID, err)
+	}
+	newConfig, err := strategy.ParseConfig()
+	if err != nil {
+		return fmt.Errorf("failed to parse strategy config: %w", err)
+	}
+
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	pushed := 0
+	for _, t := range tm.traders {
+		if t.GetStrategyID() == strategyID {
+			t.UpdateStrategyConfig(newConfig)
+			pushed++
+		}
+	}
+	logger.Infof("[Manager] Strategy %s pushed to %d trader(s)", strategyID, pushed)
 	return nil
 }
