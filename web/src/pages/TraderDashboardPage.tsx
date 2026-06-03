@@ -653,7 +653,7 @@ export function TraderDashboardPage({
                                                             <div>
                                                                 <div className="font-mono font-bold text-sm text-nofx-text-main">{ticker}-PERP</div>
                                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${pos.side === 'long' ? 'bg-nofx-green/10 text-nofx-green' : 'bg-nofx-red/10 text-nofx-red'}`}>
+                                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${pos.side === 'long' ? 'bg-nofx-green text-black' : 'bg-nofx-red text-white'}`}>
                                                                         {t(pos.side === 'long' ? 'long' : 'short', language)}
                                                                     </span>
                                                                     <span className="text-xs text-nofx-text-muted font-mono">{formatQuantity(pos.quantity)} {ticker}</span>
@@ -661,25 +661,14 @@ export function TraderDashboardPage({
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        {/* PnL + close */}
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="text-right">
-                                                                <div className="font-mono font-bold text-base" style={{ color: pnlColor, textShadow: pnlShadow }}>
-                                                                    {isProfit ? '+' : ''}${pos.unrealized_pnl.toFixed(2)}
-                                                                </div>
-                                                                <div className="font-mono text-xs" style={{ color: pnlColor }}>
-                                                                    {isProfit ? '+' : ''}{pos.unrealized_pnl_pct.toFixed(2)}%
-                                                                </div>
+                                                        {/* PnL */}
+                                                        <div className="text-right">
+                                                            <div className="font-mono font-bold text-base" style={{ color: pnlColor, textShadow: pnlShadow }}>
+                                                                {isProfit ? '+' : ''}${pos.unrealized_pnl.toFixed(2)}
                                                             </div>
-                                                            <button
-                                                                type="button"
-                                                                onClick={(e) => { e.stopPropagation(); handleClosePosition(pos.symbol, pos.side.toUpperCase()) }}
-                                                                disabled={closingPosition === pos.symbol}
-                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-all hover:scale-105 disabled:opacity-50 bg-nofx-red/10 text-nofx-red border border-nofx-red/30 hover:bg-nofx-red/20"
-                                                            >
-                                                                {closingPosition === pos.symbol ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
-                                                                {language === 'zh' ? '平仓' : 'Close'}
-                                                            </button>
+                                                            <div className="font-mono text-xs" style={{ color: pnlColor }}>
+                                                                {isProfit ? '+' : ''}{pos.unrealized_pnl_pct.toFixed(2)}%
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     {/* Detail row */}
