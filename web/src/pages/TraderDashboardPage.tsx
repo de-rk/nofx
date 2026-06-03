@@ -605,7 +605,12 @@ export function TraderDashboardPage({
                                                             <div>
                                                                 <div className="font-mono font-bold text-sm text-nofx-text-main">{ticker}-PERP</div>
                                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${pos.side === 'long' ? 'bg-nofx-green text-black' : 'bg-nofx-red text-white'}`}>
+                                                                    <span
+                                                                        className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                                                                        style={pos.side === 'long'
+                                                                            ? { background: '#0ECB81', color: '#000' }
+                                                                            : { background: '#F6465D', color: '#fff' }}
+                                                                    >
                                                                         {t(pos.side === 'long' ? 'long' : 'short', language)}
                                                                     </span>
                                                                     <span className="text-xs text-nofx-text-muted font-mono">{formatQuantity(pos.quantity)} {ticker}</span>
