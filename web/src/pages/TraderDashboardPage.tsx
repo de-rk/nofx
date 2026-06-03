@@ -645,7 +645,9 @@ export function TraderDashboardPage({
                                                             {/* Token icon */}
                                                             <div
                                                                 className="w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
-                                                                style={{ background: `${iconColor}22`, border: `1px solid ${iconColor}44`, color: iconColor }}
+                                                                style={pos.side === 'long'
+                                                                    ? { background: 'rgba(14,203,129,0.15)', border: '1px solid rgba(14,203,129,0.4)', color: '#0ECB81' }
+                                                                    : { background: 'rgba(246,70,93,0.15)', border: '1px solid rgba(246,70,93,0.4)', color: '#F6465D' }}
                                                             >
                                                                 {ticker.slice(0, 3)}
                                                             </div>
