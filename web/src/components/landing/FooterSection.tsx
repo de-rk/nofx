@@ -1,4 +1,4 @@
-import { Github, Send, ExternalLink } from 'lucide-react'
+import { Github, ExternalLink } from 'lucide-react'
 import { t, Language } from '../../i18n/translations'
 import { OFFICIAL_LINKS } from '../../constants/branding'
 
@@ -10,16 +10,6 @@ export default function FooterSection({ language }: FooterSectionProps) {
   const links = {
     social: [
       { name: 'GitHub', href: OFFICIAL_LINKS.github, icon: Github },
-      {
-        name: 'X (Twitter)',
-        href: OFFICIAL_LINKS.twitter,
-        icon: () => (
-          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-          </svg>
-        ),
-      },
-      { name: 'Telegram', href: OFFICIAL_LINKS.telegram, icon: Send },
     ],
     resources: [
       {

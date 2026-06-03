@@ -322,7 +322,7 @@ function CommunityStats() {
             value: '6,600+',
             icon: MessageCircle,
             color: 'text-blue-500',
-            href: OFFICIAL_LINKS.telegram
+            href: OFFICIAL_LINKS.github
         }
     ]
 
