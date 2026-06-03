@@ -595,95 +595,104 @@ export function TraderDashboardPage({
                                     <span className="text-blue-500">◈</span> {t('currentPositions', language)}
                                 </h2>
                                 {positions && positions.length > 0 && (
-                                    <div className="text-xs px-2 py-1 rounded bg-nofx-gold/10 text-nofx-gold border border-nofx-gold/20 font-mono shadow-[0_0_10px_rgba(240,185,11,0.1)]">
-                                        {positions.length} {t('active', language)}
+                                    <div className="flex items-center gap-3">
+                                        <span
+                                            className="font-mono font-bold text-base"
+                                            style={{
+                                                color: positions.reduce((s, p) => s + p.unrealized_pnl, 0) >= 0 ? '#0ECB81' : '#F6465D',
+                                                textShadow: positions.reduce((s, p) => s + p.unrealized_pnl, 0) >= 0 ? '0 0 10px rgba(14,203,129,0.4)' : '0 0 10px rgba(246,70,93,0.4)'
+                                            }}
+                                        >
+                                            {positions.reduce((s, p) => s + p.unrealized_pnl, 0) >= 0 ? '+' : ''}${positions.reduce((s, p) => s + p.unrealized_pnl, 0).toFixed(2)}
+                                        </span>
+                                        <div className="text-xs px-2 py-1 rounded bg-nofx-gold/10 text-nofx-gold border border-nofx-gold/20 font-mono shadow-[0_0_10px_rgba(240,185,11,0.1)]">
+                                            {positions.length} {t('active', language)}
+                                        </div>
                                     </div>
                                 )}
                             </div>
                             {positions && positions.length > 0 ? (
                                 <div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-xs">
-                                            <thead className="text-left border-b border-white/5">
-                                                <tr>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-left">{t('symbol', language)}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-center">{t('side', language)}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-center">{language === 'zh' ? '操作' : 'Action'}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('entryPrice', language)}>{language === 'zh' ? '入场价' : 'Entry'}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('markPrice', language)}>{language === 'zh' ? '标记价' : 'Mark'}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right" title={t('quantity', language)}>{language === 'zh' ? '数量' : 'Qty'}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('positionValue', language)}>{language === 'zh' ? '价值' : 'Value'}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-center hidden md:table-cell" title={t('leverage', language)}>{language === 'zh' ? '杠杆' : 'Lev.'}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right" title={t('unrealizedPnL', language)}>{language === 'zh' ? '未实现盈亏' : 'uPnL'}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('liqPrice', language)}>{language === 'zh' ? '强平价' : 'Liq.'}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {paginatedPositions.map((pos, i) => (
-                                                    <tr
-                                                        key={i}
-                                                        className="border-b border-white/5 last:border-0 transition-all hover:bg-white/5 cursor-pointer group/row"
-                                                        onClick={() => {
-                                                            setSelectedChartSymbol(pos.symbol)
-                                                            setChartUpdateKey(Date.now())
-                                                            if (chartSectionRef.current) {
-                                                                chartSectionRef.current.scrollIntoView({
-                                                                    behavior: 'smooth',
-                                                                    block: 'start',
-                                                                })
-                                                            }
-                                                        }}
-                                                    >
-                                                        <td className="px-1 py-3 font-mono font-semibold whitespace-nowrap text-left text-nofx-text-main group-hover/row:text-white transition-colors">
-                                                            {pos.symbol}
-                                                        </td>
-                                                        <td className="px-1 py-3 whitespace-nowrap text-center">
-                                                            <span
-                                                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${pos.side === 'long' ? 'bg-nofx-green/10 text-nofx-green shadow-[0_0_8px_rgba(14,203,129,0.2)]' : 'bg-nofx-red/10 text-nofx-red shadow-[0_0_8px_rgba(246,70,93,0.2)]'}`}
+                                    <div className="space-y-2">
+                                        {paginatedPositions.map((pos, i) => {
+                                            const ticker = pos.symbol.replace(/USDT$|USD$|BUSD$|PERP$/, '')
+                                            const symbolColors: Record<string, string> = {
+                                                BTC: '#F7931A', ETH: '#7B6FCC', BNB: '#F3BA2F',
+                                                SOL: '#9945FF', HYPE: '#00D4FF', AVAX: '#E84142',
+                                                DOGE: '#C3A634', XRP: '#006AFF', ADA: '#0033AD',
+                                                SUI: '#6FBCF0', LINK: '#375BD2',
+                                            }
+                                            const iconColor = symbolColors[ticker] || '#848E9C'
+                                            const isProfit = pos.unrealized_pnl >= 0
+                                            const pnlColor = isProfit ? '#0ECB81' : '#F6465D'
+                                            const pnlShadow = isProfit ? '0 0 12px rgba(14,203,129,0.4)' : '0 0 12px rgba(246,70,93,0.4)'
+                                            return (
+                                                <div
+                                                    key={i}
+                                                    className="rounded-lg cursor-pointer transition-all hover:bg-white/5"
+                                                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', padding: '12px 14px' }}
+                                                    onClick={() => {
+                                                        setSelectedChartSymbol(pos.symbol)
+                                                        setChartUpdateKey(Date.now())
+                                                        if (chartSectionRef.current) {
+                                                            chartSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                                                        }
+                                                    }}
+                                                >
+                                                    {/* Main row */}
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3">
+                                                            {/* Token icon */}
+                                                            <div
+                                                                className="w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                                                                style={{ background: `${iconColor}22`, border: `1px solid ${iconColor}44`, color: iconColor }}
                                                             >
-                                                                {t(pos.side === 'long' ? 'long' : 'short', language)}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-1 py-3 whitespace-nowrap text-center">
+                                                                {ticker.slice(0, 3)}
+                                                            </div>
+                                                            {/* Symbol + side + qty */}
+                                                            <div>
+                                                                <div className="font-mono font-bold text-sm text-nofx-text-main">{ticker}-PERP</div>
+                                                                <div className="flex items-center gap-2 mt-0.5">
+                                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${pos.side === 'long' ? 'bg-nofx-green/10 text-nofx-green' : 'bg-nofx-red/10 text-nofx-red'}`}>
+                                                                        {t(pos.side === 'long' ? 'long' : 'short', language)}
+                                                                    </span>
+                                                                    <span className="text-xs text-nofx-text-muted font-mono">{formatQuantity(pos.quantity)} {ticker}</span>
+                                                                    <span className="text-xs text-nofx-gold font-mono">{pos.leverage}x</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        {/* PnL + close */}
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="text-right">
+                                                                <div className="font-mono font-bold text-base" style={{ color: pnlColor, textShadow: pnlShadow }}>
+                                                                    {isProfit ? '+' : ''}${pos.unrealized_pnl.toFixed(2)}
+                                                                </div>
+                                                                <div className="font-mono text-xs" style={{ color: pnlColor }}>
+                                                                    {isProfit ? '+' : ''}{pos.unrealized_pnl_pct.toFixed(2)}%
+                                                                </div>
+                                                            </div>
                                                             <button
                                                                 type="button"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation()
-                                                                    handleClosePosition(pos.symbol, pos.side.toUpperCase())
-                                                                }}
+                                                                onClick={(e) => { e.stopPropagation(); handleClosePosition(pos.symbol, pos.side.toUpperCase()) }}
                                                                 disabled={closingPosition === pos.symbol}
-                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed mx-auto bg-nofx-red/10 text-nofx-red border border-nofx-red/30 hover:bg-nofx-red/20"
-                                                                title={language === 'zh' ? '平仓' : 'Close Position'}
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-all hover:scale-105 disabled:opacity-50 bg-nofx-red/10 text-nofx-red border border-nofx-red/30 hover:bg-nofx-red/20"
                                                             >
-                                                                {closingPosition === pos.symbol ? (
-                                                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                                                ) : (
-                                                                    <LogOut className="w-3 h-3" />
-                                                                )}
+                                                                {closingPosition === pos.symbol ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
                                                                 {language === 'zh' ? '平仓' : 'Close'}
                                                             </button>
-                                                        </td>
-                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.entry_price)}</td>
-                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.mark_price)}</td>
-                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main">{formatQuantity(pos.quantity)}</td>
-                                                        <td className="px-1 py-3 font-mono font-bold whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{(pos.quantity * pos.mark_price).toFixed(2)}</td>
-                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-center text-nofx-gold hidden md:table-cell">{pos.leverage}x</td>
-                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right">
-                                                            <span
-                                                                className={`font-bold ${pos.unrealized_pnl >= 0 ? 'text-nofx-green shadow-nofx-green' : 'text-nofx-red shadow-nofx-red'}`}
-                                                                style={{ textShadow: pos.unrealized_pnl >= 0 ? '0 0 10px rgba(14,203,129,0.3)' : '0 0 10px rgba(246,70,93,0.3)' }}
-                                                            >
-                                                                {pos.unrealized_pnl >= 0 ? '+' : ''}
-                                                                {pos.unrealized_pnl.toFixed(2)}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-muted hidden md:table-cell">{formatPrice(pos.liquidation_price)}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                                        </div>
+                                                    </div>
+                                                    {/* Detail row */}
+                                                    <div className="flex items-center gap-4 mt-2 pt-2 text-[11px] font-mono text-nofx-text-muted" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                                                        <span>{language === 'zh' ? '入场' : 'Entry'} <span className="text-nofx-text-main">{formatPrice(pos.entry_price)}</span></span>
+                                                        <span>{language === 'zh' ? '标记' : 'Mark'} <span className="text-nofx-text-main">{formatPrice(pos.mark_price)}</span></span>
+                                                        <span>{language === 'zh' ? '价值' : 'Value'} <span className="text-nofx-text-main">${(pos.quantity * pos.mark_price).toFixed(0)}</span></span>
+                                                        <span>{language === 'zh' ? '强平' : 'Liq.'} <span className="text-nofx-text-main">{formatPrice(pos.liquidation_price)}</span></span>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
                                     </div>
-                                    {/* Pagination footer */}
                                     {totalPositions > 10 && (
                                         <div className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-4 text-xs border-t border-white/5 text-nofx-text-muted">
                                             <span>
