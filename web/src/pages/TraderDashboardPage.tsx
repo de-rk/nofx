@@ -1,14 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
-import { mutate } from 'swr'
-import { api } from '../lib/api'
 import { ChartTabs } from '../components/ChartTabs'
 import { DecisionCard } from '../components/DecisionCard'
 import { PositionHistory } from '../components/PositionHistory'
 import { PunkAvatar, getTraderAvatar } from '../components/PunkAvatar'
-import { confirmToast, notify } from '../lib/notify'
 import { formatPrice, formatQuantity } from '../utils/format'
 import { t, type Language } from '../i18n/translations'
-import { LogOut, Loader2, Eye, EyeOff, Copy, Check } from 'lucide-react'
+import { Eye, EyeOff, Copy, Check } from 'lucide-react'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
 import { GridRiskPanel } from '../components/strategy/GridRiskPanel'
 import type {
@@ -132,7 +129,6 @@ export function TraderDashboardPage({
     onNavigateToTraders,
     exchanges,
 }: TraderDashboardPageProps) {
-    const [closingPosition, setClosingPosition] = useState<string | null>(null)
     const [rightTab, setRightTab] = useState<'decisions' | 'tradelog'>('decisions')
     const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | undefined>(undefined)
     const [chartUpdateKey, setChartUpdateKey] = useState<number>(0)
@@ -193,46 +189,7 @@ export function TraderDashboardPage({
         }, 100)
     }
 
-    // 平仓操作
-    const handleClosePosition = async (symbol: string, side: string) => {
-        if (!selectedTraderId) return
-
-        const confirmMsg =
-            language === 'zh'
-                ? `确定要平仓 ${symbol} ${side === 'LONG' ? '多仓' : '空仓'} 吗？`
-                : `Are you sure you want to close ${symbol} ${side === 'LONG' ? 'LONG' : 'SHORT'} position?`
-
-        const confirmed = await confirmToast(confirmMsg, {
-            title: language === 'zh' ? '确认平仓' : 'Confirm Close',
-            okText: language === 'zh' ? '确认' : 'Confirm',
-            cancelText: language === 'zh' ? '取消' : 'Cancel',
-        })
-
-        if (!confirmed) return
-
-        setClosingPosition(symbol)
-        try {
-            await api.closePosition(selectedTraderId, symbol, side)
-            notify.success(
-                language === 'zh' ? '平仓成功' : 'Position closed successfully'
-            )
-            // 使用 SWR mutate 刷新数据而非重新加载页面
-            await Promise.all([
-                mutate(`positions-${selectedTraderId}`),
-                mutate(`account-${selectedTraderId}`),
-            ])
-        } catch (err: unknown) {
-            const errorMsg =
-                err instanceof Error
-                    ? err.message
-                    : language === 'zh'
-                        ? '平仓失败'
-                        : 'Failed to close position'
-            notify.error(errorMsg)
-        } finally {
-            setClosingPosition(null)
-        }
-    }
+    // 平仓操作已移至其他入口
 
     // Only show connection failed if we have no cached data — transient errors during polling shouldn't wipe the UI
     if (tradersError && !traders) {
@@ -616,13 +573,6 @@ export function TraderDashboardPage({
                                     <div className="space-y-2">
                                         {paginatedPositions.map((pos, i) => {
                                             const ticker = pos.symbol.replace(/USDT$|USD$|BUSD$|PERP$/, '')
-                                            const symbolColors: Record<string, string> = {
-                                                BTC: '#F7931A', ETH: '#7B6FCC', BNB: '#F3BA2F',
-                                                SOL: '#9945FF', HYPE: '#00D4FF', AVAX: '#E84142',
-                                                DOGE: '#C3A634', XRP: '#006AFF', ADA: '#0033AD',
-                                                SUI: '#6FBCF0', LINK: '#375BD2',
-                                            }
-                                            const iconColor = symbolColors[ticker] || '#848E9C'
                                             const isProfit = pos.unrealized_pnl >= 0
                                             const pnlColor = isProfit ? '#0ECB81' : '#F6465D'
                                             const pnlShadow = isProfit ? '0 0 12px rgba(14,203,129,0.4)' : '0 0 12px rgba(246,70,93,0.4)'
