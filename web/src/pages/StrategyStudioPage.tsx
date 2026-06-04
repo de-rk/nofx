@@ -240,13 +240,31 @@ export function StrategyStudioPage() {
 
   // Activate strategy
   const handleActivateStrategy = async (id: string) => {
-    if (!token) return
+    if (!token || !selectedStrategy || !editingConfig) return
     try {
-      const response = await fetch(`${API_BASE}/api/strategies/${id}/activate`, {
+      // Save current config first
+      const configWithLanguage = { ...editingConfig, language: language as 'zh' | 'en' }
+      const saveRes = await fetch(`${API_BASE}/api/strategies/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: selectedStrategy.name,
+          description: selectedStrategy.description,
+          config: configWithLanguage,
+          is_public: selectedStrategy.is_public,
+          config_visible: selectedStrategy.config_visible,
+        }),
+      })
+      if (!saveRes.ok) throw new Error('Failed to save strategy')
+      setHasChanges(false)
+
+      // Then hot-push to running traders
+      const pushRes = await fetch(`${API_BASE}/api/strategies/${id}/activate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!response.ok) throw new Error('Failed to activate strategy')
+      if (!pushRes.ok) throw new Error('Failed to hot-push strategy')
+      notify.success(language === 'zh' ? '策略已保存并热推送' : 'Strategy saved and hot-pushed')
       await fetchStrategies()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
