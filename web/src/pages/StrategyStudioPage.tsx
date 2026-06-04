@@ -5,7 +5,6 @@ import {
   Plus,
   Copy,
   Trash2,
-  Check,
   ChevronDown,
   ChevronRight,
   Settings,
@@ -692,16 +691,11 @@ export function StrategyStudioPage() {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
-                    onClick={() => !selectedStrategy.is_active && handleActivateStrategy(selectedStrategy.id)}
-                    disabled={selectedStrategy.is_active}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                      selectedStrategy.is_active
-                        ? 'bg-nofx-success/20 border border-nofx-success/50 text-nofx-success opacity-60 cursor-default'
-                        : 'bg-nofx-success/10 border border-nofx-success/30 text-nofx-success hover:bg-nofx-success/20'
-                    }`}
+                    onClick={() => handleActivateStrategy(selectedStrategy.id)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors bg-nofx-gold/10 border border-nofx-gold/30 text-nofx-gold hover:bg-nofx-gold/20"
                   >
-                    <Check className="w-3 h-3" />
-                    {selectedStrategy.is_active ? (language === 'zh' ? '已激活' : 'Active') : t('activate')}
+                    <Zap className="w-3 h-3" />
+                    {language === 'zh' ? '热推送' : 'Hot Push'}
                   </button>
                   {!selectedStrategy.is_default && (
                     <button
