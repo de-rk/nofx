@@ -1506,7 +1506,11 @@ func (at *AutoTrader) UpdateStrategyConfig(newConfig *store.StrategyConfig) {
 
 	if newConfig != nil && newConfig.GridConfig != nil && at.gridState != nil {
 		at.gridState.mu.Lock()
+		currentInvestment := at.gridState.Config.TotalInvestment
 		at.gridState.Config = newConfig.GridConfig
+		if currentInvestment > 0 {
+			at.gridState.Config.TotalInvestment = currentInvestment
+		}
 		at.gridState.mu.Unlock()
 		logger.Infof("[Trader] Strategy config hot-reloaded: %s", at.name)
 	}
