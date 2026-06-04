@@ -385,7 +385,7 @@ export function StrategyStudioPage() {
       save: { zh: '保存', en: 'Save' },
       saving: { zh: '保存中...', en: 'Saving...' },
       activate: { zh: '激活', en: 'Activate' },
-      active: { zh: '激活中', en: 'Active' },
+      active: { zh: '已推送', en: 'Hot Pushed' },
       default: { zh: '默认', en: 'Default' },
       noModel: { zh: '请先配置 AI 模型', en: 'Please configure AI model first' },
       testNote: { zh: '使用真实 AI 模型测试，不执行交易', en: 'Test with real AI, no trading' },
