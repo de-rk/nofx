@@ -449,15 +449,21 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	// Create strategy engine to build prompt
 	engine := kernel.NewStrategyEngine(&req.Config)
 
-	// Get candidate coins
-	candidates, err := engine.GetCandidateCoins()
-	if err != nil {
-		logger.Errorf("[API Error] Failed to get candidate coins: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":       "Failed to get candidate coins",
-			"ai_response": "",
-		})
-		return
+	// Get candidate coins — grid strategies don't use coin source, use the grid symbol directly
+	var candidates []kernel.CandidateCoin
+	if req.Config.StrategyType == "grid_trading" && req.Config.GridConfig != nil && req.Config.GridConfig.Symbol != "" {
+		candidates = []kernel.CandidateCoin{{Symbol: req.Config.GridConfig.Symbol, Sources: []string{"grid"}}}
+	} else {
+		var err error
+		candidates, err = engine.GetCandidateCoins()
+		if err != nil {
+			logger.Errorf("[API Error] Failed to get candidate coins: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":       "Failed to get candidate coins",
+				"ai_response": "",
+			})
+			return
+		}
 	}
 
 	// Get timeframe configuration
