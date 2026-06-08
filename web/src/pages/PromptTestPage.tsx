@@ -168,7 +168,10 @@ export function PromptTestPage() {
           run_real_ai: true,
         }),
       })
-      if (!response.ok) throw new Error('Failed to run AI test')
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.error || `Failed to run AI test (${response.status})`)
+      }
       const data = await response.json()
       setAiTestResult(data)
     } catch (err) {
