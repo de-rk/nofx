@@ -2897,14 +2897,24 @@ func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder
 			if p, exists := at.gridState.TTradePrepOrders[orderID]; exists && !p.ReduceQueued {
 				p.ReduceQueued = true
 				fillLogged := p.FillAlreadyLogged
-				delete(at.gridState.TTradePrepOrders, orderID)
 				at.gridState.mu.Unlock()
 				if !fillLogged {
 					at.logGridTrade("ttrade", "ttrade_fill", prep.Side, gridConfig.Symbol,
 						fmt.Sprintf("prep %s filled @ %.2f", orderID, fillPrice),
 						orderID, prep.Qty, fillPrice, 0, 0, 0, 0, true, "")
 				}
-				go at.placeTTradeReduceOrder(prep.Side, fillPrice, prep.Qty, orderID)
+				go func(side string, fp float64, qty float64, prepID string) {
+					ok := at.placeTTradeReduceOrder(side, fp, qty, prepID)
+					at.gridState.mu.Lock()
+					if ok {
+						delete(at.gridState.TTradePrepOrders, prepID)
+					} else {
+						if p, exists := at.gridState.TTradePrepOrders[prepID]; exists {
+							p.ReduceQueued = false
+						}
+					}
+					at.gridState.mu.Unlock()
+				}(prep.Side, fillPrice, prep.Qty, orderID)
 			} else {
 				at.gridState.mu.Unlock()
 			}
