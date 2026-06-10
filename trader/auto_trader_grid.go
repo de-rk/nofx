@@ -2459,27 +2459,22 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 	// Use wallet balance (available + margin in positions, excl. unrealized PnL) as total investment
 	leverage := gridConfig.Leverage
 	totalInvestment := gridConfig.TotalInvestment
-	if bal, err := at.trader.GetBalance(); err == nil {
-		if w, ok := bal["totalWalletBalance"].(float64); ok && w > 0 {
-			totalInvestment = w
-		}
-	}
 
-	// Get current position value
+	// Get current position value — sum both LONG and SHORT sides
 	positions, _ := at.trader.GetPositions()
 	var currentPositionValue float64
 	var currentPositionSize float64
 	for _, pos := range positions {
 		if sym, _ := pos["symbol"].(string); sym == gridConfig.Symbol {
 			size, _ := pos["positionAmt"].(float64)
-			// Use mark price for current market value, fallback to entry price
 			markPrice, hasMarkPrice := pos["markPrice"].(float64)
 			if !hasMarkPrice || markPrice == 0 {
 				markPrice, _ = pos["entryPrice"].(float64)
 			}
-			currentPositionValue = math.Abs(size * markPrice)
-			currentPositionSize = size
-			break
+			currentPositionValue += math.Abs(size * markPrice)
+			if currentPositionSize == 0 {
+				currentPositionSize = size
+			}
 		}
 	}
 
