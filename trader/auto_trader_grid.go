@@ -3094,7 +3094,14 @@ func (at *AutoTrader) buildTTradeContext(currentPrice float64) (longInfo, shortI
 	if threshold <= 0 {
 		threshold = 30.0
 	}
+	// Use wallet balance (excludes unrealized PnL) as the denominator so that
+	// paper gains don't inflate the denominator and prevent T-trade from triggering.
 	totalInvestment := gridConfig.TotalInvestment
+	if bal, bErr := at.trader.GetBalance(); bErr == nil {
+		if w, ok := bal["totalWalletBalance"].(float64); ok && w > 0 {
+			totalInvestment = w
+		}
+	}
 	if totalInvestment <= 0 {
 		err = fmt.Errorf("total investment is zero")
 		return
