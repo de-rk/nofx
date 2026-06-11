@@ -474,8 +474,8 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 | State | Conditions | Action |
 |-------|-----------|--------|
 | Ranging | BB width < 3%%, EMA distance < 1%% | Normal grid, balanced long/short |
-| Uptrend | BB width > 4%%, price breaking upper band | Contrarian: 40% buy / 60% sell — place sell orders into strength |
-| Downtrend | BB width > 4%%, price breaking lower band | Contrarian: 60% buy / 40% sell — place buy orders into weakness |
+| Uptrend | BB width > 4%%, price breaking upper band | Contrarian: 40%% buy / 60%% sell — place sell orders into strength |
+| Downtrend | BB width > 4%%, price breaking lower band | Contrarian: 60%% buy / 40%% sell — place buy orders into weakness |
 | High volatility | ATR abnormally large | pause_grid |
 
 ## Instructions
