@@ -1002,6 +1002,10 @@ func (at *AutoTrader) RunGridCycle() error {
 								if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
 									fillPrice = avg
 								}
+								// Use actual executed quantity, not the planned level quantity
+								if execQty, ok := statusMap["executedQty"].(float64); ok && execQty > 0 {
+									qty = execQty
+								}
 								logger.Infof("[Grid] 🏷 T-trade immediate fill detected: %s %s @ %.4f — placing reduce", orderID, orderSide, fillPrice)
 								at.logGridTrade("ttrade", "ttrade_fill", orderSide, gridConfig.Symbol,
 									fmt.Sprintf("prep %s filled @ %.4f (immediate taker fill)", orderID, fillPrice),
