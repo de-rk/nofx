@@ -1785,8 +1785,8 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 			leverage = int(lev)
 		}
 
-		// Calculate margin used
-		marginUsed := (quantity * markPrice) / float64(leverage)
+		// Calculate margin used (based on entry price, matching exchange ROI calculation)
+		marginUsed := (quantity * entryPrice) / float64(leverage)
 
 		// Calculate P&L percentage (based on margin)
 		pnlPct := calculatePnLPercentage(unrealizedPnl, marginUsed)
