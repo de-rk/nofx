@@ -334,6 +334,11 @@ func (at *AutoTrader) handleBreakout(breakoutType BreakoutType, breakoutPct floa
 		at.gridState.IsPaused = true
 		at.gridState.mu.Unlock()
 
+		symbol := at.config.StrategyConfig.GridConfig.Symbol
+		at.logGridTrade("system", "breakout_pause", string(breakoutType), symbol,
+			fmt.Sprintf("%s breakout %.2f%% beyond boundary — grid paused, orders cancelled", breakoutType, breakoutPct),
+			"", 0, 0, 0, 0, 0, 0, true, "")
+
 		return fmt.Errorf("grid paused due to %s breakout (%.2f%%)", breakoutType, breakoutPct)
 	}
 
@@ -903,6 +908,13 @@ func (at *AutoTrader) RunGridCycle() error {
 		at.isRunningMutex.RUnlock()
 		if !running {
 			logger.Infof("[Grid] Trader stopped, skipping remaining %d decisions", len(decision.Decisions))
+			break
+		}
+
+		// Skip order placement if available balance is too low to avoid cascading exchange errors
+		isOrderAction := d.Action == "place_buy_limit" || d.Action == "place_sell_limit"
+		if isOrderAction && gridCtx.AvailableBalance < 1.0 {
+			logger.Warnf("[Grid] Skipping %s: available balance $%.2f insufficient", d.Action, gridCtx.AvailableBalance)
 			break
 		}
 
