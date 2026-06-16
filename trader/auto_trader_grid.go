@@ -900,6 +900,8 @@ func (at *AutoTrader) RunGridCycle() error {
 		d   kernel.Decision
 		err error
 	}
+	const maxOrdersPerCycle = 8
+	orderCount := 0
 	results := make([]decisionResult, 0, len(decision.Decisions))
 	for _, d := range decision.Decisions {
 		// Check if trader is still running before each decision
@@ -911,10 +913,17 @@ func (at *AutoTrader) RunGridCycle() error {
 			break
 		}
 
-		// Skip order placement if available balance is too low to avoid cascading exchange errors
 		isOrderAction := d.Action == "place_buy_limit" || d.Action == "place_sell_limit"
+
+		// Skip order placement if available balance is too low to avoid cascading exchange errors
 		if isOrderAction && gridCtx.AvailableBalance < 1.0 {
 			logger.Warnf("[Grid] Skipping %s: available balance $%.2f insufficient", d.Action, gridCtx.AvailableBalance)
+			break
+		}
+
+		// Cap order placements per cycle to avoid rate limits and runaway AI decisions
+		if isOrderAction && orderCount >= maxOrdersPerCycle {
+			logger.Warnf("[Grid] Skipping remaining order decisions: hit per-cycle limit (%d)", maxOrdersPerCycle)
 			break
 		}
 
@@ -923,6 +932,9 @@ func (at *AutoTrader) RunGridCycle() error {
 			logger.Warnf("[Grid] Failed to execute decision %s: %v", d.Action, err)
 		}
 		results = append(results, decisionResult{d: d, err: err})
+		if isOrderAction {
+			orderCount++
+		}
 	}
 
 	// Update decision memory
