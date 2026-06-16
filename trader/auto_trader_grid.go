@@ -857,11 +857,6 @@ func (at *AutoTrader) RunGridCycle() error {
 		at.checkInvestmentRefresh()
 	}
 
-	if isPaused {
-		logger.Infof("[Grid] Grid is paused, skipping AI cycle")
-		return nil
-	}
-
 	// Build grid context
 	gridCtx, err := at.buildGridContext()
 	if err != nil {
@@ -912,6 +907,12 @@ func (at *AutoTrader) RunGridCycle() error {
 		}
 
 		isOrderAction := d.Action == "place_buy_limit" || d.Action == "place_sell_limit"
+
+		// Skip order placement if grid is paused
+		if isOrderAction && isPaused {
+			logger.Infof("[Grid] Skipping %s: grid is paused", d.Action)
+			continue
+		}
 
 		// Skip order placement if available balance is too low to avoid cascading exchange errors
 		if isOrderAction && gridCtx.AvailableBalance < 1.0 {
