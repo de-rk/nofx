@@ -825,11 +825,6 @@ func (at *AutoTrader) RunGridCycle() error {
 	at.gridState.mu.RLock()
 	isPaused := at.gridState.IsPaused
 	at.gridState.mu.RUnlock()
-	if isPaused {
-		logger.Infof("[Grid] Grid is paused, skipping cycle")
-		return nil
-	}
-
 	gridConfig := at.config.StrategyConfig.GridConfig
 	lang := at.config.StrategyConfig.Language
 	if lang == "" {
@@ -847,21 +842,24 @@ func (at *AutoTrader) RunGridCycle() error {
 	// before T-trade fill detection runs
 	at.syncOpenOrdersFromExchange(openOrders)
 
-	// Check if T-trade buy order has filled → execute deferred reduce if so
+	// T-trade and profit-reduce run regardless of pause state — system-level operations
 	if gridConfig.EnableTrappedReduce {
-		at.autoTagTTradeFromExistingOrders(openOrders) // auto-tag nearest grid order as T-trade prep
+		at.autoTagTTradeFromExistingOrders(openOrders)
 		at.checkTTradeOrderFillAndReduce(openOrders)
 		at.checkTTradeReduceOrderStatus(openOrders)
 	}
 
-	// Check profit-based position reduction
 	if at.config.StrategyConfig.GridConfig.EnableProfitReduce {
 		at.checkProfitReduce()
 	}
 
-	// Periodic investment amount refresh
 	if gridConfig.EnableInvestmentRefresh {
 		at.checkInvestmentRefresh()
+	}
+
+	if isPaused {
+		logger.Infof("[Grid] Grid is paused, skipping AI cycle")
+		return nil
 	}
 
 	// Build grid context
