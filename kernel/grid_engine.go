@@ -441,6 +441,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 JSON 数组，每个决策一个对象：
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"confidence":0,"reasoning":"..."}]
 **每个周期最多输出 8 个下单决策（place_buy_limit / place_sell_limit 合计），超出部分会被忽略。**
+**reasoning 字段保持简洁，不超过 2 句话。**
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
 }
 
@@ -513,6 +514,7 @@ When available_balance ≤ $1, the system discards all order placement decisions
 JSON array, one object per decision:
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"confidence":0,"reasoning":"..."}]
 **Maximum 8 order decisions (place_buy_limit + place_sell_limit combined) per cycle — excess will be ignored.**
+**Keep reasoning concise — 2 sentences max.**
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
 }
 
