@@ -940,7 +940,8 @@ func (at *AutoTrader) RunGridCycle() error {
 	// Update decision memory
 	at.gridState.mu.Lock()
 	for _, r := range results {
-		if r.d.Action == "hold" {
+		// Skip hold unless it has meaningful reasoning (e.g. zero-balance analysis)
+		if r.d.Action == "hold" && len(r.d.Reasoning) < 20 {
 			continue
 		}
 		resultStr := "ok"
