@@ -430,6 +430,12 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - pause_grid / resume_grid：暂停/恢复
 - adjust_grid：重新计算网格边界
 - hold：本周期不操作
+
+### 余额为零时的处理
+当 available_balance ≤ $1 时，系统会忽略所有下单决策。此时你**不应**尝试下单，而应：
+1. 输出 `hold`
+2. 在 reasoning 中分析当前局面：现有挂单分布、持仓方向与盈亏、被套状态、下一步可能的触发条件（例如某个 T-trade 减仓单成交后余额释放）
+3. 该分析会被保存到 Decision History，供后续周期参考
 %s
 ## 输出格式
 JSON 数组，每个决策一个对象：
@@ -496,6 +502,12 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 - pause_grid / resume_grid: pause or resume
 - adjust_grid: recalculate grid bounds
 - hold: no action this cycle
+
+### Zero-Balance Handling
+When available_balance ≤ $1, the system discards all order placement decisions. In this state you **must not** attempt to place orders. Instead:
+1. Output `hold`
+2. In the reasoning, analyze the current situation: existing order distribution, position direction and PnL, trapped state, and what would unlock capital next (e.g. a T-trade reduce fill, a grid order fill releasing margin)
+3. This analysis is saved to Decision History for reference in future cycles
 %s
 ## Output Format
 JSON array, one object per decision:
