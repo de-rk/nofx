@@ -162,7 +162,7 @@ func isValidGridAction(action string) bool {
 		"place_sell_limit":  true,
 		"cancel_order":      true,
 		"cancel_all_orders": true,
-		"pause_grid":        true,
+		"pause_grid":        false,
 		"resume_grid":       true,
 		"adjust_grid":       true,
 		"hold":              true,
@@ -411,7 +411,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 | 震荡 | 布林带宽 < 3%%, EMA距离 < 1%% | 正常补单，多空均衡 |
 | 趋势上行 | 布林带宽 > 4%%, 价格持续突破上轨 | 反向布局：买单40%%，卖单60%%，逢高挂卖单吃回调 |
 | 趋势下行 | 布林带宽 > 4%%, 价格持续突破下轨 | 反向布局：买单60%%，卖单40%%，逢低挂买单吃反弹 |
-| 高波动 | ATR 异常放大 | pause_grid |
+| 高波动 | ATR 异常放大 | hold，等待波动平息 |
 
 ## 操作指令
 
@@ -427,16 +427,14 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 ### 其他
 - cancel_order / cancel_all_orders：撤单
-- pause_grid / resume_grid：暂停/恢复
 - adjust_grid：重新计算网格边界
 - hold：本周期不操作
 
 ### 余额为零时的处理
-当 available_balance ≤ $1 时，系统会忽略所有下单决策。此时你**不应**尝试下单或暂停网格，而应：
+当 available_balance ≤ $1 时，系统会忽略所有下单决策。此时你**不应**尝试下单，而应：
 1. 输出 "hold"
 2. 在 reasoning 中分析当前局面：现有挂单分布、持仓方向与盈亏、被套状态、下一步可能的触发条件（例如某个 T-trade 减仓单成交后余额释放）
 3. 该分析会被保存到 Decision History，供后续周期参考
-⚠️ 余额为零时**禁止**使用 pause_grid，网格暂停不会释放保证金，只会阻止后续恢复。
 %s
 ## 输出格式
 JSON 数组，每个决策一个对象：
@@ -485,7 +483,7 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 | Ranging | BB width < 3%%, EMA distance < 1%% | Normal grid, balanced long/short |
 | Uptrend | BB width > 4%%, price breaking upper band | Contrarian: 40%% buy / 60%% sell — place sell orders into strength |
 | Downtrend | BB width > 4%%, price breaking lower band | Contrarian: 60%% buy / 40%% sell — place buy orders into weakness |
-| High volatility | ATR abnormally large | pause_grid |
+| High volatility | ATR abnormally large | hold, wait for volatility to settle |
 
 ## Instructions
 
@@ -501,16 +499,14 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 
 ### Other
 - cancel_order / cancel_all_orders: cancel orders
-- pause_grid / resume_grid: pause or resume
 - adjust_grid: recalculate grid bounds
 - hold: no action this cycle
 
 ### Zero-Balance Handling
-When available_balance ≤ $1, the system discards all order placement decisions. In this state you **must not** attempt to place orders or pause the grid. Instead:
+When available_balance ≤ $1, the system discards all order placement decisions. In this state you **must not** attempt to place orders. Instead:
 1. Output "hold"
 2. In the reasoning, analyze the current situation: existing order distribution, position direction and PnL, trapped state, and what would unlock capital next (e.g. a T-trade reduce fill, a grid order fill releasing margin)
 3. This analysis is saved to Decision History for reference in future cycles
-⚠️ **Do NOT use pause_grid when balance is zero** — pausing the grid does not free margin and blocks subsequent recovery.
 %s
 ## Output Format
 JSON array, one object per decision:

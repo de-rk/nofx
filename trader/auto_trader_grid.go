@@ -1440,7 +1440,8 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 	case "cancel_all_orders":
 		return at.cancelAllGridOrders()
 	case "pause_grid":
-		return at.pauseGrid(d.Reasoning)
+		logger.Warnf("[Grid] AI requested pause_grid — ignored (use system breakout mechanism)")
+		return nil
 	case "resume_grid":
 		return at.resumeGrid()
 	case "adjust_grid":
