@@ -876,7 +876,9 @@ func (at *AutoTrader) RunGridCycle() error {
 		err error
 	}
 	const maxOrdersPerCycle = 8
+	const maxCancelsPerCycle = 3
 	orderCount := 0
+	cancelCount := 0
 	results := make([]decisionResult, 0, len(decision.Decisions))
 	for _, d := range decision.Decisions {
 		// Check if trader is still running before each decision
@@ -908,6 +910,12 @@ func (at *AutoTrader) RunGridCycle() error {
 			break
 		}
 
+		// Cap cancel_order per cycle
+		if d.Action == "cancel_order" && cancelCount >= maxCancelsPerCycle {
+			logger.Warnf("[Grid] Skipping cancel_order: hit per-cycle cancel limit (%d)", maxCancelsPerCycle)
+			continue
+		}
+
 		err := at.executeGridDecision(&d, gridCtx)
 		if err != nil {
 			logger.Warnf("[Grid] Failed to execute decision %s: %v", d.Action, err)
@@ -915,6 +923,9 @@ func (at *AutoTrader) RunGridCycle() error {
 		results = append(results, decisionResult{d: d, err: err})
 		if isOrderAction {
 			orderCount++
+		}
+		if d.Action == "cancel_order" {
+			cancelCount++
 		}
 	}
 
@@ -1389,6 +1400,16 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	if ctx.CurrentPrice > 0 {
 		ctx.TrappedInfo = at.buildTrappedPositionInfo(ctx.CurrentPrice)
 	}
+
+	// Populate protected T-trade order IDs so AI knows not to cancel them
+	at.gridState.mu.RLock()
+	for id := range at.gridState.TTradePrepOrders {
+		ctx.TTradeProtectedOrderIDs = append(ctx.TTradeProtectedOrderIDs, id)
+	}
+	for id := range at.gridState.TTradeReduceOrders {
+		ctx.TTradeProtectedOrderIDs = append(ctx.TTradeProtectedOrderIDs, id)
+	}
+	at.gridState.mu.RUnlock()
 
 	return ctx, nil
 }

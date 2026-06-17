@@ -329,6 +329,9 @@ type GridContext struct {
 
 	// Decision history for AI context
 	DecisionHistory []DecisionSummary `json:"decision_history,omitempty"`
+
+	// T-trade protected order IDs — AI must never cancel these
+	TTradeProtectedOrderIDs []string `json:"t_trade_protected_order_ids,omitempty"`
 }
 
 // TrappedPositionInfo contains information about trapped (losing) positions
@@ -427,6 +430,10 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 ### 其他
 - cancel_order / cancel_all_orders：撤单
+  - cancel_order：撤销单个订单（price 字段填目标订单价格，quantity 填 0）
+  - cancel_all_orders：撤销所有非T字订单
+  - **每次最多撤 3 个订单**（cancel_order 合计）
+  - **⛔ 禁止撤销 User Prompt 中「T字保护订单」列表内的任何订单**
 - adjust_grid：重新计算网格边界
 - hold：本周期不操作
 
@@ -499,6 +506,10 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 
 ### Other
 - cancel_order / cancel_all_orders: cancel orders
+  - cancel_order: cancel a single order (set price to the target order's price, quantity to 0)
+  - cancel_all_orders: cancel all non-T-trade orders
+  - **Maximum 3 cancel_order decisions per cycle**
+  - **⛔ Never cancel any order ID listed under "T-Trade Protected Orders" in the User Prompt**
 - adjust_grid: recalculate grid bounds
 - hold: no action this cycle
 
@@ -553,6 +564,15 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，正常补网格单\n")
 		default:
 			sb.WriteString("- T字状态: 空闲\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Protected T-trade order IDs
+	if len(ctx.TTradeProtectedOrderIDs) > 0 {
+		sb.WriteString("## ⛔ T字保护订单（禁止撤销）\n")
+		for _, id := range ctx.TTradeProtectedOrderIDs {
+			sb.WriteString(fmt.Sprintf("- %s\n", id))
 		}
 		sb.WriteString("\n")
 	}
@@ -672,6 +692,15 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — continue normal grid orders\n")
 		default:
 			sb.WriteString("- T-Trade: IDLE\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Protected T-trade order IDs
+	if len(ctx.TTradeProtectedOrderIDs) > 0 {
+		sb.WriteString("## ⛔ T-Trade Protected Orders (do NOT cancel)\n")
+		for _, id := range ctx.TTradeProtectedOrderIDs {
+			sb.WriteString(fmt.Sprintf("- %s\n", id))
 		}
 		sb.WriteString("\n")
 	}
