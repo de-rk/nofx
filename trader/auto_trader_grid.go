@@ -801,25 +801,7 @@ func (at *AutoTrader) RunGridCycle() error {
 		}
 	}
 
-	// CRITICAL: Check for breakout before executing any trades
-	breakoutType, breakoutPct := at.checkBreakout()
-	if breakoutType != BreakoutNone {
-		if err := at.handleBreakout(breakoutType, breakoutPct); err != nil {
-			return err // Grid paused due to breakout
-		}
-	}
-
-	// Risk controls (max drawdown, daily loss limit, stop loss) are disabled.
-
-	// Check multi-period box breakout
-	if err := at.checkBoxBreakout(); err != nil {
-		logger.Infof("Box breakout check error: %v", err)
-	}
-
-	// Check for false breakout recovery
-	if err := at.checkFalseBreakoutRecovery(); err != nil {
-		logger.Infof("False breakout recovery check error: %v", err)
-	}
+	// Breakout detection and box breakout checks are disabled.
 
 	// Check if grid is paused
 	at.gridState.mu.RLock()
