@@ -1635,6 +1635,43 @@ func (t *OKXTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitO
 	}, nil
 }
 
+// CancelOrdersBatch cancels up to 20 orders in a single API call.
+// Returns the count of successfully cancelled orders.
+func (t *OKXTrader) CancelOrdersBatch(symbol string, orderIDs []string) int {
+	if len(orderIDs) == 0 {
+		return 0
+	}
+	instId := t.convertSymbol(symbol)
+	cancelled := 0
+	for i := 0; i < len(orderIDs); i += 20 {
+		end := i + 20
+		if end > len(orderIDs) {
+			end = len(orderIDs)
+		}
+		batch := orderIDs[i:end]
+		reqs := make([]map[string]string, len(batch))
+		for j, id := range batch {
+			reqs[j] = map[string]string{"instId": instId, "ordId": id}
+		}
+		data, err := t.doRequest("POST", "/api/v5/trade/cancel-batch-orders", reqs)
+		if err != nil {
+			logger.Warnf("[OKX] Batch cancel failed: %v", err)
+			continue
+		}
+		var results []struct {
+			SCode string `json:"sCode"`
+		}
+		if err := json.Unmarshal(data, &results); err == nil {
+			for _, r := range results {
+				if r.SCode == "0" {
+					cancelled++
+				}
+			}
+		}
+	}
+	return cancelled
+}
+
 // CancelOrder cancels a specific order by ID
 // Implements GridTrader interface
 func (t *OKXTrader) CancelOrder(symbol, orderID string) error {

@@ -1769,16 +1769,26 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 		return fmt.Errorf("failed to get open orders: %w", err)
 	}
 
-	// Cancel orders one by one, skipping T-trade orders
-	cancelCount := 0
+	// Cancel orders, skipping T-trade orders
+	toCancel := make([]string, 0, len(openOrders))
 	for _, order := range openOrders {
 		if protectedIDs[order.OrderID] {
 			logger.Infof("[Grid] Skipping T-trade order %s during cancel all", order.OrderID)
 			continue
 		}
-		if gridTrader, ok := at.trader.(GridTrader); ok {
-			if err := gridTrader.CancelOrder(gridConfig.Symbol, order.OrderID); err != nil {
-				logger.Warnf("[Grid] Failed to cancel order %s: %v", order.OrderID, err)
+		toCancel = append(toCancel, order.OrderID)
+	}
+
+	cancelCount := 0
+	type batchCanceler interface {
+		CancelOrdersBatch(symbol string, orderIDs []string) int
+	}
+	if bc, ok := at.trader.(batchCanceler); ok {
+		cancelCount = bc.CancelOrdersBatch(gridConfig.Symbol, toCancel)
+	} else if gridTrader, ok := at.trader.(GridTrader); ok {
+		for _, id := range toCancel {
+			if err := gridTrader.CancelOrder(gridConfig.Symbol, id); err != nil {
+				logger.Warnf("[Grid] Failed to cancel order %s: %v", id, err)
 			} else {
 				cancelCount++
 			}
