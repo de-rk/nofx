@@ -1401,11 +1401,8 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		ctx.TrappedInfo = at.buildTrappedPositionInfo(ctx.CurrentPrice)
 	}
 
-	// Populate protected T-trade order IDs so AI knows not to cancel them
+	// Populate protected T-trade order IDs — only reduce orders are protected
 	at.gridState.mu.RLock()
-	for id := range at.gridState.TTradePrepOrders {
-		ctx.TTradeProtectedOrderIDs = append(ctx.TTradeProtectedOrderIDs, id)
-	}
 	for id := range at.gridState.TTradeReduceOrders {
 		ctx.TTradeProtectedOrderIDs = append(ctx.TTradeProtectedOrderIDs, id)
 	}
