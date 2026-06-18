@@ -1180,24 +1180,13 @@ func (at *AutoTrader) checkProfitReduce() {
 		if targetReducePct <= alreadyReduced {
 			continue
 		}
-		// Escalating reduce based on current position size at each step.
-		// Calculate default (1x) total first, then scale by multiplier so that
-		// e.g. 0.3x always means "reduce 30% of what 1x would reduce".
+		// Reduce qty = position × (step_number × step%) × multiplier
+		// e.g. at step 3 with step=6%: 75.1 × 18% × 0.1 = 1.3518
 		multiplier := gridConfig.ProfitReduceMultiplier
 		if multiplier <= 0 {
 			multiplier = 1.0
 		}
-		var reduceQty float64
-		remaining := info.size
-		for s := alreadyReduced + step; s <= targetReducePct; s += step {
-			stepPct := (s / step) * (step / 100) // 1x: N% at step N
-			if stepPct > 1.0 {
-				stepPct = 1.0
-			}
-			reduceQty += remaining * stepPct
-			remaining -= remaining * stepPct
-		}
-		reduceQty *= multiplier
+		reduceQty := info.size * (targetReducePct / 100) * multiplier
 		if reduceQty > info.size {
 			reduceQty = info.size
 		}
@@ -1269,7 +1258,7 @@ func (at *AutoTrader) checkProfitReduce() {
 			profitPct = info.unrealizedProfit / margin * 100
 		}
 		at.logGridTrade("profit_reduce", action, info.side, symbol,
-			fmt.Sprintf("target=%.0f%% closeAll=%v", a.targetReducePct, a.closeAll),
+			fmt.Sprintf("pos=%.4f target=%.0f%% closeAll=%v", info.size, a.targetReducePct, a.closeAll),
 			orderID, a.qty, info.markPrice, info.entryPrice, info.markPrice,
 			profitPct, info.unrealizedProfit, err == nil, errMsg)
 		if err != nil {
