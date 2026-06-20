@@ -596,9 +596,9 @@ func (at *AutoTrader) InitializeGrid() error {
 				logger.Infof("[Grid] Skipping %s profit-reduce restore: position was closed after last reduce", side)
 				continue
 			}
-			var targetPct float64
+			var pos, targetPct float64
 			// reason format: "pos=X.XXXX target=YY% closeAll=false"
-			fmt.Sscanf(reduceEntry.Reason, "pos=%*f target=%f%%", &targetPct)
+			fmt.Sscanf(reduceEntry.Reason, "pos=%f target=%f%%", &pos, &targetPct)
 			if targetPct > 0 {
 				at.gridState.mu.Lock()
 				if side == "long" {
