@@ -1162,8 +1162,7 @@ func (at *AutoTrader) checkProfitReduce() {
 			info.side, info.entryPrice, info.markPrice, info.unrealizedProfit, margin, profitPct)
 
 		if profitPct <= 0 {
-			// Do not reset tracker on profit drawdown — only reset when position is gone.
-			// Re-triggering the same reduction level after a temporary profit dip is incorrect.
+			actions = append(actions, reduceAction{info: *info, qty: 0, closeAll: false, targetReducePct: -1})
 			continue
 		}
 
@@ -1200,6 +1199,24 @@ func (at *AutoTrader) checkProfitReduce() {
 	// Execute orders outside the lock
 	for _, a := range actions {
 		info := a.info
+		if a.targetReducePct == -1 {
+			// Reset tracker — only log if it was actually non-zero (avoid log spam every cycle)
+			at.gridState.mu.Lock()
+			var prev float64
+			if info.side == "long" {
+				prev = at.gridState.LongProfitReducedPct
+				at.gridState.LongProfitReducedPct = 0
+			} else {
+				prev = at.gridState.ShortProfitReducedPct
+				at.gridState.ShortProfitReducedPct = 0
+			}
+			at.gridState.mu.Unlock()
+			if prev > 0 {
+				at.logGridTrade("profit_reduce", "profit_reduce_reset", info.side, symbol,
+					"profit went to zero/negative — reset tracker", "", 0, 0, 0, 0, 0, 0, true, "")
+			}
+			continue
+		}
 
 		orderSide := "SELL"
 		posSide := "LONG"
