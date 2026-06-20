@@ -332,7 +332,7 @@ export function GridRiskPanel({
             </div>
 
             {/* Profit Reduce Tracker */}
-            {(riskInfo.long_profit_reduced_pct > 0 || riskInfo.short_profit_reduced_pct > 0) && (
+            {riskInfo.profit_reduce_step > 0 && (
               <div className="p-2 rounded" style={{ background: '#1E2329' }}>
                 <div className="flex items-center gap-1 mb-2">
                   <TrendingUp className="w-3 h-3" style={{ color: '#F0B90B' }} />
