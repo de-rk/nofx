@@ -107,8 +107,10 @@ type GridState struct {
 	TTradePrepSide     string                        // current trapped direction: "buy" or "sell"
 
 	// Profit-based reduce tracking (per side)
-	LongProfitReducedPct  float64 // cumulative % already reduced for long (multiples of 10)
-	ShortProfitReducedPct float64 // cumulative % already reduced for short (multiples of 10)
+	LongProfitReducedPct  float64 // tracker reset when profit hits zero; floor prevents re-trigger at same level
+	ShortProfitReducedPct float64
+	LongProfitFloor       float64 // highest level triggered this cycle; resets with tracker on profit<=0 or manual reset
+	ShortProfitFloor      float64
 
 	// Periodic investment refresh
 	LastInvestmentRefreshAt time.Time
@@ -597,13 +599,16 @@ func (at *AutoTrader) InitializeGrid() error {
 				continue
 			}
 			var targetPct float64
-			fmt.Sscanf(reduceEntry.Reason, "target=%f%%", &targetPct)
+			// reason format: "pos=X.XXXX target=YY% closeAll=false"
+			fmt.Sscanf(reduceEntry.Reason, "pos=%*f target=%f%%", &targetPct)
 			if targetPct > 0 {
 				at.gridState.mu.Lock()
 				if side == "long" {
 					at.gridState.LongProfitReducedPct = targetPct
+					at.gridState.LongProfitFloor = targetPct
 				} else {
 					at.gridState.ShortProfitReducedPct = targetPct
+					at.gridState.ShortProfitFloor = targetPct
 				}
 				at.gridState.mu.Unlock()
 				logger.Infof("[Grid] Restored %s profit-reduce progress from log: %.0f%%", side, targetPct)
@@ -1126,10 +1131,12 @@ func (at *AutoTrader) checkProfitReduce() {
 	if _, hasLong := sides["long"]; !hasLong && at.gridState.LongProfitReducedPct > 0 {
 		logger.Infof("[Grid] Profit-reduce: resetting long tracker (no active long position)")
 		at.gridState.LongProfitReducedPct = 0
+		at.gridState.LongProfitFloor = 0
 	}
 	if _, hasShort := sides["short"]; !hasShort && at.gridState.ShortProfitReducedPct > 0 {
 		logger.Infof("[Grid] Profit-reduce: resetting short tracker (no active short position)")
 		at.gridState.ShortProfitReducedPct = 0
+		at.gridState.ShortProfitFloor = 0
 	}
 	at.gridState.mu.Unlock()
 
@@ -1173,11 +1180,15 @@ func (at *AutoTrader) checkProfitReduce() {
 		}
 
 		alreadyReduced := at.gridState.LongProfitReducedPct
+		floor := at.gridState.LongProfitFloor
 		if info.side == "short" {
 			alreadyReduced = at.gridState.ShortProfitReducedPct
+			floor = at.gridState.ShortProfitFloor
 		}
 		targetReducePct := math.Floor(profitPct/step) * step
-		if targetReducePct <= alreadyReduced {
+		// Skip if target is at or below either the current tracker or the floor.
+		// Floor blocks re-triggering at the same level even after a tracker reset on profit dip.
+		if targetReducePct <= alreadyReduced || targetReducePct <= floor {
 			continue
 		}
 		// Reduce qty = position × (step_number × step%) × multiplier
@@ -1200,15 +1211,17 @@ func (at *AutoTrader) checkProfitReduce() {
 	for _, a := range actions {
 		info := a.info
 		if a.targetReducePct == -1 {
-			// Reset tracker — only log if it was actually non-zero (avoid log spam every cycle)
+			// Reset tracker and floor — only log if it was actually non-zero
 			at.gridState.mu.Lock()
 			var prev float64
 			if info.side == "long" {
 				prev = at.gridState.LongProfitReducedPct
 				at.gridState.LongProfitReducedPct = 0
+				at.gridState.LongProfitFloor = 0
 			} else {
 				prev = at.gridState.ShortProfitReducedPct
 				at.gridState.ShortProfitReducedPct = 0
+				at.gridState.ShortProfitFloor = 0
 			}
 			at.gridState.mu.Unlock()
 			if prev > 0 {
@@ -1270,15 +1283,23 @@ func (at *AutoTrader) checkProfitReduce() {
 		if a.closeAll {
 			if info.side == "long" {
 				at.gridState.LongProfitReducedPct = 0
+				at.gridState.LongProfitFloor = 0
 			} else {
 				at.gridState.ShortProfitReducedPct = 0
+				at.gridState.ShortProfitFloor = 0
 			}
 		} else {
 			newPct := a.targetReducePct
 			if info.side == "long" {
 				at.gridState.LongProfitReducedPct = newPct
+				if newPct > at.gridState.LongProfitFloor {
+					at.gridState.LongProfitFloor = newPct
+				}
 			} else {
 				at.gridState.ShortProfitReducedPct = newPct
+				if newPct > at.gridState.ShortProfitFloor {
+					at.gridState.ShortProfitFloor = newPct
+				}
 			}
 		}
 		at.gridState.mu.Unlock()
@@ -1295,8 +1316,10 @@ func (at *AutoTrader) ResetProfitTracker(side string) {
 	at.gridState.mu.Lock()
 	if side == "long" {
 		at.gridState.LongProfitReducedPct = 0
+		at.gridState.LongProfitFloor = 0
 	} else {
 		at.gridState.ShortProfitReducedPct = 0
+		at.gridState.ShortProfitFloor = 0
 	}
 	at.gridState.mu.Unlock()
 	logger.Infof("[Grid] Profit-reduce tracker manually reset: %s", side)
