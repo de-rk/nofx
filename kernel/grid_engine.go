@@ -3,6 +3,7 @@ package kernel
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
@@ -637,7 +638,8 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	for _, level := range ctx.Levels {
 		suggestedQty := 0.0
 		if level.Price > 0 && level.AllocatedUSD > 0 {
-			suggestedQty = level.AllocatedUSD * float64(ctx.Leverage) / level.Price
+			raw := level.AllocatedUSD * float64(ctx.Leverage) / level.Price
+			suggestedQty = math.Round(raw*10000) / 10000
 		}
 		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
 			level.Index, level.Price, level.State, level.Side, level.AllocatedUSD, suggestedQty,
@@ -765,7 +767,8 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	for _, level := range ctx.Levels {
 		suggestedQty := 0.0
 		if level.Price > 0 && level.AllocatedUSD > 0 {
-			suggestedQty = level.AllocatedUSD * float64(ctx.Leverage) / level.Price
+			raw := level.AllocatedUSD * float64(ctx.Leverage) / level.Price
+			suggestedQty = math.Round(raw*10000) / 10000
 		}
 		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
 			level.Index, level.Price, level.State, level.Side, level.AllocatedUSD, suggestedQty,

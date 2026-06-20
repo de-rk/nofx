@@ -1341,10 +1341,19 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	}
 	at.gridState.mu.RUnlock()
 
-	// Populate distance-to-price for each level so AI can see proximity without calculating
+	// Populate distance-to-price and recalculate side for empty levels based on current price.
+	// Level.Side is set at initialization and becomes stale as price moves; empty levels must
+	// reflect the current price to prevent the AI from skipping levels that crossed sides.
 	if ctx.CurrentPrice > 0 {
 		for i := range ctx.Levels {
 			ctx.Levels[i].DistancePct = (ctx.Levels[i].Price - ctx.CurrentPrice) / ctx.CurrentPrice * 100
+			if ctx.Levels[i].State == "empty" {
+				if ctx.Levels[i].Price > ctx.CurrentPrice {
+					ctx.Levels[i].Side = "sell"
+				} else {
+					ctx.Levels[i].Side = "buy"
+				}
+			}
 		}
 	}
 
