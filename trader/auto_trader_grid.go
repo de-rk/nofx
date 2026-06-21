@@ -3144,7 +3144,7 @@ func (at *AutoTrader) reTagTTradeAfterReduce(prepSide string) {
 		logger.Warnf("[Grid] T-trade re-tag: failed to get current price: %v", err)
 		return
 	}
-	currentPrice := mktData.LastPrice
+	currentPrice := mktData.CurrentPrice
 	if currentPrice <= 0 {
 		return
 	}
