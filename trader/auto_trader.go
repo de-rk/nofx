@@ -500,7 +500,7 @@ func (at *AutoTrader) Run() error {
 						continue
 					}
 					gridConfig := at.config.StrategyConfig.GridConfig
-					if gridConfig == nil {
+					if gridConfig == nil || !gridConfig.EnableTrappedReduce {
 						continue
 					}
 					openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
