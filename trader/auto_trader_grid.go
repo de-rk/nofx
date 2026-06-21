@@ -641,13 +641,34 @@ func (at *AutoTrader) InitializeGrid() error {
 				if reduceEntry != nil && reduceEntry.CreatedAt.After(entry.CreatedAt) {
 					continue // reduce already filled, nothing to restore
 				}
-				// Skip if reduce was already placed (even if not yet filled) — prevents duplicate reduces on restart
+				// Skip if reduce was already placed (even if not yet filled) — restore to
+				// TTradeReduceOrders so ttradeRepairOrders monitors the pending reduce.
 				reducePlacedEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce_placed", entry.OrderID)
 				if reducePlacedEntry != nil && reducePlacedEntry.CreatedAt.After(entry.CreatedAt) {
-					// Reduce order already placed — restore TTradeReduceOrders so ttradeRepairOrders
-					// continues monitoring it; the reduce order ID is in the reason field
-					// (we don't know the reduce order ID here, so ttradeRepairOrders will handle
-					// it as a no-op since the reduce will eventually fill or get cancelled)
+					// Parse reduce order ID from reason: "reduce order {ID} placed for prep ..."
+					var reduceOrderID, parsedPrepID string
+					fmt.Sscanf(reducePlacedEntry.Reason, "reduce order %s placed for prep %s", &reduceOrderID, &parsedPrepID)
+					if reduceOrderID != "" {
+						prepSide := reducePlacedEntry.Side
+						reduceSide := "sell"
+						if prepSide == "sell" {
+							reduceSide = "buy"
+						}
+						at.gridState.mu.Lock()
+						at.gridState.TTradeReduceOrders[reduceOrderID] = &TTradeReduceEntry{
+							ReduceOrderID: reduceOrderID,
+							PrepOrderID:   entry.OrderID,
+							PrepFillPrice: reducePlacedEntry.EntryPrice,
+							ReducePrice:   reducePlacedEntry.Price,
+							SpreadPct:     gridConfig.TTradeSpreadPct,
+							Qty:           reducePlacedEntry.Quantity,
+							Side:          reduceSide,
+							PrepSide:      prepSide,
+							PlacedAt:      reducePlacedEntry.CreatedAt,
+						}
+						at.gridState.mu.Unlock()
+						logger.Infof("[Grid] Restored T-trade reduce order %s (prep=%s) into monitoring", reduceOrderID, entry.OrderID)
+					}
 					continue
 				}
 				// Also check if prep fill was logged
