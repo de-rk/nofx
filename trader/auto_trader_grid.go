@@ -802,8 +802,6 @@ func (at *AutoTrader) RunGridCycle() error {
 		}
 	}
 
-	// Breakout detection and box breakout checks are disabled.
-
 	// Check if grid is paused
 	at.gridState.mu.RLock()
 	isPaused := at.gridState.IsPaused
@@ -812,6 +810,18 @@ func (at *AutoTrader) RunGridCycle() error {
 	lang := at.config.StrategyConfig.Language
 	if lang == "" {
 		lang = "en"
+	}
+
+	// Breakout detection is disabled, but refresh box data each cycle for the risk panel.
+	if box, err := market.GetBoxData(gridConfig.Symbol); err == nil {
+		at.gridState.mu.Lock()
+		at.gridState.ShortBoxUpper = box.ShortUpper
+		at.gridState.ShortBoxLower = box.ShortLower
+		at.gridState.MidBoxUpper = box.MidUpper
+		at.gridState.MidBoxLower = box.MidLower
+		at.gridState.LongBoxUpper = box.LongUpper
+		at.gridState.LongBoxLower = box.LongLower
+		at.gridState.mu.Unlock()
 	}
 
 	// Fetch open orders once per cycle — shared by T-trade checks, state sync, and AI context
