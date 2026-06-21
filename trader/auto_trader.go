@@ -509,6 +509,7 @@ func (at *AutoTrader) Run() error {
 						continue
 					}
 					at.autoTagTTradeFromExistingOrders(openOrders)
+					at.checkTTradeOrderFillAndReduce(openOrders)
 					at.checkTTradeReduceOrderStatus(openOrders)
 				case <-at.stopMonitorCh:
 					return
