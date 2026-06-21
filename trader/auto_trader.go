@@ -482,6 +482,39 @@ func (at *AutoTrader) Run() error {
 		if err := at.RunGridCycle(); err != nil {
 			logger.Infof("❌ Grid execution failed: %v", err)
 		}
+
+		// Independent T-trade scanner: runs every minute regardless of main cycle interval.
+		go func() {
+			ttradeTicker := time.NewTicker(1 * time.Minute)
+			defer ttradeTicker.Stop()
+			for {
+				select {
+				case <-ttradeTicker.C:
+					at.isRunningMutex.RLock()
+					running := at.isRunning
+					at.isRunningMutex.RUnlock()
+					if !running {
+						return
+					}
+					if at.gridState == nil || !at.gridState.IsInitialized {
+						continue
+					}
+					gridConfig := at.config.StrategyConfig.GridConfig
+					if gridConfig == nil || !gridConfig.EnableTrappedReduce {
+						continue
+					}
+					openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
+					if err != nil {
+						logger.Warnf("[Grid] T-trade scan: failed to get open orders: %v", err)
+						continue
+					}
+					at.autoTagTTradeFromExistingOrders(openOrders)
+					at.checkTTradeReduceOrderStatus(openOrders)
+				case <-at.stopMonitorCh:
+					return
+				}
+			}
+		}()
 	} else {
 		if err := at.runCycle(); err != nil {
 			logger.Infof("❌ Execution failed: %v", err)
