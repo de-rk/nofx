@@ -614,7 +614,7 @@ func (at *AutoTrader) InitializeGrid() error {
 
 	// Restore T-trade state from trade log on restart.
 	// Only restores orders that FILLED while the system was down but haven't had a reduce placed yet.
-	// Pending orders are skipped — autoTagTTradeFromExistingOrders re-tags them on the next cycle.
+	// Pending orders are skipped — ttradeTagOrders re-tags them on the next cycle.
 	// Cancelled/expired orders are skipped.
 	if at.store != nil && gridConfig.EnableTrappedReduce {
 		tagEntries, _ := at.store.Grid().GetGridTradeLogsByAction(at.id, "ttrade_tag", 50)
@@ -644,9 +644,9 @@ func (at *AutoTrader) InitializeGrid() error {
 				// Skip if reduce was already placed (even if not yet filled) — prevents duplicate reduces on restart
 				reducePlacedEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce_placed", entry.OrderID)
 				if reducePlacedEntry != nil && reducePlacedEntry.CreatedAt.After(entry.CreatedAt) {
-					// Reduce order already placed — restore TTradeReduceOrders so checkTTradeReduceOrderStatus
+					// Reduce order already placed — restore TTradeReduceOrders so ttradeRepairOrders
 					// continues monitoring it; the reduce order ID is in the reason field
-					// (we don't know the reduce order ID here, so checkTTradeReduceOrderStatus will handle
+					// (we don't know the reduce order ID here, so ttradeRepairOrders will handle
 					// it as a no-op since the reduce will eventually fill or get cancelled)
 					continue
 				}
@@ -654,7 +654,7 @@ func (at *AutoTrader) InitializeGrid() error {
 				fillEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_fill", entry.OrderID)
 				fillAlreadyLogged := fillEntry != nil && fillEntry.CreatedAt.After(entry.CreatedAt)
 
-				// Skip orders that are still pending — autoTagTTradeFromExistingOrders will re-tag them
+				// Skip orders that are still pending — ttradeTagOrders will re-tag them
 				if _, stillOpen := openOrderMap[entry.OrderID]; stillOpen {
 					continue
 				}
@@ -836,11 +836,7 @@ func (at *AutoTrader) RunGridCycle() error {
 	at.syncOpenOrdersFromExchange(openOrders)
 
 	// T-trade and profit-reduce run regardless of pause state — system-level operations
-	if gridConfig.EnableTrappedReduce {
-		at.autoTagTTradeFromExistingOrders(openOrders)
-		at.checkTTradeOrderFillAndReduce(openOrders)
-		at.checkTTradeReduceOrderStatus(openOrders)
-	}
+	at.RunTTradeScan(openOrders)
 
 	if at.config.StrategyConfig.GridConfig.EnableProfitReduce {
 		at.checkProfitReduce()
@@ -982,15 +978,15 @@ func (at *AutoTrader) RunGridCycle() error {
 			freshOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
 			if err == nil {
 				at.syncOpenOrdersFromExchange(freshOrders)
-				at.autoTagTTradeFromExistingOrders(freshOrders)
+				at.ttradeTagOrders(freshOrders)
 
 				// Check if any newly placed order filled immediately (taker fill).
-				// Such orders never appear in freshOrders, so autoTagTTradeFromExistingOrders skips them.
+				// Such orders never appear in freshOrders, so ttradeTagOrders skips them.
 				freshOrderIDs := make(map[string]bool, len(freshOrders))
 				for _, o := range freshOrders {
 					freshOrderIDs[o.OrderID] = true
 				}
-				// Re-use current price from market data fetched inside autoTagTTradeFromExistingOrders
+				// Re-use current price from market data fetched inside ttradeTagOrders
 				mktSnap, mktErr := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
 				if mktErr == nil && mktSnap != nil {
 					currentPrice := mktSnap.CurrentPrice
@@ -1038,7 +1034,7 @@ func (at *AutoTrader) RunGridCycle() error {
 								at.logGridTrade("ttrade", "ttrade_fill", orderSide, gridConfig.Symbol,
 									fmt.Sprintf("prep %s filled @ %.4f (immediate taker fill)", orderID, fillPrice),
 									orderID, qty, fillPrice, 0, 0, 0, 0, true, "")
-								// Add to TTradePrepOrders as fallback so checkTTradeOrderFillAndReduce
+								// Add to TTradePrepOrders as fallback so ttradeProcessFills
 								// can re-place the reduce on the next cycle if this goroutine fails.
 								// ReduceQueued=true prevents double-placement if goroutine succeeds first.
 								at.gridState.mu.Lock()
@@ -1056,10 +1052,10 @@ func (at *AutoTrader) RunGridCycle() error {
 									ok := at.placeTTradeReduceOrder(side, fp, q, prepID)
 									at.gridState.mu.Lock()
 									if ok {
-										// Success — remove prep so checkTTradeOrderFillAndReduce doesn't retry
+										// Success — remove prep so ttradeProcessFills doesn't retry
 										delete(at.gridState.TTradePrepOrders, prepID)
 									} else {
-										// Failed — clear ReduceQueued so checkTTradeOrderFillAndReduce retries next cycle
+										// Failed — clear ReduceQueued so ttradeProcessFills retries next cycle
 										if p, exists := at.gridState.TTradePrepOrders[prepID]; exists {
 											p.ReduceQueued = false
 										}
@@ -2666,12 +2662,12 @@ func (at *AutoTrader) logGridTrade(source, action, side, symbol, reason, orderID
 	}
 }
 
-// autoTagTTradeFromExistingOrders tags ALL qualifying open grid orders as T-trade preps.
+// ttradeTagOrders tags ALL qualifying open grid orders as T-trade preps.
 // Long trapped: tag every pending BUY below current price.
 // Short trapped: tag every pending SELL above current price.
 // On each cycle, stale entries (timed out or price moved out of range) are removed.
 // When a new grid order is placed and a better candidate appears, it is added to the map.
-func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrder) {
+func (at *AutoTrader) ttradeTagOrders(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
 		return
@@ -2737,7 +2733,7 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 			continue
 		}
 		if !openOrderIDs[id] {
-			// Disappeared — handled by checkTTradeOrderFillAndReduce
+			// Disappeared — handled by ttradeProcessFills
 			continue
 		}
 		// Remove only if the position side is no longer active.
@@ -2861,9 +2857,9 @@ func (at *AutoTrader) autoTagTTradeFromExistingOrders(openOrders []types.OpenOrd
 	}
 }
 
-// checkTTradeOrderFillAndReduce checks ALL tagged T-trade prep orders for fills.
+// ttradeProcessFills checks ALL tagged T-trade prep orders for fills.
 // For each filled order, auto-places a reduce limit order using the spread config.
-func (at *AutoTrader) checkTTradeOrderFillAndReduce(openOrders []types.OpenOrder) {
+func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
 		return
@@ -3055,9 +3051,9 @@ func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64,
 	return false
 }
 
-// checkTTradeReduceOrderStatus monitors all active T-trade reduce orders.
+// ttradeRepairOrders monitors all active T-trade reduce orders.
 // Cancels timed-out ones and removes filled ones; re-places cancelled ones.
-func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder) {
+func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
 		return
@@ -3126,7 +3122,14 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 			at.logGridTrade("ttrade", "ttrade_reduce", entry.PrepSide, gridConfig.Symbol,
 				fmt.Sprintf("auto-reduce from prep %s fill=%.4f spread=%.1f%%", entry.PrepOrderID, entry.PrepFillPrice, entry.SpreadPct),
 				entry.PrepOrderID, entry.Qty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
-			go at.reTagTTradeAfterReduce(entry.PrepSide)
+			// Supplement new prep then immediately re-tag so the new order enters the map
+			// without waiting for the next RunTTradeScan cycle.
+			go func(prepSide string) {
+				at.ttradeSupplementOrder(prepSide)
+				if freshOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol); err == nil {
+					at.ttradeTagOrders(freshOrders)
+				}
+			}(entry.PrepSide)
 			continue
 		case "CANCELED", "EXPIRED":
 			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing", reduceID)
@@ -3150,10 +3153,10 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 	}
 }
 
-// reTagTTradeAfterReduce immediately places and tags a new T-trade prep order at the
+// ttradeSupplementOrder immediately places and tags a new T-trade prep order at the
 // empty grid level closest to the current price, so the next T-trade cycle begins
-// without waiting for the next autoTagTTradeFromExistingOrders pass.
-func (at *AutoTrader) reTagTTradeAfterReduce(prepSide string) {
+// without waiting for the next ttradeTagOrders pass.
+func (at *AutoTrader) ttradeSupplementOrder(prepSide string) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	if !gridConfig.EnableTrappedReduce {
 		return
@@ -3250,6 +3253,20 @@ func (at *AutoTrader) reTagTTradeAfterReduce(prepSide string) {
 		orderID, qty, level.Price, 0, 0, 0, 0, true, "")
 }
 
+// RunTTradeScan executes the complete T-trade scan sequence:
+// 1. ttradeTagOrders:   tag qualifying open orders → build TTradePrepOrders map
+// 2. ttradeRepairOrders: fix broken orders (cancelled/timed-out)
+// 3. ttradeProcessFills: detect prep fills → place reduces
+func (at *AutoTrader) RunTTradeScan(openOrders []types.OpenOrder) {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	if gridConfig == nil || !gridConfig.EnableTrappedReduce {
+		return
+	}
+	at.ttradeTagOrders(openOrders)
+	at.ttradeRepairOrders(openOrders)
+	at.ttradeProcessFills(openOrders)
+}
+
 // tTradeSideInfo holds per-side T-trade activation state based on position size.
 type tTradeSideInfo struct {
 	Active       bool
@@ -3323,7 +3340,7 @@ func (at *AutoTrader) buildTTradeContext(currentPrice float64) (longInfo, shortI
 	return
 }
 
-// buildTrappedContext fetches only what autoTagTTradeFromExistingOrders needs:
+// buildTrappedContext fetches only what ttradeTagOrders needs:
 // current price (from latest 5m candle) and trapped position info.
 func (at *AutoTrader) buildTrappedContext() (float64, *kernel.TrappedPositionInfo, error) {
 	gridConfig := at.config.StrategyConfig.GridConfig

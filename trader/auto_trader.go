@@ -500,7 +500,7 @@ func (at *AutoTrader) Run() error {
 						continue
 					}
 					gridConfig := at.config.StrategyConfig.GridConfig
-					if gridConfig == nil || !gridConfig.EnableTrappedReduce {
+					if gridConfig == nil {
 						continue
 					}
 					openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
@@ -508,9 +508,7 @@ func (at *AutoTrader) Run() error {
 						logger.Warnf("[Grid] T-trade scan: failed to get open orders: %v", err)
 						continue
 					}
-					at.autoTagTTradeFromExistingOrders(openOrders)
-					at.checkTTradeOrderFillAndReduce(openOrders)
-					at.checkTTradeReduceOrderStatus(openOrders)
+					at.RunTTradeScan(openOrders)
 				case <-at.stopMonitorCh:
 					return
 				}
