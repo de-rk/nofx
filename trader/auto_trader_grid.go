@@ -3112,6 +3112,7 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 			at.logGridTrade("ttrade", "ttrade_reduce", entry.PrepSide, gridConfig.Symbol,
 				fmt.Sprintf("auto-reduce from prep %s fill=%.4f spread=%.1f%%", entry.PrepOrderID, entry.PrepFillPrice, entry.SpreadPct),
 				entry.PrepOrderID, entry.Qty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
+			go at.reTagTTradeAfterReduce(entry.PrepSide)
 			continue
 		case "CANCELED", "EXPIRED":
 			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing", reduceID)
@@ -3126,6 +3127,106 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 		}
 		at.gridState.mu.Unlock()
 	}
+}
+
+// reTagTTradeAfterReduce immediately places and tags a new T-trade prep order at the
+// empty grid level closest to the current price, so the next T-trade cycle begins
+// without waiting for the next autoTagTTradeFromExistingOrders pass.
+func (at *AutoTrader) reTagTTradeAfterReduce(prepSide string) {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	if !gridConfig.EnableTrappedReduce {
+		return
+	}
+
+	// Get current price
+	mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
+	if err != nil || mktData == nil {
+		logger.Warnf("[Grid] T-trade re-tag: failed to get current price: %v", err)
+		return
+	}
+	currentPrice := mktData.LastPrice
+	if currentPrice <= 0 {
+		return
+	}
+
+	gridTrader, ok := at.trader.(GridTrader)
+	if !ok {
+		gridTrader = NewGridTraderAdapter(at.trader)
+	}
+
+	// Find nearest empty level on the correct side
+	at.gridState.mu.Lock()
+	bestIdx := -1
+	bestDist := math.MaxFloat64
+	for i, level := range at.gridState.Levels {
+		if level.State != "empty" {
+			continue
+		}
+		// buy-side prep: empty level below current price
+		// sell-side prep: empty level above current price
+		if prepSide == "buy" && level.Price >= currentPrice {
+			continue
+		}
+		if prepSide == "sell" && level.Price <= currentPrice {
+			continue
+		}
+		dist := math.Abs(level.Price - currentPrice)
+		if dist < bestDist {
+			bestDist = dist
+			bestIdx = i
+		}
+	}
+	if bestIdx < 0 {
+		at.gridState.mu.Unlock()
+		logger.Infof("[Grid] T-trade re-tag: no empty %s level found near %.2f", prepSide, currentPrice)
+		return
+	}
+	level := at.gridState.Levels[bestIdx]
+	qty := math.Round(level.AllocatedUSD*float64(gridConfig.Leverage)/level.Price*10000) / 10000
+	at.gridState.mu.Unlock()
+
+	orderSide := "BUY"
+	posSide := "LONG"
+	if prepSide == "sell" {
+		orderSide = "SELL"
+		posSide = "SHORT"
+	}
+
+	result, err := gridTrader.PlaceLimitOrder(&LimitOrderRequest{
+		Symbol:       gridConfig.Symbol,
+		Side:         orderSide,
+		PositionSide: posSide,
+		Price:        level.Price,
+		Quantity:     qty,
+		Leverage:     gridConfig.Leverage,
+		PostOnly:     gridConfig.UseMakerOnly,
+	})
+	if err != nil {
+		logger.Warnf("[Grid] T-trade re-tag: failed to place order at %.2f: %v", level.Price, err)
+		return
+	}
+
+	orderID := result.OrderID
+	at.gridState.mu.Lock()
+	at.gridState.Levels[bestIdx].State = "pending"
+	at.gridState.Levels[bestIdx].OrderID = orderID
+	at.gridState.Levels[bestIdx].OrderQuantity = qty
+	at.gridState.Levels[bestIdx].OrderPlacedAt = time.Now()
+	at.gridState.OrderBook[orderID] = bestIdx
+	at.gridState.TTradePrepOrders[orderID] = &TTradePrepEntry{
+		OrderID:  orderID,
+		Price:    level.Price,
+		Qty:      qty,
+		Side:     prepSide,
+		TaggedAt: time.Now(),
+	}
+	at.gridState.mu.Unlock()
+
+	logger.Infof("[Grid] T-trade re-tag: placed %s @ %.2f qty=%.4f (level %d) immediately after reduce fill",
+		prepSide, level.Price, qty, bestIdx)
+	at.logGridTrade("ttrade", "ttrade_tag", prepSide, gridConfig.Symbol,
+		fmt.Sprintf("re-tag after reduce fill level=%d price=%.2f", bestIdx, level.Price),
+		orderID, qty, level.Price, 0, 0, 0, 0, true, "")
 }
 
 // tTradeSideInfo holds per-side T-trade activation state based on position size.
