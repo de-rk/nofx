@@ -3088,15 +3088,18 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 			if canceler, ok := at.trader.(interface{ CancelOrder(symbol, orderID string) error }); ok {
 				canceler.CancelOrder(gridConfig.Symbol, reduceID)
 			}
-			at.gridState.mu.Lock()
-			delete(at.gridState.TTradeReduceOrders, reduceID)
-			at.gridState.mu.Unlock()
-			// Re-place with original prep side
 			rePlacePrepSide := "buy"
 			if entry.Side == "buy" {
 				rePlacePrepSide = "sell"
 			}
-			go at.placeTTradeReduceOrder(rePlacePrepSide, entry.PrepFillPrice, entry.Qty, entry.PrepOrderID)
+			ok := at.placeTTradeReduceOrder(rePlacePrepSide, entry.PrepFillPrice, entry.Qty, entry.PrepOrderID)
+			if ok {
+				at.gridState.mu.Lock()
+				delete(at.gridState.TTradeReduceOrders, reduceID)
+				at.gridState.mu.Unlock()
+			} else {
+				logger.Warnf("[Grid] T-trade reduce timeout re-placement failed — will retry next scan")
+			}
 			continue
 		}
 
@@ -3127,13 +3130,20 @@ func (at *AutoTrader) checkTTradeReduceOrderStatus(openOrders []types.OpenOrder)
 			continue
 		case "CANCELED", "EXPIRED":
 			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing", reduceID)
-			delete(at.gridState.TTradeReduceOrders, reduceID)
 			at.gridState.mu.Unlock()
 			cancelledPrepSide := "buy"
 			if entry.Side == "buy" {
 				cancelledPrepSide = "sell"
 			}
-			go at.placeTTradeReduceOrder(cancelledPrepSide, entry.PrepFillPrice, entry.Qty, entry.PrepOrderID)
+			ok := at.placeTTradeReduceOrder(cancelledPrepSide, entry.PrepFillPrice, entry.Qty, entry.PrepOrderID)
+			if ok {
+				// Remove old entry only after successful re-placement
+				at.gridState.mu.Lock()
+				delete(at.gridState.TTradeReduceOrders, reduceID)
+				at.gridState.mu.Unlock()
+			} else {
+				logger.Warnf("[Grid] T-trade reduce re-placement failed — will retry next scan")
+			}
 			continue
 		}
 		at.gridState.mu.Unlock()
