@@ -636,12 +636,16 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 权益USD | 建议数量 | 订单数量 | 持仓 | 浮盈 |\n")
 	sb.WriteString("|------|------|------|------|---------|----------|----------|------|------|\n")
 	for _, level := range ctx.Levels {
+		// Scale allocated weight by current total equity so suggested qty reflects actual account size
+		allocUSD := level.AllocatedUSD
+		if ctx.TotalInvestment > 0 && ctx.TotalEquity > 0 {
+			allocUSD = level.AllocatedUSD / ctx.TotalInvestment * ctx.TotalEquity
+		}
 		suggestedQty := 0.0
-		if level.Price > 0 && level.AllocatedUSD > 0 {
-			raw := level.AllocatedUSD * float64(ctx.Leverage) / level.Price
+		if level.Price > 0 && allocUSD > 0 {
+			raw := allocUSD * float64(ctx.Leverage) / level.Price
 			suggestedQty = math.Round(raw*10000) / 10000
 		}
-		// Equity = actual qty × price / leverage (shows real committed margin per level)
 		var equityUSD float64
 		switch level.State {
 		case "filled":
@@ -653,7 +657,7 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		case "pending":
 			equityUSD = level.OrderQuantity * level.Price / float64(ctx.Leverage)
 		default:
-			equityUSD = level.AllocatedUSD
+			equityUSD = allocUSD
 		}
 		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
 			level.Index, level.Price, level.State, level.Side, equityUSD, suggestedQty,
@@ -779,9 +783,13 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	sb.WriteString("| Level | Price | State | Side | Equity USD | Suggested Qty | Order Qty | Position | PnL |\n")
 	sb.WriteString("|-------|-------|-------|------|------------|---------------|-----------|----------|-----|\n")
 	for _, level := range ctx.Levels {
+		allocUSD := level.AllocatedUSD
+		if ctx.TotalInvestment > 0 && ctx.TotalEquity > 0 {
+			allocUSD = level.AllocatedUSD / ctx.TotalInvestment * ctx.TotalEquity
+		}
 		suggestedQty := 0.0
-		if level.Price > 0 && level.AllocatedUSD > 0 {
-			raw := level.AllocatedUSD * float64(ctx.Leverage) / level.Price
+		if level.Price > 0 && allocUSD > 0 {
+			raw := allocUSD * float64(ctx.Leverage) / level.Price
 			suggestedQty = math.Round(raw*10000) / 10000
 		}
 		var equityUSD float64
@@ -795,7 +803,7 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		case "pending":
 			equityUSD = level.OrderQuantity * level.Price / float64(ctx.Leverage)
 		default:
-			equityUSD = level.AllocatedUSD
+			equityUSD = allocUSD
 		}
 		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
 			level.Index, level.Price, level.State, level.Side, equityUSD, suggestedQty,
