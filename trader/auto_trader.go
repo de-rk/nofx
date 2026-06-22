@@ -511,6 +511,12 @@ func (at *AutoTrader) Run() error {
 					if gridConfig.EnableProfitReduce {
 						at.checkProfitReduce()
 					}
+					// Profit drawdown check — runs on every position update, independent of AI cycle
+					if triggered, err := at.checkProfitDrawdown(); err != nil {
+						logger.Warnf("[Grid] profit drawdown check failed: %v", err)
+					} else if triggered {
+						at.handleProfitDrawdownTrigger()
+					}
 				case <-at.stopMonitorCh:
 					return
 				}
@@ -650,22 +656,7 @@ func (at *AutoTrader) runCycle() error {
 		logger.Warnf("⚠️ Failed to check profit drawdown: %v", err)
 	}
 	if triggered {
-		// Close all positions
-		positions, err := at.trader.GetPositions()
-		if err == nil {
-			for _, pos := range positions {
-				symbol, _ := pos["symbol"].(string)
-				size, _ := pos["positionAmt"].(float64)
-				if size != 0 {
-					if size > 0 {
-						at.trader.CloseLong(symbol, size)
-					} else {
-						at.trader.CloseShort(symbol, -size)
-					}
-					logger.Infof("🔴 [PROFIT DRAWDOWN] Closed position: %s (size: %.4f)", symbol, size)
-				}
-			}
-		}
+		at.handleProfitDrawdownTrigger()
 		record.Success = false
 		record.ErrorMessage = "Profit drawdown protection triggered, all positions closed"
 		at.saveDecision(record)
@@ -2537,6 +2528,28 @@ func (at *AutoTrader) checkProfitDrawdown() (bool, error) {
 	}
 
 	return false, nil
+}
+
+// handleProfitDrawdownTrigger closes all positions when profit drawdown threshold is breached.
+func (at *AutoTrader) handleProfitDrawdownTrigger() {
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		logger.Warnf("[PROFIT DRAWDOWN] failed to get positions for closure: %v", err)
+		return
+	}
+	for _, pos := range positions {
+		symbol, _ := pos["symbol"].(string)
+		size, _ := pos["positionAmt"].(float64)
+		if size == 0 {
+			continue
+		}
+		if size > 0 {
+			at.trader.CloseLong(symbol, size)
+		} else {
+			at.trader.CloseShort(symbol, -size)
+		}
+		logger.Infof("🔴 [PROFIT DRAWDOWN] Closed position: %s (size: %.4f)", symbol, size)
+	}
 }
 
 // getSideFromAction converts order action to side (BUY/SELL)
