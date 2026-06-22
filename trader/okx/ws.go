@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -67,6 +68,11 @@ type OKXWebSocket struct {
 
 	ctValMu sync.RWMutex
 	ctVals  map[string]float64 // instId → ctVal for contract→base conversion
+
+	// Per-connection last-received timestamps for heartbeat management.
+	// OKX closes connections idle for 30s, so we ping after 20s of silence.
+	pubLastRecv  int64 // Unix nanoseconds, updated atomically via sync/atomic
+	privLastRecv int64
 }
 
 func newOKXWebSocket(apiKey, secretKey, passphrase string, instIds []string) *OKXWebSocket {
@@ -170,6 +176,11 @@ func (ws *OKXWebSocket) connect() error {
 	ws.privMu.Lock()
 	ws.privConn = priv
 	ws.privMu.Unlock()
+
+	// Reset activity timestamps so heartbeat doesn't ping immediately on a fresh connection
+	now := time.Now().UnixNano()
+	atomic.StoreInt64(&ws.pubLastRecv, now)
+	atomic.StoreInt64(&ws.privLastRecv, now)
 
 	return ws.authenticate()
 }
@@ -309,24 +320,53 @@ func (ws *OKXWebSocket) runLoop() {
 	}
 }
 
+// heartbeat implements OKX's recommended keep-alive strategy:
+// - Check every 5s whether either connection has been silent for 20s
+// - If silent, send "ping" and expect a "pong" within 10s
+// - If no pong arrives within 10s, close the connection to trigger reconnect
 func (ws *OKXWebSocket) heartbeat() {
-	ticker := time.NewTicker(15 * time.Second)
+	const (
+		silenceThreshold = 20 * time.Second // send ping after this much silence
+		pongTimeout      = 10 * time.Second // close connection if no response
+		checkInterval    = 5 * time.Second
+	)
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ws.ctx.Done():
 			return
 		case <-ticker.C:
-			ws.pubMu.Lock()
-			if ws.pubConn != nil {
-				ws.pubConn.WriteMessage(websocket.TextMessage, []byte("ping"))
+			now := time.Now()
+
+			// Public connection check
+			pubLast := time.Unix(0, atomic.LoadInt64(&ws.pubLastRecv))
+			if now.Sub(pubLast) >= silenceThreshold {
+				ws.pubMu.Lock()
+				conn := ws.pubConn
+				ws.pubMu.Unlock()
+				if conn != nil {
+					conn.WriteMessage(websocket.TextMessage, []byte("ping"))
+					// Set a read deadline on the connection — if no pong arrives in time,
+					// the next ReadMessage in readPublic will error and trigger reconnect.
+					conn.SetReadDeadline(time.Now().Add(pongTimeout))
+					logger.Infof("[OKX WS] sent ping to public connection (silent for %.0fs)", now.Sub(pubLast).Seconds())
+				}
 			}
-			ws.pubMu.Unlock()
-			ws.privMu.Lock()
-			if ws.privConn != nil {
-				ws.privConn.WriteMessage(websocket.TextMessage, []byte("ping"))
+
+			// Private connection check
+			privLast := time.Unix(0, atomic.LoadInt64(&ws.privLastRecv))
+			if now.Sub(privLast) >= silenceThreshold {
+				ws.privMu.Lock()
+				conn := ws.privConn
+				ws.privMu.Unlock()
+				if conn != nil {
+					conn.WriteMessage(websocket.TextMessage, []byte("ping"))
+					conn.SetReadDeadline(time.Now().Add(pongTimeout))
+					logger.Infof("[OKX WS] sent ping to private connection (silent for %.0fs)", now.Sub(privLast).Seconds())
+				}
 			}
-			ws.privMu.Unlock()
 		}
 	}
 }
@@ -344,6 +384,7 @@ func (ws *OKXWebSocket) readPublic(done chan struct{}) {
 		if err != nil {
 			return
 		}
+		atomic.StoreInt64(&ws.pubLastRecv, time.Now().UnixNano())
 		if string(raw) == "pong" {
 			continue
 		}
@@ -370,6 +411,7 @@ func (ws *OKXWebSocket) readPrivate(done chan struct{}) {
 		if err != nil {
 			return
 		}
+		atomic.StoreInt64(&ws.privLastRecv, time.Now().UnixNano())
 		if string(raw) == "pong" {
 			continue
 		}
