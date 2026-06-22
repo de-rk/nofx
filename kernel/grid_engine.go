@@ -74,8 +74,6 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *
 }
 
 
-// reTrailingQuoteStr matches a stray extra quote after a string value: e.g. "action":"hold""
-var reTrailingQuoteStr = regexp.MustCompile(`([^\\])""\s*([,}\]])`)
 
 // reTrailingComma matches trailing commas before ] or }
 var reTrailingComma = regexp.MustCompile(`,\s*([}\]])`)
@@ -93,8 +91,6 @@ func sanitizeGridJSON(s string) string {
 	s = strings.ReplaceAll(s, "\u201d", "\"")
 	s = strings.ReplaceAll(s, "\u2018", "'")
 	s = strings.ReplaceAll(s, "\u2019", "'")
-	// Fix double closing quote after string value: "hold"" → "hold"
-	s = reTrailingQuoteStr.ReplaceAllString(s, `$1"$2`)
 	// Remove trailing commas before ] or }
 	s = reTrailingComma.ReplaceAllString(s, `$1`)
 	return s
