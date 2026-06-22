@@ -1804,7 +1804,7 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 		gridTrader = NewGridTraderAdapter(at.trader)
 	}
 
-	// Resolve order ID: AI provides level_index, not order_id
+	// Resolve order ID: prefer order_id from decision, then level_index lookup, then price match
 	orderID := d.OrderID
 	if orderID == "" && d.LevelIndex >= 0 {
 		at.gridState.mu.RLock()
@@ -1813,8 +1813,20 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 		}
 		at.gridState.mu.RUnlock()
 	}
+	// Fallback: match by price when AI only provided price (legacy behavior)
+	if orderID == "" && d.Price > 0 {
+		at.gridState.mu.RLock()
+		for _, level := range at.gridState.Levels {
+			if level.State == "pending" && level.OrderID != "" &&
+				math.Abs(level.Price-d.Price)/d.Price < 0.001 { // within 0.1%
+				orderID = level.OrderID
+				break
+			}
+		}
+		at.gridState.mu.RUnlock()
+	}
 	if orderID == "" {
-		return fmt.Errorf("cancel_order: no order ID found for level %d", d.LevelIndex)
+		return fmt.Errorf("cancel_order: no order ID found (level=%d price=%.2f)", d.LevelIndex, d.Price)
 	}
 
 	// Protect T-trade orders — both prep and reduce orders must not be cancelled by AI

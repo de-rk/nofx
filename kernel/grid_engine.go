@@ -431,7 +431,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 ### 其他
 - cancel_order / cancel_all_orders：撤单
-  - cancel_order：撤销单个订单（price 字段填目标订单价格，quantity 填 0）
+  - cancel_order：撤销单个订单（order_id 字段填网格层级表中的订单ID，quantity 填 0）
   - cancel_all_orders：撤销所有非T字订单
   - **每次最多撤 3 个订单**（cancel_order 合计）
   - **⛔ 禁止撤销 User Prompt 中「T字保护订单」列表内的任何订单**
@@ -443,7 +443,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 %s
 ## 输出格式
 JSON 数组，每个决策一个对象：
-[{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"confidence":0,"reasoning":"..."}]
+[{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"order_id":"","confidence":0,"reasoning":"..."}]
 **每个周期最多输出 8 个下单决策（place_buy_limit / place_sell_limit 合计），超出部分会被忽略。**
 **reasoning 字段保持简洁，不超过 2 句话。**
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
@@ -504,7 +504,7 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 
 ### Other
 - cancel_order / cancel_all_orders: cancel orders
-  - cancel_order: cancel a single order (set price to the target order's price, quantity to 0)
+  - cancel_order: cancel a single order (set order_id to the Order ID from the grid level table, quantity to 0)
   - cancel_all_orders: cancel all non-T-trade orders
   - **Maximum 3 cancel_order decisions per cycle**
   - **⛔ Never cancel any order ID listed under "T-Trade Protected Orders" in the User Prompt**
@@ -516,7 +516,7 @@ When available_balance ≤ $1, order placement is blocked by the system. You may
 %s
 ## Output Format
 JSON array, one object per decision:
-[{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"confidence":0,"reasoning":"..."}]
+[{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"order_id":"","confidence":0,"reasoning":"..."}]
 **Maximum 8 order decisions (place_buy_limit + place_sell_limit combined) per cycle — excess will be ignored.**
 **Keep reasoning concise — 2 sentences max.**
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
@@ -633,8 +633,8 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 
 	// Grid levels
 	sb.WriteString("## 网格层级\n")
-	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 权益USD | 建议数量 | 订单数量 | 持仓 | 浮盈 |\n")
-	sb.WriteString("|------|------|------|------|---------|----------|----------|------|------|\n")
+	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 订单ID | 权益USD | 建议数量 | 订单数量 | 持仓 | 浮盈 |\n")
+	sb.WriteString("|------|------|------|------|--------|---------|----------|----------|------|------|\n")
 	for _, level := range ctx.Levels {
 		// Scale allocated weight by current total equity so suggested qty reflects actual account size
 		allocUSD := level.AllocatedUSD
@@ -659,8 +659,12 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		default:
 			equityUSD = allocUSD
 		}
-		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
-			level.Index, level.Price, level.State, level.Side, equityUSD, suggestedQty,
+		orderID := level.OrderID
+		if orderID == "" {
+			orderID = "-"
+		}
+		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
+			level.Index, level.Price, level.State, level.Side, orderID, equityUSD, suggestedQty,
 			level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
 	}
 	sb.WriteString("\n")
@@ -780,8 +784,8 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 
 	// Grid levels
 	sb.WriteString("## Grid Levels\n")
-	sb.WriteString("| Level | Price | State | Side | Equity USD | Suggested Qty | Order Qty | Position | PnL |\n")
-	sb.WriteString("|-------|-------|-------|------|------------|---------------|-----------|----------|-----|\n")
+	sb.WriteString("| Level | Price | State | Side | Order ID | Equity USD | Suggested Qty | Order Qty | Position | PnL |\n")
+	sb.WriteString("|-------|-------|-------|------|----------|------------|---------------|-----------|----------|-----|\n")
 	for _, level := range ctx.Levels {
 		allocUSD := level.AllocatedUSD
 		if ctx.TotalInvestment > 0 && ctx.TotalEquity > 0 {
@@ -805,8 +809,12 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		default:
 			equityUSD = allocUSD
 		}
-		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
-			level.Index, level.Price, level.State, level.Side, equityUSD, suggestedQty,
+		orderID := level.OrderID
+		if orderID == "" {
+			orderID = "-"
+		}
+		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
+			level.Index, level.Price, level.State, level.Side, orderID, equityUSD, suggestedQty,
 			level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
 	}
 	sb.WriteString("\n")
