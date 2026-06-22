@@ -471,6 +471,15 @@ func (at *AutoTrader) Run() error {
 
 	// Check if this is a grid trading strategy
 	isGridStrategy := at.IsGridStrategy()
+
+	// Create event channels BEFORE InitializeGrid so WS callbacks can be wired correctly.
+	// InitializeGrid calls StartWS and sets OnKlineClose/OnPositionUpdate callbacks that
+	// send to these channels — they must exist before that wiring happens.
+	if isGridStrategy {
+		at.wsScanCh = make(chan struct{}, 1)
+		at.wsGridCycleCh = make(chan struct{}, 1)
+	}
+
 	if isGridStrategy {
 		logger.Infof("🔲 [%s] Grid trading strategy detected, initializing grid...", at.name)
 		if err := at.InitializeGrid(); err != nil {
@@ -486,13 +495,10 @@ func (at *AutoTrader) Run() error {
 		}
 
 		// Event-driven T-trade and profit-reduce scan.
-		scanCh := make(chan struct{}, 1)
-		at.wsScanCh = scanCh
-
 		go func() {
 			for {
 				select {
-				case <-scanCh:
+				case <-at.wsScanCh:
 					if at.gridState == nil || !at.gridState.IsInitialized {
 						continue
 					}
@@ -525,13 +531,10 @@ func (at *AutoTrader) Run() error {
 
 		// Event-driven AI grid cycle: triggered by 5m kline close via WS.
 		// Falls back to ScanInterval timer when WS is not connected.
-		gridCycleCh := make(chan struct{}, 1)
-		at.wsGridCycleCh = gridCycleCh
-
 		go func() {
 			for {
 				select {
-				case <-gridCycleCh:
+				case <-at.wsGridCycleCh:
 					at.isRunningMutex.RLock()
 					running := at.isRunning
 					at.isRunningMutex.RUnlock()
