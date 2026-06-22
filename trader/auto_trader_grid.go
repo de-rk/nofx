@@ -727,6 +727,19 @@ func (at *AutoTrader) InitializeGrid() error {
 	logger.Infof("📊 [Grid] Initialized: %d levels, $%.2f - $%.2f, spacing $%.2f",
 		gridConfig.GridCount, at.gridState.LowerPrice, at.gridState.UpperPrice, at.gridState.GridSpacing)
 
+	// Start WebSocket if the exchange supports it — provides live-push caches for
+	// balance, positions, and market price instead of REST polling each cycle.
+	type wsStarter interface {
+		StartWS(symbols ...string) error
+	}
+	if starter, ok := at.trader.(wsStarter); ok {
+		if err := starter.StartWS(gridConfig.Symbol); err != nil {
+			logger.Warnf("[Grid] OKX WS start failed (falling back to REST): %v", err)
+		} else {
+			logger.Infof("[Grid] OKX WS started for %s", gridConfig.Symbol)
+		}
+	}
+
 	return nil
 }
 

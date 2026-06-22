@@ -570,6 +570,13 @@ func (at *AutoTrader) Stop() {
 
 	close(at.stopMonitorCh) // Notify monitoring goroutine to stop
 	at.monitorWg.Wait()     // Wait for monitoring goroutine to finish
+
+	// Stop WebSocket if running
+	type wsStopper interface{ StopWS() }
+	if stopper, ok := at.trader.(wsStopper); ok {
+		stopper.StopWS()
+	}
+
 	logger.Info("⏹ Automatic trading system stopped")
 }
 

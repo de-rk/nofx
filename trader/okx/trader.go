@@ -69,6 +69,9 @@ type OKXTrader struct {
 
 	// Cache duration
 	cacheDuration time.Duration
+
+	// WebSocket client — nil until StartWS is called
+	ws *OKXWebSocket
 }
 
 // OKXInstrument OKX instrument info
@@ -138,6 +141,38 @@ func NewOKXTrader(apiKey, secretKey, passphrase string, isCrossMargin bool) *OKX
 
 	logger.Infof("✓ OKX trader initialized with position mode: %s", trader.positionMode)
 	return trader
+}
+
+// StartWS starts the WebSocket connection for the given symbols (e.g. "HYPEUSDT").
+// After a successful start, GetBalance/GetPositions/GetOpenOrders/GetMarketPrice
+// will use the live WS cache instead of polling REST.
+func (t *OKXTrader) StartWS(symbols ...string) error {
+	instIds := make([]string, len(symbols))
+	for i, s := range symbols {
+		instIds[i] = t.convertSymbol(s)
+	}
+	t.ws = newOKXWebSocket(t.apiKey, t.secretKey, t.passphrase, instIds)
+	// Pre-populate ctVal so the WS position handler can convert contracts → base asset
+	for _, s := range symbols {
+		if inst, err := t.getInstrument(s); err == nil {
+			t.ws.setCtVal(t.convertSymbol(s), inst.CtVal)
+		}
+	}
+	return t.ws.Start()
+}
+
+// StopWS stops the WebSocket connection.
+func (t *OKXTrader) StopWS() {
+	if t.ws != nil {
+		t.ws.Stop()
+	}
+}
+
+// SubscribeSymbol adds a new symbol to the WS ticker subscription at runtime.
+func (t *OKXTrader) SubscribeSymbol(symbol string) {
+	if t.ws != nil {
+		t.ws.addSymbol(t.convertSymbol(symbol))
+	}
 }
 
 // detectPositionMode gets current position mode from account config
@@ -264,7 +299,17 @@ func (t *OKXTrader) convertSymbolBack(instId string) string {
 
 // GetBalance gets account balance
 func (t *OKXTrader) GetBalance() (map[string]interface{}, error) {
-	// Check cache
+	// WS cache: always fresh, no TTL needed
+	if t.ws != nil {
+		t.ws.balanceMu.RLock()
+		ok, bal := t.ws.balanceOk, t.ws.wsBalance
+		t.ws.balanceMu.RUnlock()
+		if ok {
+			return bal, nil
+		}
+	}
+
+	// Check REST cache
 	t.balanceCacheMutex.RLock()
 	if t.cachedBalance != nil && time.Since(t.balanceCacheTime) < t.cacheDuration {
 		t.balanceCacheMutex.RUnlock()
@@ -336,7 +381,19 @@ func (t *OKXTrader) GetBalance() (map[string]interface{}, error) {
 
 // GetPositions gets all positions
 func (t *OKXTrader) GetPositions() ([]map[string]interface{}, error) {
-	// Check cache
+	// WS cache
+	if t.ws != nil {
+		t.ws.positionsMu.RLock()
+		ok, pos := t.ws.positionsOk, t.ws.wsPositions
+		t.ws.positionsMu.RUnlock()
+		if ok {
+			result := make([]map[string]interface{}, len(pos))
+			copy(result, pos)
+			return result, nil
+		}
+	}
+
+	// Check REST cache
 	t.positionsCacheMutex.RLock()
 	if t.cachedPositions != nil && time.Since(t.positionsCacheTime) < t.cacheDuration {
 		t.positionsCacheMutex.RUnlock()
@@ -947,6 +1004,16 @@ func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]inte
 
 // GetMarketPrice gets market price
 func (t *OKXTrader) GetMarketPrice(symbol string) (float64, error) {
+	// WS cache
+	if t.ws != nil {
+		t.ws.pricesMu.RLock()
+		price, ok := t.ws.wsPrices[symbol], t.ws.pricesOk[symbol]
+		t.ws.pricesMu.RUnlock()
+		if ok {
+			return price, nil
+		}
+	}
+
 	instId := t.convertSymbol(symbol)
 	path := fmt.Sprintf("%s?instId=%s", okxTickerPath, instId)
 
