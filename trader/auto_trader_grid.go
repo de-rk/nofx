@@ -11,6 +11,7 @@ import (
 	"nofx/trader/types"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -730,16 +731,21 @@ func (at *AutoTrader) InitializeGrid() error {
 	// Start WebSocket if the exchange supports it — provides live-push caches for
 	// balance, positions, and market price instead of REST polling each cycle.
 	type wsStarter interface {
-		StartWS(symbols ...string) error
+		StartWS(symbol string, primaryTf string) error
 	}
 	type wsCallbackSetter interface {
 		SetWSCallbacks(onPosition, onOrder, onKlineClose func())
 	}
+	triggerTf := gridConfig.AITriggerTf
+	if triggerTf == "" {
+		triggerTf = "5m"
+	}
 	if starter, ok := at.trader.(wsStarter); ok {
-		if err := starter.StartWS(gridConfig.Symbol); err != nil {
+		if err := starter.StartWS(gridConfig.Symbol, triggerTf); err != nil {
 			logger.Warnf("[Grid] OKX WS start failed (falling back to REST): %v", err)
 		} else {
 			logger.Infof("[Grid] OKX WS started for %s", gridConfig.Symbol)
+
 			// Wire WS push events to the appropriate channels
 			if setter, ok := at.trader.(wsCallbackSetter); ok {
 				notifyScan := func() {
@@ -752,6 +758,7 @@ func (at *AutoTrader) InitializeGrid() error {
 				}
 				notifyGridCycle := func() {
 					if at.wsGridCycleCh != nil {
+						atomic.StoreInt64(&at.wsLastKlineClose, time.Now().UnixNano())
 						select {
 						case at.wsGridCycleCh <- struct{}{}:
 						default:
@@ -759,7 +766,7 @@ func (at *AutoTrader) InitializeGrid() error {
 					}
 				}
 				setter.SetWSCallbacks(notifyScan, notifyScan, notifyGridCycle)
-				logger.Infof("[Grid] event-driven mode: T-trade/profit-reduce on position/order push, AI cycle on 5m kline close")
+				logger.Infof("[Grid] event-driven mode: AI cycle on %s kline close", triggerTf)
 			}
 		}
 	}
@@ -1374,22 +1381,26 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
 	// Get market data — prefer WS kline cache to avoid REST polling each cycle
+	primaryTf := gridConfig.AITriggerTf
+	if primaryTf == "" {
+		primaryTf = "5m"
+	}
 	type wsKlineProvider interface {
 		GetWSKlines(symbol, tf string) ([]market.Kline, bool)
 	}
 	var mktData *market.Data
 	var err error
 	if provider, ok := at.trader.(wsKlineProvider); ok {
-		klines5m, ok5m := provider.GetWSKlines(gridConfig.Symbol, "5m")
+		klinesP, okP := provider.GetWSKlines(gridConfig.Symbol, primaryTf)
 		klines4h, ok4h := provider.GetWSKlines(gridConfig.Symbol, "4h")
-		if ok5m && ok4h && len(klines5m) >= 50 && len(klines4h) >= 50 {
+		if okP && ok4h && len(klinesP) >= 50 && len(klines4h) >= 50 {
 			mktData, err = market.BuildFromKlines(
-				map[string][]market.Kline{"5m": klines5m, "4h": klines4h},
-				"5m", 50, gridConfig.Symbol)
+				map[string][]market.Kline{primaryTf: klinesP, "4h": klines4h},
+				primaryTf, 50, gridConfig.Symbol)
 		}
 	}
 	if mktData == nil {
-		mktData, err = market.GetWithTimeframes(gridConfig.Symbol, []string{"5m", "4h"}, "5m", 50)
+		mktData, err = market.GetWithTimeframes(gridConfig.Symbol, []string{primaryTf, "4h"}, primaryTf, 50)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get market data: %w", err)

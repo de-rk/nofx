@@ -147,32 +147,33 @@ func NewOKXTrader(apiKey, secretKey, passphrase string, isCrossMargin bool) *OKX
 // StartWS starts the WebSocket connection for the given symbols (e.g. "HYPEUSDT").
 // After a successful start, GetBalance/GetPositions/GetOpenOrders/GetMarketPrice
 // will use the live WS cache instead of polling REST.
-func (t *OKXTrader) StartWS(symbols ...string) error {
-	instIds := make([]string, len(symbols))
-	for i, s := range symbols {
-		instIds[i] = t.convertSymbol(s)
+// primaryTf is the kline timeframe that triggers OnKlineClose (e.g. "5m", "3m").
+func (t *OKXTrader) StartWS(symbol string, primaryTf string) error {
+	if primaryTf == "" {
+		primaryTf = "5m"
 	}
+	instIds := []string{t.convertSymbol(symbol)}
 	t.ws = newOKXWebSocket(t.apiKey, t.secretKey, t.passphrase, instIds)
 	// Pre-populate ctVal so the WS position handler can convert contracts → base asset
-	for _, s := range symbols {
-		if inst, err := t.getInstrument(s); err == nil {
-			t.ws.setCtVal(t.convertSymbol(s), inst.CtVal)
-		}
+	if inst, err := t.getInstrument(symbol); err == nil {
+		t.ws.setCtVal(t.convertSymbol(symbol), inst.CtVal)
 	}
-	// Subscribe to kline timeframes used by the grid AI context
-	klineTfs := []string{"5m", "4h"}
+	// Subscribe to the trigger timeframe + 4h for broader context
+	klineTfs := []string{primaryTf}
+	if primaryTf != "4h" {
+		klineTfs = append(klineTfs, "4h")
+	}
 	t.ws.SetKlineTfs(klineTfs)
+	t.ws.primaryKlineTf = primaryTf
 
 	if err := t.ws.Start(); err != nil {
 		return err
 	}
 
 	// Seed kline buffers with historical data immediately after connecting
-	for _, s := range symbols {
-		instId := t.convertSymbol(s)
-		for _, tf := range klineTfs {
-			go t.ws.SeedKlines(instId, tf)
-		}
+	instId := t.convertSymbol(symbol)
+	for _, tf := range klineTfs {
+		go t.ws.SeedKlines(instId, tf)
 	}
 	return nil
 }
@@ -201,6 +202,14 @@ func (t *OKXTrader) SetWSCallbacks(onPosition, onOrder, onKlineClose func()) {
 		t.ws.OnPositionUpdate = onPosition
 		t.ws.OnOrderEvent = onOrder
 		t.ws.OnKlineClose = onKlineClose
+	}
+}
+
+// SetPrimaryKlineTf sets the timeframe whose candle close fires OnKlineClose.
+// Must be called after StartWS. Default is "5m".
+func (t *OKXTrader) SetPrimaryKlineTf(tf string) {
+	if t.ws != nil && tf != "" {
+		t.ws.primaryKlineTf = tf
 	}
 }
 

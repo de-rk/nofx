@@ -21,6 +21,7 @@ import (
 	"nofx/trader/okx"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -137,6 +138,7 @@ type AutoTrader struct {
 	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
 	wsScanCh              chan struct{}      // Receives WS push events to trigger T-trade/profit-reduce scan
 	wsGridCycleCh         chan struct{}      // Receives 5m kline-close events to trigger grid AI cycle
+	wsLastKlineClose      int64             // Unix nanoseconds of last kline-close event (atomic)
 	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
 	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
 	peakEquity            float64            // Peak equity for profit drawdown tracking
@@ -567,11 +569,14 @@ func (at *AutoTrader) Run() error {
 		select {
 		case <-ticker.C:
 			if isGridStrategy {
-				// Timer fallback: only runs if WS kline-close hasn't fired recently.
-				// When WS is active, gridCycleCh drives the cycle and the ticker is idle.
-				select {
-				case at.wsGridCycleCh <- struct{}{}:
-				default: // cycle already queued, skip
+				// Timer fallback: only triggers AI cycle when WS kline-close has been
+				// silent for longer than 2× ScanInterval (i.e. WS subscription is stale).
+				lastKline := time.Unix(0, atomic.LoadInt64(&at.wsLastKlineClose))
+				if time.Since(lastKline) > 2*at.config.ScanInterval {
+					select {
+					case at.wsGridCycleCh <- struct{}{}:
+					default:
+					}
 				}
 			} else {
 				if err := at.runCycle(); err != nil {

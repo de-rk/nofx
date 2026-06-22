@@ -78,6 +78,10 @@ type GridConfigModel struct {
 	// Periodic investment amount refresh
 	EnableInvestmentRefresh bool `json:"enable_investment_refresh" gorm:"default:false"`
 	InvestmentRefreshDays   int  `json:"investment_refresh_days" gorm:"default:2"`
+
+	// AI decision trigger timeframe — kline close interval that fires RunGridCycle.
+	// Valid values: "1m", "3m", "5m", "15m", "30m". Default "5m".
+	AITriggerTf string `json:"ai_trigger_tf" gorm:"default:5m"`
 }
 
 func (GridConfigModel) TableName() string {

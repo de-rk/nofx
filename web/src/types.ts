@@ -357,6 +357,8 @@ export interface GridStrategyConfig {
   enable_investment_refresh?: boolean;
   // Refresh interval in days (default 2)
   investment_refresh_days?: number;
+  // Kline timeframe that triggers AI grid cycle on candle close (default "5m")
+  ai_trigger_tf?: string;
 }
 
 export interface CoinSourceConfig {

@@ -83,9 +83,10 @@ type OKXWebSocket struct {
 
 	// Kline (candlestick) buffers — keyed by instId → timeframe → bars.
 	// Each buffer holds up to wsKlineMaxBars closed candles plus the current forming one.
-	klineMu   sync.RWMutex
-	wsKlines  map[string]map[string][]wsKlineBar // instId → tf → bars (oldest first)
-	klineTfs  []string                            // timeframes to subscribe (e.g. ["5m", "4h"])
+	klineMu        sync.RWMutex
+	wsKlines        map[string]map[string][]wsKlineBar // instId → tf → bars (oldest first)
+	klineTfs        []string                            // timeframes to subscribe (e.g. ["5m", "4h"])
+	primaryKlineTf  string                              // triggers OnKlineClose on confirmed close (e.g. "5m")
 }
 
 const wsKlineMaxBars = 300 // rolling buffer size per timeframe
@@ -642,8 +643,8 @@ func (ws *OKXWebSocket) handleCandle(channel, instId string, raw json.RawMessage
 			}
 			newCandle = true
 		}
-		// Fire OnKlineClose when the primary (5m) candle confirms close
-		if confirm && newCandle && tf == "5m" && ws.OnKlineClose != nil {
+		// Fire OnKlineClose when the primary candle confirms close
+		if confirm && newCandle && tf == ws.primaryKlineTf && ws.OnKlineClose != nil {
 			ws.OnKlineClose()
 		}
 	}

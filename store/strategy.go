@@ -114,6 +114,8 @@ type GridStrategyConfig struct {
 	EnableInvestmentRefresh bool `json:"enable_investment_refresh"`
 	// How often to refresh (in days, default 2)
 	InvestmentRefreshDays int `json:"investment_refresh_days"`
+	// Kline timeframe that triggers AI grid cycle on candle close (default "5m")
+	AITriggerTf string `json:"ai_trigger_tf"`
 }
 
 // PromptSectionsConfig editable sections of System Prompt

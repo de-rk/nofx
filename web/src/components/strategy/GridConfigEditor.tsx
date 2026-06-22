@@ -30,6 +30,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   profit_reduce_multiplier: 1.0,
   enable_investment_refresh: false,
   investment_refresh_days: 2,
+  ai_trigger_tf: '5m',
 }
 
 export function GridConfigEditor({
@@ -219,6 +220,29 @@ export function GridConfigEditor({
                 />
               </div>
             )}
+          </div>
+
+          {/* AI Trigger Timeframe */}
+          <div className="p-4 rounded-lg" style={sectionStyle}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {language === 'zh' ? 'AI 决策触发周期' : 'AI Decision Trigger'}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {language === 'zh' ? 'K 线收线时触发 AI 决策，WS 断线时自动切换为定时兜底' : 'Triggers AI cycle on kline close; falls back to timer when WS is unavailable'}
+            </p>
+            <select
+              value={config.ai_trigger_tf ?? '5m'}
+              onChange={(e) => updateField('ai_trigger_tf', e.target.value)}
+              disabled={disabled}
+              className="w-full px-3 py-2 rounded text-sm"
+              style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+            >
+              <option value="1m">1m</option>
+              <option value="3m">3m</option>
+              <option value="5m">5m</option>
+              <option value="15m">15m</option>
+              <option value="30m">30m</option>
+            </select>
           </div>
 
           {/* Leverage */}
