@@ -633,7 +633,7 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 
 	// Grid levels
 	sb.WriteString("## 网格层级\n")
-	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 分配USD | 建议数量 | 订单数量 | 持仓 | 浮盈 |\n")
+	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 权益USD | 建议数量 | 订单数量 | 持仓 | 浮盈 |\n")
 	sb.WriteString("|------|------|------|------|---------|----------|----------|------|------|\n")
 	for _, level := range ctx.Levels {
 		suggestedQty := 0.0
@@ -641,8 +641,22 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 			raw := level.AllocatedUSD * float64(ctx.Leverage) / level.Price
 			suggestedQty = math.Round(raw*10000) / 10000
 		}
+		// Equity = actual qty × price / leverage (shows real committed margin per level)
+		var equityUSD float64
+		switch level.State {
+		case "filled":
+			if level.PositionEntry > 0 {
+				equityUSD = level.PositionSize * level.PositionEntry / float64(ctx.Leverage)
+			} else {
+				equityUSD = level.PositionSize * level.Price / float64(ctx.Leverage)
+			}
+		case "pending":
+			equityUSD = level.OrderQuantity * level.Price / float64(ctx.Leverage)
+		default:
+			equityUSD = level.AllocatedUSD
+		}
 		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
-			level.Index, level.Price, level.State, level.Side, level.AllocatedUSD, suggestedQty,
+			level.Index, level.Price, level.State, level.Side, equityUSD, suggestedQty,
 			level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
 	}
 	sb.WriteString("\n")
@@ -762,16 +776,29 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 
 	// Grid levels
 	sb.WriteString("## Grid Levels\n")
-	sb.WriteString("| Level | Price | State | Side | Alloc USD | Suggested Qty | Order Qty | Position | PnL |\n")
-	sb.WriteString("|-------|-------|-------|------|-----------|---------------|-----------|----------|-----|\n")
+	sb.WriteString("| Level | Price | State | Side | Equity USD | Suggested Qty | Order Qty | Position | PnL |\n")
+	sb.WriteString("|-------|-------|-------|------|------------|---------------|-----------|----------|-----|\n")
 	for _, level := range ctx.Levels {
 		suggestedQty := 0.0
 		if level.Price > 0 && level.AllocatedUSD > 0 {
 			raw := level.AllocatedUSD * float64(ctx.Leverage) / level.Price
 			suggestedQty = math.Round(raw*10000) / 10000
 		}
+		var equityUSD float64
+		switch level.State {
+		case "filled":
+			if level.PositionEntry > 0 {
+				equityUSD = level.PositionSize * level.PositionEntry / float64(ctx.Leverage)
+			} else {
+				equityUSD = level.PositionSize * level.Price / float64(ctx.Leverage)
+			}
+		case "pending":
+			equityUSD = level.OrderQuantity * level.Price / float64(ctx.Leverage)
+		default:
+			equityUSD = level.AllocatedUSD
+		}
 		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
-			level.Index, level.Price, level.State, level.Side, level.AllocatedUSD, suggestedQty,
+			level.Index, level.Price, level.State, level.Side, equityUSD, suggestedQty,
 			level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
 	}
 	sb.WriteString("\n")
