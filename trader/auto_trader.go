@@ -135,6 +135,7 @@ type AutoTrader struct {
 	positionFirstSeenTime map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
 	stopMonitorCh         chan struct{}      // Used to stop monitoring goroutine
 	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
+	wsScanCh              chan struct{}      // Receives WS push events to trigger T-trade/profit-reduce scan
 	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
 	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
 	peakEquity            float64            // Peak equity for profit drawdown tracking
@@ -483,19 +484,19 @@ func (at *AutoTrader) Run() error {
 			logger.Infof("❌ Grid execution failed: %v", err)
 		}
 
-		// Independent T-trade scanner: runs every minute regardless of main cycle interval.
+		// Event-driven T-trade and profit-reduce scan.
+		// Triggered by WebSocket position/order push events instead of polling.
+		// A buffered channel of size 1 debounces rapid-fire WS pushes — if an
+		// event arrives while the previous scan is still running, it is coalesced.
+		scanCh := make(chan struct{}, 1)
+
+		// Expose the channel so InitializeGrid can wire WS callbacks to it.
+		at.wsScanCh = scanCh
+
 		go func() {
-			ttradeTicker := time.NewTicker(1 * time.Minute)
-			defer ttradeTicker.Stop()
 			for {
 				select {
-				case <-ttradeTicker.C:
-					at.isRunningMutex.RLock()
-					running := at.isRunning
-					at.isRunningMutex.RUnlock()
-					if !running {
-						return
-					}
+				case <-scanCh:
 					if at.gridState == nil || !at.gridState.IsInitialized {
 						continue
 					}

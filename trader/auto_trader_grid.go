@@ -732,11 +732,26 @@ func (at *AutoTrader) InitializeGrid() error {
 	type wsStarter interface {
 		StartWS(symbols ...string) error
 	}
+	type wsCallbackSetter interface {
+		SetWSCallbacks(onPosition, onOrder func())
+	}
 	if starter, ok := at.trader.(wsStarter); ok {
 		if err := starter.StartWS(gridConfig.Symbol); err != nil {
 			logger.Warnf("[Grid] OKX WS start failed (falling back to REST): %v", err)
 		} else {
 			logger.Infof("[Grid] OKX WS started for %s", gridConfig.Symbol)
+			// Wire WS push events to the scan channel so T-trade and profit-reduce
+			// run immediately when positions or orders change, not on a fixed timer.
+			if setter, ok := at.trader.(wsCallbackSetter); ok && at.wsScanCh != nil {
+				notify := func() {
+					select {
+					case at.wsScanCh <- struct{}{}:
+					default: // scan already queued, drop duplicate signal
+					}
+				}
+				setter.SetWSCallbacks(notify, notify)
+				logger.Infof("[Grid] T-trade/profit-reduce switched to event-driven mode")
+			}
 		}
 	}
 

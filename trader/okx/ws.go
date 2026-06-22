@@ -73,6 +73,11 @@ type OKXWebSocket struct {
 	// OKX closes connections idle for 30s, so we ping after 20s of silence.
 	pubLastRecv  int64 // Unix nanoseconds, updated atomically via sync/atomic
 	privLastRecv int64
+
+	// Event callbacks — called after cache is updated. Use non-blocking channel
+	// sends in callers to debounce rapid-fire pushes.
+	OnPositionUpdate func() // fired on every positions push
+	OnOrderEvent     func() // fired on every orders push (fill, cancel, new)
 }
 
 func newOKXWebSocket(apiKey, secretKey, passphrase string, instIds []string) *OKXWebSocket {
@@ -561,6 +566,9 @@ func (ws *OKXWebSocket) handlePositions(raw json.RawMessage) {
 	ws.wsPositions = result
 	ws.positionsOk = true
 	ws.positionsMu.Unlock()
+	if ws.OnPositionUpdate != nil {
+		ws.OnPositionUpdate()
+	}
 }
 
 // handleOrders processes individual order events (not a full snapshot).
@@ -633,6 +641,9 @@ func (ws *OKXWebSocket) handleOrders(raw json.RawMessage) {
 		}
 	}
 	ws.ordersOk = true
+	if ws.OnOrderEvent != nil {
+		ws.OnOrderEvent()
+	}
 }
 
 // instIdToSymbol converts "HYPE-USDT-SWAP" → "HYPEUSDT"
