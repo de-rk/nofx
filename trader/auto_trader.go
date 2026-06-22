@@ -136,6 +136,7 @@ type AutoTrader struct {
 	stopMonitorCh         chan struct{}      // Used to stop monitoring goroutine
 	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
 	wsScanCh              chan struct{}      // Receives WS push events to trigger T-trade/profit-reduce scan
+	wsGridCycleCh         chan struct{}      // Receives 5m kline-close events to trigger grid AI cycle
 	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
 	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
 	peakEquity            float64            // Peak equity for profit drawdown tracking
@@ -485,12 +486,7 @@ func (at *AutoTrader) Run() error {
 		}
 
 		// Event-driven T-trade and profit-reduce scan.
-		// Triggered by WebSocket position/order push events instead of polling.
-		// A buffered channel of size 1 debounces rapid-fire WS pushes — if an
-		// event arrives while the previous scan is still running, it is coalesced.
 		scanCh := make(chan struct{}, 1)
-
-		// Expose the channel so InitializeGrid can wire WS callbacks to it.
 		at.wsScanCh = scanCh
 
 		go func() {
@@ -520,6 +516,30 @@ func (at *AutoTrader) Run() error {
 				}
 			}
 		}()
+
+		// Event-driven AI grid cycle: triggered by 5m kline close via WS.
+		// Falls back to ScanInterval timer when WS is not connected.
+		gridCycleCh := make(chan struct{}, 1)
+		at.wsGridCycleCh = gridCycleCh
+
+		go func() {
+			for {
+				select {
+				case <-gridCycleCh:
+					at.isRunningMutex.RLock()
+					running := at.isRunning
+					at.isRunningMutex.RUnlock()
+					if !running {
+						return
+					}
+					if err := at.RunGridCycle(); err != nil {
+						logger.Infof("❌ Grid execution failed: %v", err)
+					}
+				case <-at.stopMonitorCh:
+					return
+				}
+			}
+		}()
 	} else {
 		if err := at.runCycle(); err != nil {
 			logger.Infof("❌ Execution failed: %v", err)
@@ -538,8 +558,11 @@ func (at *AutoTrader) Run() error {
 		select {
 		case <-ticker.C:
 			if isGridStrategy {
-				if err := at.RunGridCycle(); err != nil {
-					logger.Infof("❌ Grid execution failed: %v", err)
+				// Timer fallback: only runs if WS kline-close hasn't fired recently.
+				// When WS is active, gridCycleCh drives the cycle and the ticker is idle.
+				select {
+				case at.wsGridCycleCh <- struct{}{}:
+				default: // cycle already queued, skip
 				}
 			} else {
 				if err := at.runCycle(); err != nil {

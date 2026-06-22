@@ -194,13 +194,13 @@ func (t *OKXTrader) SubscribeSymbol(symbol string) {
 // SetWSCallbacks wires event callbacks into the WebSocket layer.
 // onPosition fires whenever a positions push is received.
 // onOrder fires whenever an orders push is received (fill, cancel, new).
-// Both callbacks are called from within WS read goroutines — they must be
-// non-blocking (e.g. send to a buffered channel, never a direct function call
-// that could block or do heavy work).
-func (t *OKXTrader) SetWSCallbacks(onPosition, onOrder func()) {
+// onKlineClose fires when a confirmed 5m candle close is received.
+// All callbacks are called from WS read goroutines — must be non-blocking.
+func (t *OKXTrader) SetWSCallbacks(onPosition, onOrder, onKlineClose func()) {
 	if t.ws != nil {
 		t.ws.OnPositionUpdate = onPosition
 		t.ws.OnOrderEvent = onOrder
+		t.ws.OnKlineClose = onKlineClose
 	}
 }
 

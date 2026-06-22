@@ -79,6 +79,7 @@ type OKXWebSocket struct {
 	// sends in callers to debounce rapid-fire pushes.
 	OnPositionUpdate func() // fired on every positions push
 	OnOrderEvent     func() // fired on every orders push (fill, cancel, new)
+	OnKlineClose     func() // fired when a 5m candle confirms close (confirm=1)
 
 	// Kline (candlestick) buffers — keyed by instId → timeframe → bars.
 	// Each buffer holds up to wsKlineMaxBars closed candles plus the current forming one.
@@ -631,15 +632,19 @@ func (ws *OKXWebSocket) handleCandle(channel, instId string, raw json.RawMessage
 		}
 		bar.Confirmed = confirm
 
+		newCandle := false
 		if len(buf) > 0 && buf[len(buf)-1].Ts == bar.Ts {
-			// Update the current forming candle in place
 			buf[len(buf)-1] = bar
 		} else {
 			buf = append(buf, bar)
-			// Trim to max buffer size
 			if len(buf) > wsKlineMaxBars {
 				buf = buf[len(buf)-wsKlineMaxBars:]
 			}
+			newCandle = true
+		}
+		// Fire OnKlineClose when the primary (5m) candle confirms close
+		if confirm && newCandle && tf == "5m" && ws.OnKlineClose != nil {
+			ws.OnKlineClose()
 		}
 	}
 	ws.wsKlines[instId][tf] = buf
