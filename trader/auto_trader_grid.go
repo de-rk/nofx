@@ -1364,8 +1364,24 @@ func (at *AutoTrader) ResetProfitTracker(side string) {
 func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Get market data
-	mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m", "4h"}, "5m", 50)
+	// Get market data — prefer WS kline cache to avoid REST polling each cycle
+	type wsKlineProvider interface {
+		GetWSKlines(symbol, tf string) ([]market.Kline, bool)
+	}
+	var mktData *market.Data
+	var err error
+	if provider, ok := at.trader.(wsKlineProvider); ok {
+		klines5m, ok5m := provider.GetWSKlines(gridConfig.Symbol, "5m")
+		klines4h, ok4h := provider.GetWSKlines(gridConfig.Symbol, "4h")
+		if ok5m && ok4h && len(klines5m) >= 50 && len(klines4h) >= 50 {
+			mktData, err = market.BuildFromKlines(
+				map[string][]market.Kline{"5m": klines5m, "4h": klines4h},
+				"5m", 50, gridConfig.Symbol)
+		}
+	}
+	if mktData == nil {
+		mktData, err = market.GetWithTimeframes(gridConfig.Symbol, []string{"5m", "4h"}, "5m", 50)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get market data: %w", err)
 	}

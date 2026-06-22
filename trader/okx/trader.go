@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"nofx/logger"
+	"nofx/market"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,7 +159,22 @@ func (t *OKXTrader) StartWS(symbols ...string) error {
 			t.ws.setCtVal(t.convertSymbol(s), inst.CtVal)
 		}
 	}
-	return t.ws.Start()
+	// Subscribe to kline timeframes used by the grid AI context
+	klineTfs := []string{"5m", "4h"}
+	t.ws.SetKlineTfs(klineTfs)
+
+	if err := t.ws.Start(); err != nil {
+		return err
+	}
+
+	// Seed kline buffers with historical data immediately after connecting
+	for _, s := range symbols {
+		instId := t.convertSymbol(s)
+		for _, tf := range klineTfs {
+			go t.ws.SeedKlines(instId, tf)
+		}
+	}
+	return nil
 }
 
 // StopWS stops the WebSocket connection.
@@ -186,6 +202,32 @@ func (t *OKXTrader) SetWSCallbacks(onPosition, onOrder func()) {
 		t.ws.OnPositionUpdate = onPosition
 		t.ws.OnOrderEvent = onOrder
 	}
+}
+
+// GetWSKlines returns WS-cached klines for a symbol and timeframe, converted to market.Kline.
+// Returns (nil, false) if the buffer is empty or WS is not running.
+func (t *OKXTrader) GetWSKlines(symbol, tf string) ([]market.Kline, bool) {
+	if t.ws == nil {
+		return nil, false
+	}
+	instId := t.convertSymbol(symbol)
+	bars := t.ws.GetWSKlineBars(instId, tf)
+	if len(bars) == 0 {
+		return nil, false
+	}
+	klines := make([]market.Kline, len(bars))
+	for i, b := range bars {
+		klines[i] = market.Kline{
+			OpenTime:  b.Ts,
+			Open:      b.Open,
+			High:      b.High,
+			Low:       b.Low,
+			Close:     b.Close,
+			Volume:    b.Vol,
+			CloseTime: b.Ts + 1, // approximate; not provided by OKX candle channel
+		}
+	}
+	return klines, true
 }
 
 // detectPositionMode gets current position mode from account config

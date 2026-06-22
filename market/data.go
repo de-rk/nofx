@@ -396,6 +396,51 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	}, nil
 }
 
+// BuildFromKlines builds a Data struct from pre-fetched klines, skipping REST calls.
+// klinesByTf maps timeframe string (e.g. "5m", "4h") → kline slice.
+// OI and funding rate are still fetched via REST as they have no WS equivalent.
+func BuildFromKlines(klinesByTf map[string][]Kline, primaryTf string, count int, symbol string) (*Data, error) {
+	symbol = Normalize(symbol)
+	primaryKlines, ok := klinesByTf[primaryTf]
+	if !ok || len(primaryKlines) == 0 {
+		return nil, fmt.Errorf("BuildFromKlines: no klines for primary timeframe %s", primaryTf)
+	}
+
+	timeframeData := make(map[string]*TimeframeSeriesData, len(klinesByTf))
+	for tf, klines := range klinesByTf {
+		if len(klines) == 0 {
+			continue
+		}
+		timeframeData[tf] = calculateTimeframeSeries(klines, tf, count)
+	}
+
+	currentPrice := primaryKlines[len(primaryKlines)-1].Close
+	currentEMA20 := calculateEMA(primaryKlines, 20)
+	currentMACD := calculateMACD(primaryKlines)
+	currentRSI7 := calculateRSI(primaryKlines, 7)
+	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTf, 60)
+	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTf, 240)
+
+	oiData, err := getOpenInterestData(symbol)
+	if err != nil {
+		oiData = &OIData{Latest: 0, Average: 0}
+	}
+	fundingRate, _ := getFundingRate(symbol)
+
+	return &Data{
+		Symbol:        symbol,
+		CurrentPrice:  currentPrice,
+		PriceChange1h: priceChange1h,
+		PriceChange4h: priceChange4h,
+		CurrentEMA20:  currentEMA20,
+		CurrentMACD:   currentMACD,
+		CurrentRSI7:   currentRSI7,
+		OpenInterest:  oiData,
+		FundingRate:   fundingRate,
+		TimeframeData: timeframeData,
+	}, nil
+}
+
 // calculateTimeframeSeries calculates series data for a single timeframe
 func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *TimeframeSeriesData {
 	if count <= 0 {

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"nofx/logger"
 	"nofx/trader/types"
 	"strconv"
@@ -78,6 +79,25 @@ type OKXWebSocket struct {
 	// sends in callers to debounce rapid-fire pushes.
 	OnPositionUpdate func() // fired on every positions push
 	OnOrderEvent     func() // fired on every orders push (fill, cancel, new)
+
+	// Kline (candlestick) buffers — keyed by instId → timeframe → bars.
+	// Each buffer holds up to wsKlineMaxBars closed candles plus the current forming one.
+	klineMu   sync.RWMutex
+	wsKlines  map[string]map[string][]wsKlineBar // instId → tf → bars (oldest first)
+	klineTfs  []string                            // timeframes to subscribe (e.g. ["5m", "4h"])
+}
+
+const wsKlineMaxBars = 300 // rolling buffer size per timeframe
+
+// wsKlineBar is a compact OHLCV record from the OKX candle channel.
+type wsKlineBar struct {
+	Ts        int64   // open time, unix ms
+	Open      float64
+	High      float64
+	Low       float64
+	Close     float64
+	Vol       float64 // base asset volume
+	Confirmed bool    // true once the candle is closed
 }
 
 func newOKXWebSocket(apiKey, secretKey, passphrase string, instIds []string) *OKXWebSocket {
@@ -94,7 +114,78 @@ func newOKXWebSocket(apiKey, secretKey, passphrase string, instIds []string) *OK
 		wsPrices:  make(map[string]float64),
 		pricesOk:  make(map[string]bool),
 		ctVals:    make(map[string]float64),
+		wsKlines:  make(map[string]map[string][]wsKlineBar),
 	}
+}
+
+// SetKlineTfs sets the timeframes to subscribe for candlestick data (e.g. ["5m", "4h"]).
+// Must be called before Start().
+func (ws *OKXWebSocket) SetKlineTfs(tfs []string) {
+	ws.klineTfs = tfs
+}
+
+// SeedKlines pre-fills the kline buffer for a given instId and timeframe using
+// OKX REST API (public endpoint, no auth required). Called before the WS stream
+// has accumulated enough history.
+func (ws *OKXWebSocket) SeedKlines(instId, tf string) {
+	bar := marketTfToOKXBar(tf)
+	url := fmt.Sprintf("https://www.okx.com/api/v5/market/candles?instId=%s&bar=%s&limit=300", instId, bar)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		logger.Warnf("[OKX WS] kline seed REST failed %s %s: %v", instId, tf, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Code string          `json:"code"`
+		Data [][]interface{} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || result.Code != "0" {
+		logger.Warnf("[OKX WS] kline seed parse failed %s %s: code=%s err=%v", instId, tf, result.Code, err)
+		return
+	}
+
+	// OKX returns newest first — reverse to oldest-first order
+	bars := make([]wsKlineBar, 0, len(result.Data))
+	for i := len(result.Data) - 1; i >= 0; i-- {
+		row := result.Data[i]
+		if len(row) < 6 {
+			continue
+		}
+		b := parseOKXCandleRow(row)
+		b.Confirmed = true
+		bars = append(bars, b)
+	}
+	if len(bars) == 0 {
+		return
+	}
+
+	ws.klineMu.Lock()
+	if ws.wsKlines[instId] == nil {
+		ws.wsKlines[instId] = make(map[string][]wsKlineBar)
+	}
+	ws.wsKlines[instId][tf] = bars
+	ws.klineMu.Unlock()
+	logger.Infof("[OKX WS] kline seed: %s %s %d bars", instId, tf, len(bars))
+}
+
+// GetWSKlineBars returns the current kline buffer for a given instId and timeframe.
+// Returns nil if no data is available.
+func (ws *OKXWebSocket) GetWSKlineBars(instId, tf string) []wsKlineBar {
+	ws.klineMu.RLock()
+	defer ws.klineMu.RUnlock()
+	if ws.wsKlines[instId] == nil {
+		return nil
+	}
+	bars := ws.wsKlines[instId][tf]
+	if len(bars) == 0 {
+		return nil
+	}
+	result := make([]wsKlineBar, len(bars))
+	copy(result, bars)
+	return result
 }
 
 func (ws *OKXWebSocket) setCtVal(instId string, ctVal float64) {
@@ -246,7 +337,7 @@ func (ws *OKXWebSocket) subscribe() {
 	}
 	ws.privMu.Unlock()
 
-	// Public: tickers per instId
+	// Public: tickers + candles per instId
 	ws.instIdsMu.RLock()
 	ids := make([]string, len(ws.instIds))
 	copy(ids, ws.instIds)
@@ -255,9 +346,16 @@ func (ws *OKXWebSocket) subscribe() {
 	if len(ids) == 0 {
 		return
 	}
-	pubArgs := make([]map[string]string, len(ids))
-	for i, id := range ids {
-		pubArgs[i] = map[string]string{"channel": "tickers", "instId": id}
+
+	var pubArgs []map[string]string
+	for _, id := range ids {
+		pubArgs = append(pubArgs, map[string]string{"channel": "tickers", "instId": id})
+		for _, tf := range ws.klineTfs {
+			pubArgs = append(pubArgs, map[string]string{
+				"channel": marketTfToOKXChannel(tf),
+				"instId":  id,
+			})
+		}
 	}
 	ws.pubMu.Lock()
 	if ws.pubConn != nil {
@@ -401,6 +499,8 @@ func (ws *OKXWebSocket) readPublic(done chan struct{}) {
 		}
 		if msg.Arg.Channel == "tickers" && msg.Data != nil {
 			ws.handleTickers(msg.Arg.InstId, msg.Data)
+		} else if strings.HasPrefix(msg.Arg.Channel, "candle") && msg.Data != nil {
+			ws.handleCandle(msg.Arg.Channel, msg.Arg.InstId, msg.Data)
 		}
 	}
 }
@@ -445,6 +545,105 @@ func (ws *OKXWebSocket) readPrivate(done chan struct{}) {
 }
 
 // ── Cache handlers ────────────────────────────────────────────────────────────
+
+// marketTfToOKXBar converts market package timeframe strings to OKX bar param.
+// e.g. "5m" → "5m", "4h" → "4H", "1h" → "1H"
+func marketTfToOKXBar(tf string) string {
+	switch tf {
+	case "1m":
+		return "1m"
+	case "3m":
+		return "3m"
+	case "5m":
+		return "5m"
+	case "15m":
+		return "15m"
+	case "30m":
+		return "30m"
+	case "1h":
+		return "1H"
+	case "2h":
+		return "2H"
+	case "4h":
+		return "4H"
+	case "6h":
+		return "6H"
+	case "12h":
+		return "12H"
+	case "1d":
+		return "1D"
+	default:
+		return tf
+	}
+}
+
+// marketTfToOKXChannel converts timeframe to OKX WS channel name.
+// e.g. "5m" → "candle5m", "4h" → "candle4H"
+func marketTfToOKXChannel(tf string) string {
+	return "candle" + marketTfToOKXBar(tf)
+}
+
+func parseOKXCandleRow(row []interface{}) wsKlineBar {
+	parseStr := func(v interface{}) float64 {
+		if s, ok := v.(string); ok {
+			f, _ := strconv.ParseFloat(s, 64)
+			return f
+		}
+		return 0
+	}
+	ts, _ := strconv.ParseInt(fmt.Sprintf("%v", row[0]), 10, 64)
+	return wsKlineBar{
+		Ts:    ts,
+		Open:  parseStr(row[1]),
+		High:  parseStr(row[2]),
+		Low:   parseStr(row[3]),
+		Close: parseStr(row[4]),
+		Vol:   parseStr(row[5]),
+	}
+}
+
+func (ws *OKXWebSocket) handleCandle(channel, instId string, raw json.RawMessage) {
+	// OKX candle data: array of arrays, each: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
+	var rows [][]interface{}
+	if err := json.Unmarshal(raw, &rows); err != nil || len(rows) == 0 {
+		return
+	}
+
+	// Extract timeframe from channel name: "candle5m" → "5m", "candle4H" → "4h"
+	tf := strings.ToLower(strings.TrimPrefix(channel, "candle"))
+
+	ws.klineMu.Lock()
+	defer ws.klineMu.Unlock()
+
+	if ws.wsKlines[instId] == nil {
+		ws.wsKlines[instId] = make(map[string][]wsKlineBar)
+	}
+	buf := ws.wsKlines[instId][tf]
+
+	for _, row := range rows {
+		if len(row) < 6 {
+			continue
+		}
+		bar := parseOKXCandleRow(row)
+		confirm := false
+		if len(row) >= 9 {
+			confirm = fmt.Sprintf("%v", row[8]) == "1"
+		}
+		bar.Confirmed = confirm
+
+		if len(buf) > 0 && buf[len(buf)-1].Ts == bar.Ts {
+			// Update the current forming candle in place
+			buf[len(buf)-1] = bar
+		} else {
+			buf = append(buf, bar)
+			// Trim to max buffer size
+			if len(buf) > wsKlineMaxBars {
+				buf = buf[len(buf)-wsKlineMaxBars:]
+			}
+		}
+	}
+	ws.wsKlines[instId][tf] = buf
+}
 
 func (ws *OKXWebSocket) handleTickers(instId string, raw json.RawMessage) {
 	var tickers []struct {
