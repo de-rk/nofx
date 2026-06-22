@@ -204,7 +204,11 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 		ctx.MACD = mktData.CurrentMACD
 
 		if mktData.TimeframeData != nil {
-			if tf5m, ok := mktData.TimeframeData["5m"]; ok {
+			primaryTf := config.AITriggerTf
+			if primaryTf == "" {
+				primaryTf = "5m"
+			}
+			if tf5m, ok := mktData.TimeframeData[primaryTf]; ok {
 				if len(tf5m.BOLLUpper) > 0 {
 					ctx.BollingerUpper = tf5m.BOLLUpper[len(tf5m.BOLLUpper)-1]
 					ctx.BollingerMiddle = tf5m.BOLLMiddle[len(tf5m.BOLLMiddle)-1]
