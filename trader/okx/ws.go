@@ -386,6 +386,8 @@ func (ws *OKXWebSocket) readPublic(done chan struct{}) {
 		}
 		atomic.StoreInt64(&ws.pubLastRecv, time.Now().UnixNano())
 		if string(raw) == "pong" {
+			// Clear the read deadline that was set when we sent "ping"
+			conn.SetReadDeadline(time.Time{})
 			continue
 		}
 		var msg okxWSMsg
@@ -413,6 +415,7 @@ func (ws *OKXWebSocket) readPrivate(done chan struct{}) {
 		}
 		atomic.StoreInt64(&ws.privLastRecv, time.Now().UnixNano())
 		if string(raw) == "pong" {
+			conn.SetReadDeadline(time.Time{})
 			continue
 		}
 		var msg okxWSMsg
