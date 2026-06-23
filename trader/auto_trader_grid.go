@@ -1051,10 +1051,8 @@ func (at *AutoTrader) RunGridCycle() error {
 				for _, o := range freshOrders {
 					freshOrderIDs[o.OrderID] = true
 				}
-				// Re-use current price from market data fetched inside ttradeTagOrders
-				mktSnap, mktErr := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
-				if mktErr == nil && mktSnap != nil {
-					currentPrice := mktSnap.CurrentPrice
+				// Get current price — prefer WS cache
+				if currentPrice, priceErr := at.trader.GetMarketPrice(gridConfig.Symbol); priceErr == nil && currentPrice > 0 {
 					longInfo, shortInfo, tErr := at.buildTTradeContext(currentPrice)
 					if tErr == nil && (longInfo.Active || shortInfo.Active) {
 						at.gridState.mu.RLock()
@@ -2769,13 +2767,9 @@ func (at *AutoTrader) ttradeTagOrders(openOrders []types.OpenOrder) {
 		return
 	}
 
-	// Get current price
-	mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
-	if err != nil || mktData == nil {
-		return
-	}
-	currentPrice := mktData.CurrentPrice
-	if currentPrice <= 0 {
+	// Get current price — prefer WS cache
+	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
+	if err != nil || currentPrice <= 0 {
 		return
 	}
 
@@ -3444,15 +3438,13 @@ func (at *AutoTrader) buildTTradeContext(currentPrice float64) (longInfo, shortI
 	return
 }
 
-// buildTrappedContext fetches only what ttradeTagOrders needs:
-// current price (from latest 5m candle) and trapped position info.
+// buildTrappedContext fetches current price and trapped position info.
 func (at *AutoTrader) buildTrappedContext() (float64, *kernel.TrappedPositionInfo, error) {
 	gridConfig := at.config.StrategyConfig.GridConfig
-	mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
+	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
 	if err != nil {
 		return 0, nil, err
 	}
-	currentPrice := mktData.CurrentPrice
 	if currentPrice <= 0 {
 		return 0, nil, fmt.Errorf("invalid current price")
 	}
