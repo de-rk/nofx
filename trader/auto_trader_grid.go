@@ -1829,14 +1829,13 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 		return fmt.Errorf("cancel_order: no order ID found (level=%d price=%.2f)", d.LevelIndex, d.Price)
 	}
 
-	// Protect T-trade orders — both prep and reduce orders must not be cancelled by AI
+	// Protect T-trade reduce orders only — prep/tag orders can be cancelled by AI
 	at.gridState.mu.RLock()
-	_, isPrepOrder := at.gridState.TTradePrepOrders[orderID]
 	_, isReduceOrder := at.gridState.TTradeReduceOrders[orderID]
 	at.gridState.mu.RUnlock()
-	if isPrepOrder || isReduceOrder {
-		logger.Warnf("[Grid] cancel_order blocked: order %s is a protected T-trade order (prep=%v reduce=%v)",
-			orderID, isPrepOrder, isReduceOrder)
+	if isReduceOrder {
+		logger.Warnf("[Grid] cancel_order blocked: order %s is a protected T-trade reduce order",
+			orderID)
 		return nil
 	}
 
