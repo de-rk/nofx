@@ -725,16 +725,37 @@ export function AdvancedChart({
 
       ws.onopen = () => {
         backoff = 1000
-        ws!.send(JSON.stringify({ op: 'subscribe', args: [{ channel, instId }] }))
-        resetSilenceTimer() // start silence detection after subscribe
+        // Subscribe to candle channel for OHLCV updates + tickers for real-time price
+        ws!.send(JSON.stringify({
+          op: 'subscribe',
+          args: [
+            { channel, instId },
+            { channel: 'tickers', instId },
+          ]
+        }))
+        resetSilenceTimer()
       }
 
       ws.onmessage = (evt) => {
-        resetSilenceTimer() // any message resets the silence timer
+        resetSilenceTimer()
         if (evt.data === 'pong') return
         try {
           const msg = JSON.parse(evt.data)
-          if (msg.arg?.channel !== channel || !Array.isArray(msg.data)) return
+          if (!Array.isArray(msg.data)) return
+
+          // Tickers: real-time price update — only update the price stat display,
+          // do NOT update the candle series (24h OHLC != current candle OHLC)
+          if (msg.arg?.channel === 'tickers') {
+            const tick = msg.data[0]
+            if (!tick) return
+            const price = +tick.last
+            if (!price) return
+            setMarketStats(prev => prev ? { ...prev, price } : null)
+            return
+          }
+
+          // Candle channel: full OHLCV update
+          if (msg.arg?.channel !== channel) return
           for (const row of msg.data) {
             if (!Array.isArray(row) || row.length < 6) continue
             const ts = Math.floor(Number(row[0]) / 1000) as UTCTimestamp
