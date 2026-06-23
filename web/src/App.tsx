@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
 import { api } from './lib/api'
 import { TraderDashboardPage } from './pages/TraderDashboardPage'
 
@@ -228,9 +228,9 @@ function App() {
       : null,
     () => api.getStatus(selectedTraderId),
     {
-      refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
-      revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
-      dedupingInterval: 10000, // 10秒去重，防止短时间内重复请求
+      refreshInterval: 60000, // fallback — SSE triggers immediate revalidation
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
     }
   )
 
@@ -240,9 +240,9 @@ function App() {
       : null,
     () => api.getAccount(selectedTraderId),
     {
-      refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
-      revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
-      dedupingInterval: 10000, // 10秒去重，防止短时间内重复请求
+      refreshInterval: 60000, // fallback — SSE triggers immediate revalidation
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
     }
   )
 
@@ -252,9 +252,9 @@ function App() {
       : null,
     () => api.getPositions(selectedTraderId),
     {
-      refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
-      revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
-      dedupingInterval: 10000, // 10秒去重，防止短时间内重复请求
+      refreshInterval: 60000, // fallback — SSE triggers immediate revalidation
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
     }
   )
 
@@ -264,7 +264,7 @@ function App() {
       : null,
     () => api.getLatestDecisions(selectedTraderId, decisionsLimit),
     {
-      refreshInterval: 30000,
+      refreshInterval: 60000, // fallback
       revalidateOnFocus: false,
       dedupingInterval: 20000,
     }
@@ -276,7 +276,7 @@ function App() {
       : null,
     () => api.getGridTradeLogs(selectedTraderId!, tradeLogsLimit),
     {
-      refreshInterval: 30000,
+      refreshInterval: 60000, // fallback
       revalidateOnFocus: false,
       dedupingInterval: 20000,
     }
@@ -288,11 +288,54 @@ function App() {
       : null,
     () => api.getStatistics(selectedTraderId),
     {
-      refreshInterval: 30000, // 30秒刷新（统计数据更新频率较低）
+      refreshInterval: 60000, // fallback
       revalidateOnFocus: false,
       dedupingInterval: 20000,
     }
   )
+
+  // SSE: subscribe to trader events and revalidate SWR caches immediately
+  useEffect(() => {
+    if (!selectedTraderId || !token) return
+    let aborted = false
+    const ctrl = new AbortController()
+
+    ;(async () => {
+      try {
+        const resp = await fetch(`/api/traders/${selectedTraderId}/events`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: ctrl.signal,
+        })
+        if (!resp.body) return
+        const reader = resp.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ''
+        while (!aborted) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (line.startsWith('event: order_update')) {
+              // Revalidate all data keys for this trader immediately
+              mutate(`status-${selectedTraderId}`)
+              mutate(`account-${selectedTraderId}`)
+              mutate(`positions-${selectedTraderId}`)
+              mutate(`decisions/latest-${selectedTraderId}-${decisionsLimit}`)
+              mutate(`grid-trade-logs-${selectedTraderId}-${tradeLogsLimit}`)
+              mutate(`statistics-${selectedTraderId}`)
+            }
+          }
+        }
+      } catch { /* connection closed or aborted */ }
+    })()
+
+    return () => {
+      aborted = true
+      ctrl.abort()
+    }
+  }, [selectedTraderId, token, decisionsLimit, tradeLogsLimit])
 
   useEffect(() => {
     if (account) {
