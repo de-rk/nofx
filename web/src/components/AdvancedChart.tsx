@@ -490,9 +490,11 @@ export function AdvancedChart({
           klineData.forEach((k: any) => {
             klineDataRef.current.set(k.time, { volume: k.volume || 0, quoteVolume: k.quoteVolume || 0 })
           })
-          // 记录最后一根K线时间
+          // 记录最后一根K线时间，并初始化 currentCandleRef 供 ticker 实时更新使用
           if (klineData.length > 0) {
-            lastCandleTimeRef.current = klineData[klineData.length - 1].time
+            const last = klineData[klineData.length - 1]
+            lastCandleTimeRef.current = last.time
+            currentCandleRef.current = { open: last.open, high: last.high, low: last.low, close: last.close }
           }
         }
 
