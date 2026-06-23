@@ -420,12 +420,16 @@ export function TraderConfigModal({
                   </label>
                   <input
                     type="number"
-                    value={formData.scan_interval_minutes}
+                    value={formData.scan_interval_minutes === 0 ? '0' : formData.scan_interval_minutes}
                     onChange={(e) => {
-                      const parsedValue = Number(e.target.value)
-                      // 0 = disable timer (WS-only mode); otherwise minimum 3
+                      const raw = e.target.value.trim()
+                      if (raw === '' || raw === '0') {
+                        handleInputChange('scan_interval_minutes', 0)
+                        return
+                      }
+                      const parsedValue = parseInt(raw, 10)
                       const safeValue = Number.isFinite(parsedValue)
-                        ? (parsedValue === 0 ? 0 : Math.max(3, parsedValue))
+                        ? Math.max(3, parsedValue)
                         : 3
                       handleInputChange('scan_interval_minutes', safeValue)
                     }}
