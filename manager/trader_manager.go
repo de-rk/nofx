@@ -24,16 +24,56 @@ type TraderManager struct {
 	loadErrors       map[string]error              // key: trader ID, stores last load error
 	competitionCache *CompetitionCache
 	mu               sync.RWMutex
+
+	// Order event pub-sub: SSE clients subscribe per trader ID
+	orderEventsMu   sync.Mutex
+	orderEventsSubs map[string][]chan struct{} // traderID → list of subscriber channels
 }
 
 // NewTraderManager creates a trader manager
 func NewTraderManager() *TraderManager {
 	return &TraderManager{
-		traders:    make(map[string]*trader.AutoTrader),
-		loadErrors: make(map[string]error),
+		traders:         make(map[string]*trader.AutoTrader),
+		loadErrors:      make(map[string]error),
+		orderEventsSubs: make(map[string][]chan struct{}),
 		competitionCache: &CompetitionCache{
 			data: make(map[string]interface{}),
 		},
+	}
+}
+
+// SubscribeOrderEvents returns a channel that receives a signal whenever an order
+// event fires for the given trader. Call the returned cancel func to unsubscribe.
+func (tm *TraderManager) SubscribeOrderEvents(traderID string) (<-chan struct{}, func()) {
+	ch := make(chan struct{}, 4)
+	tm.orderEventsMu.Lock()
+	tm.orderEventsSubs[traderID] = append(tm.orderEventsSubs[traderID], ch)
+	tm.orderEventsMu.Unlock()
+	cancel := func() {
+		tm.orderEventsMu.Lock()
+		subs := tm.orderEventsSubs[traderID]
+		for i, s := range subs {
+			if s == ch {
+				tm.orderEventsSubs[traderID] = append(subs[:i], subs[i+1:]...)
+				break
+			}
+		}
+		tm.orderEventsMu.Unlock()
+		close(ch)
+	}
+	return ch, cancel
+}
+
+// PublishOrderEvent broadcasts an order-change signal to all SSE subscribers for traderID.
+func (tm *TraderManager) PublishOrderEvent(traderID string) {
+	tm.orderEventsMu.Lock()
+	subs := tm.orderEventsSubs[traderID]
+	tm.orderEventsMu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- struct{}{}:
+		default: // subscriber is busy, drop
+		}
 	}
 }
 
@@ -715,6 +755,9 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	}
 
 	tm.traders[traderCfg.ID] = at
+	// Wire order-event SSE broadcast so dashboard chart updates without polling
+	traderID := traderCfg.ID
+	at.OnOrderUpdate = func() { tm.PublishOrderEvent(traderID) }
 	logger.Infof("✓ Trader '%s' (%s + %s/%s) loaded to memory", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName)
 
 	// Auto-start if trader was running before shutdown

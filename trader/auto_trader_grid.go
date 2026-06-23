@@ -755,6 +755,10 @@ func (at *AutoTrader) InitializeGrid() error {
 						default:
 						}
 					}
+					// Notify SSE subscribers (order markers / price lines on dashboard chart)
+					if at.OnOrderUpdate != nil {
+						at.OnOrderUpdate()
+					}
 				}
 				notifyGridCycle := func() {
 					if at.wsGridCycleCh != nil {

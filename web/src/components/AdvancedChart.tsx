@@ -879,6 +879,71 @@ export function AdvancedChart({
     }
   }, [symbol, traderID])
 
+  // SSE: subscribe to order events for OKX traders — triggers order marker + price line refresh
+  useEffect(() => {
+    if (!traderID || exchange !== 'okx') return
+
+    let aborted = false
+    const ctrl = new AbortController()
+
+    const refreshOpenOrders = async () => {
+      if (!candlestickSeriesRef.current) return
+      try {
+        const ooRes = await httpClient.get(`/api/open-orders?trader_id=${traderID}&symbol=${symbol}`)
+        if (!ooRes.success || !ooRes.data || !candlestickSeriesRef.current) return
+        priceLinesRef.current.forEach((line: any) => {
+          try { candlestickSeriesRef.current?.removePriceLine(line) } catch {}
+        })
+        priceLinesRef.current = []
+        ;(ooRes.data as any[]).forEach((order: any) => {
+          if (!order.price || !candlestickSeriesRef.current) return
+          const color = order.side === 'BUY' ? '#2196F3' : '#FF5722'
+          const line = candlestickSeriesRef.current.createPriceLine({
+            price: order.price,
+            color,
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: order.side === 'BUY' ? `B ${order.quantity}` : `S ${order.quantity}`,
+          })
+          priceLinesRef.current.push(line)
+        })
+      } catch {}
+    }
+
+    // Use fetch-based SSE to support Authorization header
+    ;(async () => {
+      const token = localStorage.getItem('auth_token')
+      try {
+        const resp = await fetch(`/api/traders/${traderID}/events`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: ctrl.signal,
+        })
+        if (!resp.body) return
+        const reader = resp.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ''
+        while (!aborted) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (line.startsWith('event: order_update')) {
+              await refreshOpenOrders()
+            }
+          }
+        }
+      } catch { /* connection closed or aborted */ }
+    })()
+
+    return () => {
+      aborted = true
+      ctrl.abort()
+    }
+  }, [traderID, exchange, symbol])
+
   // 单独处理订单标记的显示/隐藏，避免重新加载数据
   useEffect(() => {
     if (!seriesMarkersRef.current) return

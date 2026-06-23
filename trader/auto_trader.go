@@ -139,6 +139,7 @@ type AutoTrader struct {
 	wsScanCh              chan struct{}      // Receives WS push events to trigger T-trade/profit-reduce scan
 	wsGridCycleCh         chan struct{}      // Receives 5m kline-close events to trigger grid AI cycle
 	wsLastKlineClose      int64             // Unix nanoseconds of last kline-close event (atomic)
+	OnOrderUpdate         func()            // Called when OKX WS fires an order event; set by API for SSE broadcast
 	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
 	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
 	peakEquity            float64            // Peak equity for profit drawdown tracking

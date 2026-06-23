@@ -154,6 +154,7 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/close-position", s.handleClosePosition)
 			protected.GET("/traders/:id/grid-risk", s.handleGetGridRiskInfo)
 			protected.POST("/traders/:id/grid-risk/reset-profit-tracker", s.handleResetProfitTracker)
+			protected.GET("/traders/:id/events", s.handleTraderEvents)
 			protected.GET("/traders/:id/trade-logs", s.handleGetGridTradeLogs)
 
 			// AI model configuration
@@ -1077,6 +1078,36 @@ func (s *Server) handleResetProfitTracker(c *gin.Context) {
 	autoTrader.ResetProfitTracker(req.Side)
 	logger.Infof("[API] Manually reset %s profit-reduce tracker for trader %s", req.Side, traderID)
 	c.JSON(http.StatusOK, gin.H{"message": "tracker reset"})
+}
+
+// handleTraderEvents streams Server-Sent Events for a trader.
+// Sends an "order_update" event whenever the trader's OKX WS receives an order change,
+// allowing the dashboard chart to refresh order markers without polling.
+func (s *Server) handleTraderEvents(c *gin.Context) {
+	traderID := c.Param("id")
+
+	// Subscribe to order events for this trader
+	eventCh, cancel := s.traderManager.SubscribeOrderEvents(traderID)
+	defer cancel()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no") // disable nginx buffering
+
+	clientGone := c.Request.Context().Done()
+	for {
+		select {
+		case <-clientGone:
+			return
+		case _, ok := <-eventCh:
+			if !ok {
+				return
+			}
+			c.SSEvent("order_update", "")
+			c.Writer.Flush()
+		}
+	}
 }
 
 // handleGetGridTradeLogs returns grid_trade_logs for a trader instance.
