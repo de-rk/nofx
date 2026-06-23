@@ -1093,7 +1093,12 @@ func (s *Server) handleTraderEvents(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no") // disable nginx buffering
+	c.Header("X-Accel-Buffering", "no") // disable nginx proxy buffering
+
+	// Send headers immediately so the browser doesn't hang waiting for the first event.
+	// An SSE comment line ": ok\n\n" is ignored by clients but flushes the connection.
+	fmt.Fprintf(c.Writer, ": ok\n\n")
+	c.Writer.Flush()
 
 	clientGone := c.Request.Context().Done()
 	for {
