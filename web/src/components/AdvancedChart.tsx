@@ -692,26 +692,45 @@ export function AdvancedChart({
 
     const instId = toInstId(symbol)
     const channel = toChannel(interval)
+    const SILENCE_THRESHOLD = 20000 // ms — send ping after this silence
+    const PONG_TIMEOUT      = 10000 // ms — reconnect if no pong within this
+
     let destroyed = false
     let ws: WebSocket | null = null
-    let pingInterval: ReturnType<typeof setInterval>
+    let silenceTimer: ReturnType<typeof setTimeout>
+    let pongTimer: ReturnType<typeof setTimeout>
     let reconnectTimer: ReturnType<typeof setTimeout>
     let backoff = 1000
+
+    // Reset the silence timer on every received message (per OKX docs)
+    const resetSilenceTimer = () => {
+      clearTimeout(silenceTimer)
+      clearTimeout(pongTimer)
+      if (destroyed) return
+      silenceTimer = setTimeout(() => {
+        // N seconds of silence — send ping
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send('ping')
+          // If no pong within PONG_TIMEOUT, close and trigger reconnect
+          pongTimer = setTimeout(() => {
+            ws?.close()
+          }, PONG_TIMEOUT)
+        }
+      }, SILENCE_THRESHOLD)
+    }
 
     const connect = () => {
       if (destroyed) return
       ws = new WebSocket('wss://ws.okx.com:8443/ws/v5/public')
 
       ws.onopen = () => {
-        backoff = 1000 // reset on successful connection
+        backoff = 1000
         ws!.send(JSON.stringify({ op: 'subscribe', args: [{ channel, instId }] }))
-        // Ping every 20s — OKX closes connections idle >30s
-        pingInterval = setInterval(() => {
-          if (ws?.readyState === WebSocket.OPEN) ws.send('ping')
-        }, 20000)
+        resetSilenceTimer() // start silence detection after subscribe
       }
 
       ws.onmessage = (evt) => {
+        resetSilenceTimer() // any message resets the silence timer
         if (evt.data === 'pong') return
         try {
           const msg = JSON.parse(evt.data)
@@ -738,9 +757,9 @@ export function AdvancedChart({
       }
 
       ws.onclose = () => {
-        clearInterval(pingInterval)
+        clearTimeout(silenceTimer)
+        clearTimeout(pongTimer)
         if (!destroyed) {
-          // Reconnect with exponential backoff (1s → 30s)
           reconnectTimer = setTimeout(() => {
             backoff = Math.min(backoff * 2, 30000)
             connect()
@@ -754,7 +773,8 @@ export function AdvancedChart({
 
     return () => {
       destroyed = true
-      clearInterval(pingInterval)
+      clearTimeout(silenceTimer)
+      clearTimeout(pongTimer)
       clearTimeout(reconnectTimer)
       ws?.close()
     }
