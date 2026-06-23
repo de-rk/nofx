@@ -44,6 +44,17 @@
 - **Web-Based Config**: No JSON editing - configure everything through the web interface
 - **Real-Time Dashboard**: Live positions, P/L tracking, AI decision logs with Chain of Thought
 
+### Grid Trading (OKX)
+
+NOFX includes a bidirectional grid trading engine for OKX with a full event-driven architecture:
+
+- **AI-Driven Grid**: AI makes placement, cancellation, and hold decisions each cycle
+- **T-Trade (Trapped Position Reduction)**: Automatically detects over-threshold positions and places reduce orders; supports dual-side simultaneous reduction
+- **Profit-Based Reduction**: Configurable step-based profit taking with per-side progress tracking
+- **WebSocket Integration**: OKX WS replaces REST polling for price, balance, positions, and candlestick data
+- **Event-Driven Cycles**: AI decisions triggered by kline close events (configurable: 1m/3m/5m/15m/30m); T-trade and profit-reduce triggered by position/order push events
+- **Real-Time Chart**: Dashboard chart uses OKX WebSocket for live candles and price, with order markers and price lines updated via SSE push
+
 ### Core Team
 
 - **Tinkle** - [@Web3Tinkle](https://x.com/Web3Tinkle)
