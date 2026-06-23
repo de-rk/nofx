@@ -692,52 +692,71 @@ export function AdvancedChart({
 
     const instId = toInstId(symbol)
     const channel = toChannel(interval)
-    const ws = new WebSocket('wss://ws.okx.com:8443/ws/v5/public')
+    let destroyed = false
+    let ws: WebSocket | null = null
     let pingInterval: ReturnType<typeof setInterval>
+    let reconnectTimer: ReturnType<typeof setTimeout>
+    let backoff = 1000
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ op: 'subscribe', args: [{ channel, instId }] }))
-      // OKX closes connections idle >30s; ping every 20s
-      pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) ws.send('ping')
-      }, 20000)
-    }
+    const connect = () => {
+      if (destroyed) return
+      ws = new WebSocket('wss://ws.okx.com:8443/ws/v5/public')
 
-    ws.onmessage = (evt) => {
-      if (evt.data === 'pong') return
-      try {
-        const msg = JSON.parse(evt.data)
-        if (msg.arg?.channel !== channel || !Array.isArray(msg.data)) return
-        for (const row of msg.data) {
-          if (!Array.isArray(row) || row.length < 6) continue
-          // OKX candle row: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
-          const ts = Math.floor(Number(row[0]) / 1000) as UTCTimestamp
-          const candle = { time: ts, open: +row[1], high: +row[2], low: +row[3], close: +row[4] }
-          const vol = +row[5]
-          const quoteVol = row.length > 6 ? +row[6] : 0
+      ws.onopen = () => {
+        backoff = 1000 // reset on successful connection
+        ws!.send(JSON.stringify({ op: 'subscribe', args: [{ channel, instId }] }))
+        // Ping every 20s — OKX closes connections idle >30s
+        pingInterval = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) ws.send('ping')
+        }, 20000)
+      }
 
-          candlestickSeriesRef.current?.update(candle)
-          volumeSeriesRef.current?.update({ time: ts, value: vol })
-          if (ts > lastCandleTimeRef.current) lastCandleTimeRef.current = ts
+      ws.onmessage = (evt) => {
+        if (evt.data === 'pong') return
+        try {
+          const msg = JSON.parse(evt.data)
+          if (msg.arg?.channel !== channel || !Array.isArray(msg.data)) return
+          for (const row of msg.data) {
+            if (!Array.isArray(row) || row.length < 6) continue
+            const ts = Math.floor(Number(row[0]) / 1000) as UTCTimestamp
+            const candle = { time: ts, open: +row[1], high: +row[2], low: +row[3], close: +row[4] }
+            const vol = +row[5]
+            const quoteVol = row.length > 6 ? +row[6] : 0
+            candlestickSeriesRef.current?.update(candle)
+            volumeSeriesRef.current?.update({ time: ts, value: vol })
+            if (ts > lastCandleTimeRef.current) lastCandleTimeRef.current = ts
+            setMarketStats(prev => prev ? {
+              ...prev,
+              price: candle.close,
+              high: Math.max(prev.high, candle.high),
+              low: Math.min(prev.low, candle.low),
+              volume: vol,
+              quoteVolume: quoteVol,
+            } : null)
+          }
+        } catch { /* ignore malformed messages */ }
+      }
 
-          setMarketStats(prev => prev ? {
-            ...prev,
-            price: candle.close,
-            high: Math.max(prev.high, candle.high),
-            low: Math.min(prev.low, candle.low),
-            volume: vol,
-            quoteVolume: quoteVol,
-          } : null)
+      ws.onclose = () => {
+        clearInterval(pingInterval)
+        if (!destroyed) {
+          // Reconnect with exponential backoff (1s → 30s)
+          reconnectTimer = setTimeout(() => {
+            backoff = Math.min(backoff * 2, 30000)
+            connect()
+          }, backoff)
         }
-      } catch { /* ignore malformed messages */ }
+      }
+      ws.onerror = () => ws?.close()
     }
 
-    ws.onclose = () => clearInterval(pingInterval)
-    ws.onerror = () => ws.close()
+    connect()
 
     return () => {
+      destroyed = true
       clearInterval(pingInterval)
-      ws.close()
+      clearTimeout(reconnectTimer)
+      ws?.close()
     }
   }, [exchange, symbol, interval, chartReady])
 
