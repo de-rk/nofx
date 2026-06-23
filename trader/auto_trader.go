@@ -570,9 +570,16 @@ func (at *AutoTrader) Run() error {
 		case <-ticker.C:
 			if isGridStrategy {
 				// Timer fallback: only triggers AI cycle when WS kline-close has been
-				// silent for longer than 2× ScanInterval (i.e. WS subscription is stale).
+				// silent longer than the configured trigger period + 1 minute.
+				gridCfg := at.config.StrategyConfig.GridConfig
+				triggerPeriod := at.config.ScanInterval
+				if gridCfg != nil {
+					if d := parseTriggerTfDuration(gridCfg.AITriggerTf); d > 0 {
+						triggerPeriod = d
+					}
+				}
 				lastKline := time.Unix(0, atomic.LoadInt64(&at.wsLastKlineClose))
-				if time.Since(lastKline) > 2*at.config.ScanInterval {
+				if time.Since(lastKline) > triggerPeriod+time.Minute {
 					select {
 					case at.wsGridCycleCh <- struct{}{}:
 					default:
@@ -2558,6 +2565,26 @@ func (at *AutoTrader) handleProfitDrawdownTrigger() {
 		}
 		logger.Infof("🔴 [PROFIT DRAWDOWN] Closed position: %s (size: %.4f)", symbol, size)
 	}
+}
+
+// parseTriggerTfDuration converts an AITriggerTf string to a time.Duration.
+// Returns 0 if the string is unrecognized.
+func parseTriggerTfDuration(tf string) time.Duration {
+	switch tf {
+	case "1m":
+		return 1 * time.Minute
+	case "3m":
+		return 3 * time.Minute
+	case "5m":
+		return 5 * time.Minute
+	case "15m":
+		return 15 * time.Minute
+	case "30m":
+		return 30 * time.Minute
+	case "1h":
+		return 60 * time.Minute
+	}
+	return 0
 }
 
 // getSideFromAction converts order action to side (BUY/SELL)
