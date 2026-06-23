@@ -228,8 +228,9 @@ export function GridConfigEditor({
               {language === 'zh' ? 'AI 决策触发周期' : 'AI Decision Trigger'}
             </label>
             <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-              {language === 'zh' ? 'K 线收线时触发 AI 决策，WS 断线时自动切换为定时兜底' : 'Triggers AI cycle on kline close; falls back to timer when WS is unavailable'}
-            </p>
+              {language === 'zh'
+                ? 'K 线收线时触发 AI 决策，WS 断线时自动切换为定时兜底。⚠️ 扫描间隔必须大于此周期，否则 timer 会抢在 K 线前触发。建议：触发周期 10m → 扫描间隔 15m，触发周期 15m → 扫描间隔 20m。'
+                : 'Triggers AI cycle on kline close; falls back to timer when WS is unavailable. ⚠️ Scan interval must be greater than this period, otherwise the timer fires before the kline. Recommended: trigger 10m → scan interval 15m, trigger 15m → scan interval 20m.'}</p>
             <select
               value={config.ai_trigger_tf ?? '5m'}
               onChange={(e) => updateField('ai_trigger_tf', e.target.value)}
