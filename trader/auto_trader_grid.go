@@ -3218,14 +3218,11 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 			at.logGridTrade("ttrade", "ttrade_reduce", entry.PrepSide, gridConfig.Symbol,
 				fmt.Sprintf("auto-reduce from prep %s fill=%.4f spread=%.1f%%", entry.PrepOrderID, entry.PrepFillPrice, entry.SpreadPct),
 				entry.PrepOrderID, entry.Qty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
-			// Supplement new prep then immediately re-tag so the new order enters the map
-			// without waiting for the next RunTTradeScan cycle.
-			go func(prepSide string) {
-				at.ttradeSupplementOrder(prepSide)
-				if freshOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol); err == nil {
-					at.ttradeTagOrders(freshOrders)
-				}
-			}(entry.PrepSide)
+			// Supplement new prep — check threshold first, then place.
+			// Don't call ttradeTagOrders here: ttradeSupplementOrder already writes
+			// directly to TTradePrepOrders, and a follow-up ttradeTagOrders call could
+			// remove the newly placed prep if the reduce dropped position below threshold.
+			go at.ttradeSupplementOrder(entry.PrepSide)
 			continue
 		case "CANCELED", "EXPIRED":
 			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing", reduceID)
@@ -3258,14 +3255,25 @@ func (at *AutoTrader) ttradeSupplementOrder(prepSide string) {
 		return
 	}
 
-	// Get current price
-	mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"5m"}, "5m", 1)
-	if err != nil || mktData == nil {
+	// Get current price — prefer WS cache
+	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
+	if err != nil || currentPrice <= 0 {
 		logger.Warnf("[Grid] T-trade re-tag: failed to get current price: %v", err)
 		return
 	}
-	currentPrice := mktData.CurrentPrice
-	if currentPrice <= 0 {
+
+	// Check threshold — skip if position already dropped below threshold after reduce
+	longInfo, shortInfo, err := at.buildTTradeContext(currentPrice)
+	if err != nil {
+		logger.Warnf("[Grid] T-trade re-tag: buildTTradeContext failed: %v", err)
+		return
+	}
+	if prepSide == "buy" && !longInfo.Active {
+		logger.Infof("[Grid] T-trade re-tag: long position below threshold after reduce — skipping")
+		return
+	}
+	if prepSide == "sell" && !shortInfo.Active {
+		logger.Infof("[Grid] T-trade re-tag: short position below threshold after reduce — skipping")
 		return
 	}
 
