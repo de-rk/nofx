@@ -2821,7 +2821,7 @@ func (at *AutoTrader) ttradeTagOrders(openOrders []types.OpenOrder) {
 	at.gridState.mu.Lock()
 	// Clean up stale preps — per-prep side check, not global trapped side
 	for id, prep := range at.gridState.TTradePrepOrders {
-		if time.Since(prep.TaggedAt) > maxWait {
+		if !prep.TaggedAt.IsZero() && time.Since(prep.TaggedAt) > maxWait {
 			timedOut = append(timedOut, timedOutEntry{id, prep})
 			delete(at.gridState.TTradePrepOrders, id)
 			continue
@@ -3042,7 +3042,10 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 			at.gridState.mu.Lock()
 			if p, exists := at.gridState.TTradePrepOrders[orderID]; exists && !p.ReduceQueued {
 				p.ReduceQueued = true
+				// Copy fields before releasing lock — p may be modified by concurrent ttradeTagOrders
 				fillLogged := p.FillAlreadyLogged
+				side := p.Side
+				qty := p.Qty
 				at.gridState.mu.Unlock()
 				if !fillLogged {
 					at.logGridTrade("ttrade", "ttrade_fill", prep.Side, gridConfig.Symbol,
@@ -3060,7 +3063,7 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 						}
 					}
 					at.gridState.mu.Unlock()
-				}(prep.Side, fillPrice, prep.Qty, orderID)
+				}(side, fillPrice, qty, orderID)
 			} else {
 				at.gridState.mu.Unlock()
 			}
