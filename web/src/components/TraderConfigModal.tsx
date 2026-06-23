@@ -423,18 +423,21 @@ export function TraderConfigModal({
                     value={formData.scan_interval_minutes}
                     onChange={(e) => {
                       const parsedValue = Number(e.target.value)
+                      // 0 = disable timer (WS-only mode); otherwise minimum 3
                       const safeValue = Number.isFinite(parsedValue)
-                        ? Math.max(3, parsedValue)
+                        ? (parsedValue === 0 ? 0 : Math.max(3, parsedValue))
                         : 3
                       handleInputChange('scan_interval_minutes', safeValue)
                     }}
                     className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
-                    min="3"
+                    min="0"
                     max="60"
                     step="1"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    {t('scanIntervalRecommend', language)}
+                    {language === 'zh'
+                      ? '0 = 禁用定时兜底（仅 WS K 线事件触发）；建议：触发周期 5m → 10，触发周期 15m → 20'
+                      : '0 = disable timer fallback (WS kline events only); recommended: trigger 5m → 10, trigger 15m → 20'}
                   </p>
                 </div>
               </div>

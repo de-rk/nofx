@@ -526,10 +526,10 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		systemPromptTemplate = req.SystemPromptTemplate
 	}
 
-	// Set scan interval default value
+	// Set scan interval — 0 disables timer fallback (WS-only mode), minimum 3 when enabled
 	scanIntervalMinutes := req.ScanIntervalMinutes
-	if scanIntervalMinutes < 3 {
-		scanIntervalMinutes = 3 // Default 3 minutes, not allowed to be less than 3
+	if scanIntervalMinutes > 0 && scanIntervalMinutes < 3 {
+		scanIntervalMinutes = 3
 	}
 
 	// Query exchange actual balance, override user input
@@ -766,11 +766,12 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	// Set scan interval, allow updates
 	scanIntervalMinutes := req.ScanIntervalMinutes
 	logger.Infof("📊 Update trader scan_interval: req=%d, existing=%d", req.ScanIntervalMinutes, existingTrader.ScanIntervalMinutes)
-	if scanIntervalMinutes <= 0 {
+	if scanIntervalMinutes < 0 {
 		scanIntervalMinutes = existingTrader.ScanIntervalMinutes // Keep original value
-	} else if scanIntervalMinutes < 3 {
-		scanIntervalMinutes = 3
+	} else if scanIntervalMinutes > 0 && scanIntervalMinutes < 3 {
+		scanIntervalMinutes = 3 // minimum 3m when timer is enabled
 	}
+	// scanIntervalMinutes == 0 → disable timer fallback (WS-only mode)
 	logger.Infof("📊 Final scan_interval_minutes: %d", scanIntervalMinutes)
 
 	// Set system prompt template

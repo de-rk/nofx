@@ -469,11 +469,18 @@ func (at *AutoTrader) Run() error {
 		}
 	}
 
-	ticker := time.NewTicker(at.config.ScanInterval)
-	defer ticker.Stop()
-
 	// Check if this is a grid trading strategy
 	isGridStrategy := at.IsGridStrategy()
+
+	// For grid strategies with ScanInterval=0, disable the timer fallback entirely
+	// and rely solely on WS kline-close events. Use a non-zero dummy for the ticker
+	// if we still need it for non-grid strategies.
+	scanInterval := at.config.ScanInterval
+	if scanInterval <= 0 {
+		scanInterval = 24 * time.Hour // effectively disabled
+	}
+	ticker := time.NewTicker(scanInterval)
+	defer ticker.Stop()
 
 	// Create event channels BEFORE InitializeGrid so WS callbacks can be wired correctly.
 	// InitializeGrid calls StartWS and sets OnKlineClose/OnPositionUpdate callbacks that
