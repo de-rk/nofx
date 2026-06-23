@@ -580,7 +580,7 @@ func (at *AutoTrader) Run() error {
 					}
 				}
 				lastKline := time.Unix(0, atomic.LoadInt64(&at.wsLastKlineClose))
-				if time.Since(lastKline) > triggerPeriod+time.Minute {
+				if time.Since(lastKline) > triggerPeriod+30*time.Second {
 					select {
 					case at.wsGridCycleCh <- struct{}{}:
 					default:
