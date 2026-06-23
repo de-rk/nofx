@@ -2478,6 +2478,13 @@ func (s *Server) handleKlines(c *gin.Context) {
 			SafeInternalError(c, "Get klines from Hyperliquid", err)
 			return
 		}
+	case "okx":
+		// OKX public REST API — real exchange data for OKX traders
+		klines, err = s.getKlinesFromOKX(symbol, interval, limit)
+		if err != nil {
+			SafeInternalError(c, "Get klines from OKX", err)
+			return
+		}
 	default:
 		// Crypto exchanges via CoinAnk
 		symbol = market.Normalize(symbol)
@@ -2597,6 +2604,99 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 	}
 
 	return klines, nil
+}
+
+// getKlinesFromOKX fetches kline data from OKX public REST API.
+func (s *Server) getKlinesFromOKX(symbol, interval string, limit int) ([]market.Kline, error) {
+	instId := okxSymbolToInstId(symbol)
+	bar := okxMapInterval(interval)
+	if limit > 300 {
+		limit = 300 // OKX candles endpoint max 300 per request
+	}
+	url := fmt.Sprintf("https://www.okx.com/api/v5/market/candles?instId=%s&bar=%s&limit=%d", instId, bar, limit)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("OKX klines request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Code string          `json:"code"`
+		Data [][]interface{} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("OKX klines decode failed: %w", err)
+	}
+	if result.Code != "0" {
+		return nil, fmt.Errorf("OKX klines error code: %s", result.Code)
+	}
+
+	parseF := func(v interface{}) float64 {
+		if s, ok := v.(string); ok {
+			f, _ := strconv.ParseFloat(s, 64)
+			return f
+		}
+		return 0
+	}
+	parseI := func(v interface{}) int64 {
+		if s, ok := v.(string); ok {
+			i, _ := strconv.ParseInt(s, 10, 64)
+			return i
+		}
+		return 0
+	}
+
+	// OKX returns newest-first; reverse to oldest-first for lightweight-charts
+	klines := make([]market.Kline, 0, len(result.Data))
+	for i := len(result.Data) - 1; i >= 0; i-- {
+		row := result.Data[i]
+		if len(row) < 6 {
+			continue
+		}
+		ts := parseI(row[0])
+		klines = append(klines, market.Kline{
+			OpenTime:    ts,
+			Open:        parseF(row[1]),
+			High:        parseF(row[2]),
+			Low:         parseF(row[3]),
+			Close:       parseF(row[4]),
+			Volume:      parseF(row[5]),
+			QuoteVolume: func() float64 { if len(row) > 6 { return parseF(row[6]) }; return 0 }(),
+			CloseTime:   ts + 1,
+		})
+	}
+	return klines, nil
+}
+
+// okxSymbolToInstId converts "BTCUSDT" → "BTC-USDT-SWAP"
+func okxSymbolToInstId(symbol string) string {
+	symbol = strings.ToUpper(symbol)
+	if strings.HasSuffix(symbol, "USDT") {
+		base := strings.TrimSuffix(symbol, "USDT")
+		return base + "-USDT-SWAP"
+	}
+	return symbol
+}
+
+// okxMapInterval maps standard interval strings to OKX bar param
+func okxMapInterval(interval string) string {
+	switch interval {
+	case "1h":
+		return "1H"
+	case "2h":
+		return "2H"
+	case "4h":
+		return "4H"
+	case "6h":
+		return "6H"
+	case "12h":
+		return "12H"
+	case "1d":
+		return "1D"
+	default:
+		return interval // 1m, 3m, 5m, 15m, 30m pass through unchanged
+	}
 }
 
 // getKlinesFromBinanceDirect fetches kline data directly from Binance public REST API

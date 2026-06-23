@@ -97,6 +97,7 @@ export function AdvancedChart({
   const seriesMarkersRef = useRef<any>(null) // Markers primitive for v5
   const currentMarkersDataRef = useRef<any[]>([]) // 存储当前的标记数据
   const klineDataRef = useRef<Map<number, { volume: number; quoteVolume: number }>>(new Map()) // 存储 kline 额外数据
+  const [chartReady, setChartReady] = useState(false) // true once series are created
   const lastCandleTimeRef = useRef<number>(0) // 跟踪最后一根K线时间，防止 update 报错
   const priceLinesRef = useRef<any[]>([]) // 存储挂单价格线
 
@@ -389,6 +390,7 @@ export function AdvancedChart({
       priceLineVisible: false,
     })
     volumeSeriesRef.current = volumeSeries as any
+    setChartReady(true)
 
     // 响应式调整 (ResizeObserver)
     const resizeObserver = new ResizeObserver((entries) => {
@@ -670,10 +672,74 @@ export function AdvancedChart({
 
     loadData(false) // 首次加载
 
-    // 实时自动刷新 (15秒更新一次)
-    const refreshInterval = setInterval(() => loadData(true), 15000)
-    return () => clearInterval(refreshInterval)
+    // 实时自动刷新：OKX 使用 WebSocket 推送，其他交易所每 15 秒轮询
+    const refreshInterval = exchange !== 'okx'
+      ? setInterval(() => loadData(true), 15000)
+      : null
+    return () => { if (refreshInterval) clearInterval(refreshInterval) }
   }, [symbol, interval, traderID, exchange])
+
+  // OKX WebSocket — real-time candle updates via public channel (no auth required)
+  useEffect(() => {
+    if (exchange !== 'okx' || !chartReady) return
+
+    const toInstId = (sym: string) =>
+      sym.endsWith('USDT') ? sym.slice(0, -4) + '-USDT-SWAP' : sym
+    const toChannel = (iv: string) => {
+      const map: Record<string, string> = { '1h':'1H','2h':'2H','4h':'4H','6h':'6H','12h':'12H','1d':'1D' }
+      return 'candle' + (map[iv] ?? iv)
+    }
+
+    const instId = toInstId(symbol)
+    const channel = toChannel(interval)
+    const ws = new WebSocket('wss://ws.okx.com:8443/ws/v5/public')
+    let pingInterval: ReturnType<typeof setInterval>
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ op: 'subscribe', args: [{ channel, instId }] }))
+      // OKX closes connections idle >30s; ping every 20s
+      pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.send('ping')
+      }, 20000)
+    }
+
+    ws.onmessage = (evt) => {
+      if (evt.data === 'pong') return
+      try {
+        const msg = JSON.parse(evt.data)
+        if (msg.arg?.channel !== channel || !Array.isArray(msg.data)) return
+        for (const row of msg.data) {
+          if (!Array.isArray(row) || row.length < 6) continue
+          // OKX candle row: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
+          const ts = Math.floor(Number(row[0]) / 1000) as UTCTimestamp
+          const candle = { time: ts, open: +row[1], high: +row[2], low: +row[3], close: +row[4] }
+          const vol = +row[5]
+          const quoteVol = row.length > 6 ? +row[6] : 0
+
+          candlestickSeriesRef.current?.update(candle)
+          volumeSeriesRef.current?.update({ time: ts, value: vol })
+          if (ts > lastCandleTimeRef.current) lastCandleTimeRef.current = ts
+
+          setMarketStats(prev => prev ? {
+            ...prev,
+            price: candle.close,
+            high: Math.max(prev.high, candle.high),
+            low: Math.min(prev.low, candle.low),
+            volume: vol,
+            quoteVolume: quoteVol,
+          } : null)
+        }
+      } catch { /* ignore malformed messages */ }
+    }
+
+    ws.onclose = () => clearInterval(pingInterval)
+    ws.onerror = () => ws.close()
+
+    return () => {
+      clearInterval(pingInterval)
+      ws.close()
+    }
+  }, [exchange, symbol, interval, chartReady])
 
   // 单独刷新挂单价格线 (60秒刷新一次，避免频繁调用交易所API)
   useEffect(() => {
