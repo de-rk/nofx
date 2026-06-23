@@ -99,6 +99,7 @@ export function AdvancedChart({
   const klineDataRef = useRef<Map<number, { volume: number; quoteVolume: number }>>(new Map()) // 存储 kline 额外数据
   const [chartReady, setChartReady] = useState(false) // true once series are created
   const lastCandleTimeRef = useRef<number>(0) // 跟踪最后一根K线时间，防止 update 报错
+  const currentCandleRef = useRef<{ open: number; high: number; low: number; close: number } | null>(null) // 当前蜡烛 OHLC
   const priceLinesRef = useRef<any[]>([]) // 存储挂单价格线
 
   const [loading, setLoading] = useState(true)
@@ -743,14 +744,26 @@ export function AdvancedChart({
           const msg = JSON.parse(evt.data)
           if (!Array.isArray(msg.data)) return
 
-          // Tickers: real-time price update — only update the price stat display,
-          // do NOT update the candle series (24h OHLC != current candle OHLC)
+          // Tickers: real-time price — update marketStats AND chart price line
           if (msg.arg?.channel === 'tickers') {
             const tick = msg.data[0]
             if (!tick) return
             const price = +tick.last
             if (!price) return
             setMarketStats(prev => prev ? { ...prev, price } : null)
+            // Update the current forming candle's close so the chart price line moves
+            if (lastCandleTimeRef.current > 0 && currentCandleRef.current && candlestickSeriesRef.current) {
+              const c = currentCandleRef.current
+              const updatedCandle = {
+                time: lastCandleTimeRef.current as UTCTimestamp,
+                open: c.open,
+                high: Math.max(c.high, price),
+                low: Math.min(c.low, price),
+                close: price,
+              }
+              candlestickSeriesRef.current.update(updatedCandle)
+              currentCandleRef.current = { open: c.open, high: updatedCandle.high, low: updatedCandle.low, close: price }
+            }
             return
           }
 
@@ -765,6 +778,8 @@ export function AdvancedChart({
             candlestickSeriesRef.current?.update(candle)
             volumeSeriesRef.current?.update({ time: ts, value: vol })
             if (ts > lastCandleTimeRef.current) lastCandleTimeRef.current = ts
+            // Store current candle OHLC so ticker updates can update the chart price line
+            currentCandleRef.current = { open: candle.open, high: candle.high, low: candle.low, close: candle.close }
             setMarketStats(prev => prev ? {
               ...prev,
               price: candle.close,
