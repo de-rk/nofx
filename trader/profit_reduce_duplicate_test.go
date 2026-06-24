@@ -66,6 +66,125 @@ func TestProfitReduceNoDuplicateOrders(t *testing.T) {
 	}
 }
 
+// TestProfitReduceSameStepNoRetrigger verifies that profit reduce does not re-trigger
+// at the same step level even if profit increases within that step range.
+func TestProfitReduceSameStepNoRetrigger(t *testing.T) {
+	// Scenario: 
+	// - Step size is 6% (ProfitReduceStepPct)
+	// - Already reduced at 18% step (ShortProfitReducedPct = 18)
+	// - Current profit is 21.4% (which is still in 18-24% range)
+	// - Should NOT trigger another reduce at 18% step
+	// - Should only trigger when profit reaches 24% (next step)
+
+	mockTrader := &MockGridTraderWithOrders{
+		positions: []map[string]interface{}{
+			{
+				"symbol":           "HYPEUSDT",
+				"side":             "short",
+				"positionAmt":      -100.8,
+				"entryPrice":       50.0,
+				"markPrice":        60.42,
+				"unRealizedProfit": 107.0, // ~21.4% profit (107 / (100.8*50/3) * 100)
+			},
+		},
+		openOrders: []types.OpenOrder{},
+		placedOrders: []string{},
+	}
+
+	config := AutoTraderConfig{
+		StrategyConfig: &store.StrategyConfig{
+			GridConfig: &store.GridStrategyConfig{
+				Symbol:                 "HYPEUSDT",
+				Leverage:               3,
+				ProfitReduceStepPct:    6.0,  // 6% steps: 6%, 12%, 18%, 24%, ...
+				ProfitReduceMultiplier: 0.1,
+				EnableSmallPositionClose: false,
+			},
+		},
+	}
+
+	at := &AutoTrader{
+		trader: mockTrader,
+		config: config,
+		gridState: &GridState{
+			Config:                config.StrategyConfig.GridConfig,
+			ShortProfitReducedPct: 18.0, // Already triggered at 18% step
+		},
+	}
+
+	// Run profit reduce check
+	at.checkProfitReduce()
+
+	// Verify NO new orders were placed (profit 21.4% should not re-trigger at 18% step)
+	if len(mockTrader.placedOrders) > 0 {
+		t.Errorf("Expected no new orders (profit 21.4%% should not re-trigger at 18%% step), but got %d orders: %v",
+			len(mockTrader.placedOrders), mockTrader.placedOrders)
+	}
+
+	// Verify state was NOT changed
+	if at.gridState.ShortProfitReducedPct != 18.0 {
+		t.Errorf("Expected state to remain at 18%%, but got %.0f%%", at.gridState.ShortProfitReducedPct)
+	}
+}
+
+// TestProfitReduceNextStep verifies that profit reduce triggers correctly at the next step.
+func TestProfitReduceNextStep(t *testing.T) {
+	// Scenario:
+	// - Already reduced at 18% step
+	// - Current profit is 25% (exceeds 24% threshold)
+	// - Should trigger reduce at 24% step
+
+	mockTrader := &MockGridTraderWithOrders{
+		positions: []map[string]interface{}{
+			{
+				"symbol":           "HYPEUSDT",
+				"side":             "short",
+				"positionAmt":      -100.0,
+				"entryPrice":       50.0,
+				"markPrice":        62.5,
+				"unRealizedProfit": 125.0, // ~25% profit
+			},
+		},
+		openOrders: []types.OpenOrder{},
+		placedOrders: []string{},
+	}
+
+	config := AutoTraderConfig{
+		StrategyConfig: &store.StrategyConfig{
+			GridConfig: &store.GridStrategyConfig{
+				Symbol:                 "HYPEUSDT",
+				Leverage:               3,
+				ProfitReduceStepPct:    6.0,
+				ProfitReduceMultiplier: 0.1,
+				EnableSmallPositionClose: false,
+			},
+		},
+	}
+
+	at := &AutoTrader{
+		trader: mockTrader,
+		config: config,
+		gridState: &GridState{
+			Config:                config.StrategyConfig.GridConfig,
+			ShortProfitReducedPct: 18.0, // Already at 18%
+		},
+	}
+
+	// Run profit reduce check
+	at.checkProfitReduce()
+
+	// Verify ONE new order was placed (should trigger at 24% step)
+	if len(mockTrader.placedOrders) != 1 {
+		t.Errorf("Expected 1 order to be placed (profit 25%% should trigger at 24%% step), but got %d orders",
+			len(mockTrader.placedOrders))
+	}
+
+	// Verify state was updated to 24%
+	if at.gridState.ShortProfitReducedPct != 24.0 {
+		t.Errorf("Expected state to update to 24%%, but got %.0f%%", at.gridState.ShortProfitReducedPct)
+	}
+}
+
 // MockGridTraderWithOrders extends mock to track open orders
 type MockGridTraderWithOrders struct {
 	positions    []map[string]interface{}

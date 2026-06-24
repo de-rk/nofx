@@ -1262,7 +1262,21 @@ func (at *AutoTrader) checkProfitReduce() {
 			alreadyReduced = at.gridState.ShortProfitReducedPct
 		}
 		targetReducePct := math.Floor(profitPct/step) * step
+		
+		// Debug logging to track state
+		logger.Infof("[Grid] Profit-reduce %s: profitPct=%.2f%% targetStep=%.0f%% alreadyReduced=%.0f%% step=%.0f%%",
+			info.side, profitPct, targetReducePct, alreadyReduced, step)
+		
+		// Bug fix: Prevent multiple triggers at same step level
+		// We should only trigger once per step. If alreadyReduced is already at this step or higher,
+		// we should skip. This prevents the scenario where:
+		// 1. Profit is 18.6%, triggers at 18% step, reduces position
+		// 2. Profit rises to 21.4% (still within 18-24% range)
+		// 3. Without this check, it would trigger again at 18% step
+		// The correct behavior: only trigger again when profit reaches next step (24%)
 		if targetReducePct <= alreadyReduced {
+			logger.Infof("[Grid] Profit-reduce %s: skipping — already reduced at %.0f%% (current target %.0f%%)",
+				info.side, alreadyReduced, targetReducePct)
 			continue
 		}
 		// Reduce qty = position × (step_number × step%) × multiplier
@@ -1399,13 +1413,20 @@ func (at *AutoTrader) checkProfitReduce() {
 			} else {
 				at.gridState.ShortProfitReducedPct = 0
 			}
+			logger.Infof("[Grid] Profit-reduce %s: state updated to 0%% (closeAll)", info.side)
 		} else {
 			newPct := a.targetReducePct
+			oldPct := at.gridState.LongProfitReducedPct
+			if info.side == "short" {
+				oldPct = at.gridState.ShortProfitReducedPct
+			}
 			if info.side == "long" {
 				at.gridState.LongProfitReducedPct = newPct
 			} else {
 				at.gridState.ShortProfitReducedPct = newPct
 			}
+			logger.Infof("[Grid] Profit-reduce %s: state updated from %.0f%% to %.0f%%", 
+				info.side, oldPct, newPct)
 		}
 		at.gridState.mu.Unlock()
 	}
