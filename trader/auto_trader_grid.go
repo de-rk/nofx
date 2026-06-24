@@ -21,25 +21,25 @@ import (
 
 // TTradePrepEntry tracks a single tagged grid order waiting to fill as a T-trade prep.
 type TTradePrepEntry struct {
-	OrderID            string
-	Price              float64
-	Qty                float64
-	Side               string    // "buy" or "sell"
-	TaggedAt           time.Time
-	ReduceQueued       bool      // true once reduce has been dispatched (prevents double-execution)
-	FillAlreadyLogged  bool      // true when restored after a crash: fill was already logged before restart
+	OrderID           string
+	Price             float64
+	Qty               float64
+	Side              string // "buy" or "sell"
+	TaggedAt          time.Time
+	ReduceQueued      bool // true once reduce has been dispatched (prevents double-execution)
+	FillAlreadyLogged bool // true when restored after a crash: fill was already logged before restart
 }
 
 // TTradeReduceEntry tracks a placed reduce limit order resulting from a T-trade prep fill.
 type TTradeReduceEntry struct {
 	ReduceOrderID string
-	PrepOrderID   string    // which prep order triggered this
-	PrepFillPrice float64   // fill price of prep (spread is relative to this)
-	ReducePrice   float64   // limit price the reduce was placed at
-	SpreadPct     float64   // spread used when placing
+	PrepOrderID   string  // which prep order triggered this
+	PrepFillPrice float64 // fill price of prep (spread is relative to this)
+	ReducePrice   float64 // limit price the reduce was placed at
+	SpreadPct     float64 // spread used when placing
 	Qty           float64
-	Side          string    // "sell" (reduce_long) or "buy" (reduce_short)
-	PrepSide      string    // original prep side ("buy" or "sell")
+	Side          string // "sell" (reduce_long) or "buy" (reduce_short)
+	PrepSide      string // original prep side ("buy" or "sell")
 	PlacedAt      time.Time
 }
 
@@ -113,7 +113,6 @@ type GridState struct {
 
 	// Periodic investment refresh
 	LastInvestmentRefreshAt time.Time
-
 }
 
 // NewGridState creates a new grid state
@@ -1083,58 +1082,58 @@ func (at *AutoTrader) RunGridCycle() error {
 							if !qualifies {
 								continue
 							}
-						qty := at.gridState.Levels[r.d.LevelIndex].OrderQuantity
-						at.gridState.mu.RUnlock()
-						statusMap, sErr := at.trader.GetOrderStatus(gridConfig.Symbol, orderID)
-						if sErr == nil {
-							statusStr, _ := statusMap["status"].(string)
-							if statusStr == "FILLED" {
-								fillPrice := r.d.Price
-								if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
-									fillPrice = avg
-								}
-								// Use actual executed quantity, not the planned level quantity
-								if execQty, ok := statusMap["executedQty"].(float64); ok && execQty > 0 {
-									qty = execQty
-								}
-								logger.Infof("[Grid] 🏷 T-trade immediate fill detected: %s %s @ %.4f — placing reduce", orderID, orderSide, fillPrice)
-								at.logGridTrade("ttrade", "ttrade_fill", orderSide, gridConfig.Symbol,
-									fmt.Sprintf("prep %s filled @ %.4f (immediate taker fill)", orderID, fillPrice),
-									orderID, qty, fillPrice, 0, 0, 0, 0, true, "")
-								// Add to TTradePrepOrders as fallback so ttradeProcessFills
-								// can re-place the reduce on the next cycle if this goroutine fails.
-								// ReduceQueued=true prevents double-placement if goroutine succeeds first.
-								at.gridState.mu.Lock()
-								at.gridState.TTradePrepOrders[orderID] = &TTradePrepEntry{
-									OrderID:           orderID,
-									Price:             fillPrice,
-									Qty:               qty,
-									Side:              orderSide,
-									TaggedAt:          time.Now(),
-									FillAlreadyLogged: true,
-									ReduceQueued:      true,
-								}
-								at.gridState.mu.Unlock()
-								go func(side string, fp float64, q float64, prepID string) {
-									ok := at.placeTTradeReduceOrder(side, fp, q, prepID)
+							qty := at.gridState.Levels[r.d.LevelIndex].OrderQuantity
+							at.gridState.mu.RUnlock()
+							statusMap, sErr := at.trader.GetOrderStatus(gridConfig.Symbol, orderID)
+							if sErr == nil {
+								statusStr, _ := statusMap["status"].(string)
+								if statusStr == "FILLED" {
+									fillPrice := r.d.Price
+									if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+										fillPrice = avg
+									}
+									// Use actual executed quantity, not the planned level quantity
+									if execQty, ok := statusMap["executedQty"].(float64); ok && execQty > 0 {
+										qty = execQty
+									}
+									logger.Infof("[Grid] 🏷 T-trade immediate fill detected: %s %s @ %.4f — placing reduce", orderID, orderSide, fillPrice)
+									at.logGridTrade("ttrade", "ttrade_fill", orderSide, gridConfig.Symbol,
+										fmt.Sprintf("prep %s filled @ %.4f (immediate taker fill)", orderID, fillPrice),
+										orderID, qty, fillPrice, 0, 0, 0, 0, true, "")
+									// Add to TTradePrepOrders as fallback so ttradeProcessFills
+									// can re-place the reduce on the next cycle if this goroutine fails.
+									// ReduceQueued=true prevents double-placement if goroutine succeeds first.
 									at.gridState.mu.Lock()
-									if ok {
-										// Success — remove prep so ttradeProcessFills doesn't retry
-										delete(at.gridState.TTradePrepOrders, prepID)
-									} else {
-										// Failed — clear ReduceQueued so ttradeProcessFills retries next cycle
-										if p, exists := at.gridState.TTradePrepOrders[prepID]; exists {
-											p.ReduceQueued = false
-										}
+									at.gridState.TTradePrepOrders[orderID] = &TTradePrepEntry{
+										OrderID:           orderID,
+										Price:             fillPrice,
+										Qty:               qty,
+										Side:              orderSide,
+										TaggedAt:          time.Now(),
+										FillAlreadyLogged: true,
+										ReduceQueued:      true,
 									}
 									at.gridState.mu.Unlock()
-								}(orderSide, fillPrice, qty, orderID)
+									go func(side string, fp float64, q float64, prepID string) {
+										ok := at.placeTTradeReduceOrder(side, fp, q, prepID)
+										at.gridState.mu.Lock()
+										if ok {
+											// Success — remove prep so ttradeProcessFills doesn't retry
+											delete(at.gridState.TTradePrepOrders, prepID)
+										} else {
+											// Failed — clear ReduceQueued so ttradeProcessFills retries next cycle
+											if p, exists := at.gridState.TTradePrepOrders[prepID]; exists {
+												p.ReduceQueued = false
+											}
+										}
+										at.gridState.mu.Unlock()
+									}(orderSide, fillPrice, qty, orderID)
+								}
 							}
+							at.gridState.mu.RLock()
 						}
-						at.gridState.mu.RLock()
+						at.gridState.mu.RUnlock()
 					}
-					at.gridState.mu.RUnlock()
-				}
 				}
 			}
 		}
@@ -1175,11 +1174,11 @@ func (at *AutoTrader) checkProfitReduce() {
 	}
 
 	type sideInfo struct {
-		size            float64
-		entryPrice      float64
-		markPrice       float64
+		size             float64
+		entryPrice       float64
+		markPrice        float64
 		unrealizedProfit float64
-		side            string // "long" or "short"
+		side             string // "long" or "short"
 	}
 
 	sides := map[string]*sideInfo{}
@@ -1315,6 +1314,38 @@ func (at *AutoTrader) checkProfitReduce() {
 		if info.side == "short" {
 			orderSide = "BUY"
 			posSide = "SHORT"
+		}
+
+		// Check if there's already an existing reduce order for this side to prevent duplicate orders.
+		// Bug fix: Profit reduce can trigger multiple times in short succession if the reduce order
+		// doesn't fill immediately. We check for any pending reduce-only order on the same side
+		// to avoid placing duplicate orders that would over-reduce the position.
+		openOrders, err := at.trader.GetOpenOrders(symbol)
+		if err == nil {
+			hasPendingReduce := false
+			for _, order := range openOrders {
+				// Check if this is a reduce-only order for the same position side
+				if order.ReduceOnly {
+					// For long position: reduce orders are SELL
+					// For short position: reduce orders are BUY
+					if info.side == "long" && order.Side == "SELL" {
+						// Found existing reduce order for long position
+						logger.Infof("[Grid] Profit-reduce: skipping %s reduce — order %s already exists (%.4f @ %.4f)",
+							info.side, order.OrderID, order.Quantity, order.Price)
+						hasPendingReduce = true
+						break
+					} else if info.side == "short" && order.Side == "BUY" {
+						// Found existing reduce order for short position
+						logger.Infof("[Grid] Profit-reduce: skipping %s reduce — order %s already exists (%.4f @ %.4f)",
+							info.side, order.OrderID, order.Quantity, order.Price)
+						hasPendingReduce = true
+						break
+					}
+				}
+			}
+			if hasPendingReduce {
+				continue
+			}
 		}
 
 		if a.closeAll {
@@ -1787,10 +1818,10 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		PositionSide: positionSide,
 		Price:        d.Price,
 		Quantity:     quantity, // Use validated/capped quantity
-		Leverage:   gridConfig.Leverage,
-		PostOnly:   gridConfig.UseMakerOnly,
-		ReduceOnly: false,
-		ClientID:   fmt.Sprintf("grid-%d-%d", d.LevelIndex, time.Now().UnixNano()%1000000),
+		Leverage:     gridConfig.Leverage,
+		PostOnly:     gridConfig.UseMakerOnly,
+		ReduceOnly:   false,
+		ClientID:     fmt.Sprintf("grid-%d-%d", d.LevelIndex, time.Now().UnixNano()%1000000),
 	}
 
 	result, err := gridTrader.PlaceLimitOrder(req)
@@ -2159,7 +2190,11 @@ func (at *AutoTrader) syncGridState() {
 	}
 
 	// Collect T-trade reduces to dispatch after releasing the lock
-	type pendingReduce struct{ side string; fillPrice, qty float64; prepOrderID string }
+	type pendingReduce struct {
+		side           string
+		fillPrice, qty float64
+		prepOrderID    string
+	}
 	var pendingReduces []pendingReduce
 
 	for i := range at.gridState.Levels {
@@ -3094,7 +3129,6 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 	}
 }
 
-
 // placeTTradeReduceOrder auto-places a reduce limit order after a T-trade prep fills.
 // Returns true if the order was successfully placed.
 func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64, qty float64, prepOrderID string) bool {
@@ -3196,7 +3230,9 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 		// Timeout: cancel and re-place at fresh price
 		if !entry.PlacedAt.IsZero() && time.Since(entry.PlacedAt) > maxWait {
 			logger.Warnf("[Grid] ⚠️ T-trade reduce %s timed out — cancelling and re-placing", reduceID)
-			if canceler, ok := at.trader.(interface{ CancelOrder(symbol, orderID string) error }); ok {
+			if canceler, ok := at.trader.(interface {
+				CancelOrder(symbol, orderID string) error
+			}); ok {
 				canceler.CancelOrder(gridConfig.Symbol, reduceID)
 			}
 			rePlacePrepSide := "buy"
