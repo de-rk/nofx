@@ -633,7 +633,6 @@ func (ws *OKXWebSocket) handleCandle(channel, instId string, raw json.RawMessage
 		}
 		bar.Confirmed = confirm
 
-		newCandle := false
 		if len(buf) > 0 && buf[len(buf)-1].Ts == bar.Ts {
 			buf[len(buf)-1] = bar
 		} else {
@@ -641,10 +640,9 @@ func (ws *OKXWebSocket) handleCandle(channel, instId string, raw json.RawMessage
 			if len(buf) > wsKlineMaxBars {
 				buf = buf[len(buf)-wsKlineMaxBars:]
 			}
-			newCandle = true
 		}
-		// Fire OnKlineClose when the primary candle confirms close
-		if confirm && newCandle && tf == ws.primaryKlineTf && ws.OnKlineClose != nil {
+		// Fire OnKlineClose on confirmed close — OKX only sends confirm=1 once per candle
+		if confirm && tf == ws.primaryKlineTf && ws.OnKlineClose != nil {
 			ws.OnKlineClose()
 		}
 	}

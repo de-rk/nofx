@@ -213,6 +213,18 @@ func (t *OKXTrader) SetPrimaryKlineTf(tf string) {
 	}
 }
 
+// GetMinOrderSize returns the minimum lot size for a symbol (e.g. 0.1 for HYPEUSDT on OKX).
+func (t *OKXTrader) GetMinOrderSize(symbol string) (float64, error) {
+	inst, err := t.getInstrument(symbol)
+	if err != nil {
+		return 0, err
+	}
+	if inst.LotSz > 0 {
+		return inst.LotSz, nil
+	}
+	return inst.MinSz, nil
+}
+
 // GetWSKlines returns WS-cached klines for a symbol and timeframe, converted to market.Kline.
 // Returns (nil, false) if the buffer is empty or WS is not running.
 func (t *OKXTrader) GetWSKlines(symbol, tf string) ([]market.Kline, bool) {

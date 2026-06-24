@@ -1146,6 +1146,18 @@ func (at *AutoTrader) RunGridCycle() error {
 	return nil
 }
 
+// getMinOrderSize returns the minimum order size for the grid symbol via the exchange.
+// Returns 0 if unavailable (non-OKX exchanges or instrument fetch failure).
+func (at *AutoTrader) getMinOrderSize(symbol string) (float64, error) {
+	type minSizer interface {
+		GetMinOrderSize(symbol string) (float64, error)
+	}
+	if ms, ok := at.trader.(minSizer); ok {
+		return ms.GetMinOrderSize(symbol)
+	}
+	return 0, nil
+}
+
 // checkProfitReduce checks per-side unrealized profit and reduces position accordingly:
 // - Every ProfitReduceStepPct increment → reduce that % of current position
 // - If profit > step*1.2 AND position value < 100 USD → close entire side
@@ -1263,6 +1275,12 @@ func (at *AutoTrader) checkProfitReduce() {
 		reduceQty := info.size * (targetReducePct / 100) * multiplier
 		if reduceQty > info.size {
 			reduceQty = info.size
+		}
+		// Enforce exchange minimum lot size — skip if calculated qty is too small to place
+		if minSize, err := at.getMinOrderSize(gridConfig.Symbol); err == nil && minSize > 0 && reduceQty < minSize {
+			logger.Infof("[Grid] Profit-reduce %s: calculated qty %.4f below min size %.4f — skipping",
+				info.side, reduceQty, minSize)
+			continue
 		}
 		if reduceQty > 0 {
 			actions = append(actions, reduceAction{info: *info, qty: reduceQty, targetReducePct: targetReducePct})
