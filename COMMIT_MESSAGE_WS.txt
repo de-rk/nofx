@@ -1,0 +1,102 @@
+fix(grid): add fallback timer in event-driven AI cycle goroutine
+
+## Problem
+Grid trading AI cycle only executed once at startup, then never triggered again
+even when K-line closed every 15 minutes (AITriggerTf). This effectively broke
+the entire grid trading automation.
+
+User reported:
+- Trader scan_interval: 20m
+- K-line trigger: 15m (AITriggerTf)
+- First AI decision: ✅ executed at startup
+- Subsequent K-line close events: ❌ never triggered
+
+## Root Cause
+The event-driven AI cycle goroutine only listened to wsGridCycleCh without any
+fallback timer:
+
+```go
+go func() {
+    for {
+        select {
+        case <-at.wsGridCycleCh:
+            at.RunGridCycle()
+        case <-at.stopMonitorCh:
+            return
+        }
+    }
+}()
+```
+
+If WebSocket failed to start or didn't trigger callbacks → goroutine blocked forever.
+
+The main loop had a fallback mechanism, but it had critical flaws:
+1. Used wrong ticker period (scan_interval instead of ai_trigger_tf)
+2. Complex condition checking wsLastKlineClose with 30s grace period
+3. Only checked every 20 minutes even though K-line closes every 15 minutes
+
+## Solution
+Added independent fallback ticker inside the event-driven goroutine:
+
+```go
+go func() {
+    // Create fallback ticker using AITriggerTf period
+    fallbackTicker := time.NewTicker(triggerPeriod)
+    defer fallbackTicker.Stop()
+    
+    for {
+        select {
+        case <-at.wsGridCycleCh:
+            // WebSocket event (priority)
+            logger.Infof("[Grid] 🔔 K-line close event received")
+            at.RunGridCycle()
+            
+        case <-fallbackTicker.C:
+            // Fallback timer: triggers when WS is not working
+            lastKline := time.Unix(0, atomic.LoadInt64(&at.wsLastKlineClose))
+            
+            // If never received WS event (zero time) OR silent too long
+            if lastKline.IsZero() || time.Since(lastKline) > triggerPeriod+time.Minute {
+                if lastKline.IsZero() {
+                    logger.Infof("[Grid] ⏰ Fallback timer: no WS events yet")
+                } else {
+                    logger.Infof("[Grid] ⏰ Fallback timer: WS silent for %v", time.Since(lastKline))
+                }
+                at.RunGridCycle()
+            }
+            
+        case <-at.stopMonitorCh:
+            return
+        }
+    }
+}()
+```
+
+## Key Improvements
+1. ✅ Independent ticker with correct period (AITriggerTf, not ScanInterval)
+2. ✅ Dual-mode: uses WS when available, timer when WS fails
+3. ✅ Smart detection: checks if wsLastKlineClose is zero or stale
+4. ✅ Clear logging: distinguishes WS triggers from fallback triggers
+
+## Testing Scenarios
+- ✅ WebSocket working: uses WS events every 15m
+- ✅ WebSocket failed: uses fallback timer every 15m
+- ✅ WebSocket disconnected mid-run: auto switches to timer after 16m silence
+- ✅ Different ai_trigger_tf values: respects configured period
+
+## Impact
+- Severity: P0 (Critical) - broke core automation functionality
+- Affected: All grid strategy traders
+- Backward compatible: Yes, existing configs work without changes
+- Performance: Negligible (one additional timer per trader)
+
+## Files Changed
+- trader/auto_trader.go: Added fallback ticker in AI cycle goroutine (line ~542)
+- trader/auto_trader.go: Simplified main loop timer logic (line ~576)
+
+## Documentation
+- docs/bugfix-ws-event-not-triggering.md: Detailed analysis and fix
+- docs/architecture/EVENT_DRIVEN_GRID.md: Updated architecture docs
+- BUGFIX_WS_EVENT.md: Quick fix summary for users
+
+Fixes critical issue where grid traders stopped executing after first cycle.

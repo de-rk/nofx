@@ -542,19 +542,66 @@ func (at *AutoTrader) Run() error {
 		// Event-driven AI grid cycle: triggered by 5m kline close via WS.
 		// Falls back to ScanInterval timer when WS is not connected.
 		go func() {
+			// Calculate fallback timer interval
+			gridCfg := at.config.StrategyConfig.GridConfig
+			triggerPeriod := at.config.ScanInterval
+			if gridCfg != nil && gridCfg.AITriggerTf != "" {
+				if d := parseTriggerTfDuration(gridCfg.AITriggerTf); d > 0 {
+					triggerPeriod = d
+				}
+			}
+			
+			// Create fallback ticker for when WS is not working
+			fallbackTicker := time.NewTicker(triggerPeriod)
+			defer fallbackTicker.Stop()
+			
+			logger.Infof("[Grid] AI cycle monitor started: WS trigger=%s, fallback timer=%s",
+				gridCfg.AITriggerTf, triggerPeriod)
+			
 			for {
 				select {
 				case <-at.wsGridCycleCh:
+					// WebSocket K-line close event received
 					at.isRunningMutex.RLock()
 					running := at.isRunning
 					at.isRunningMutex.RUnlock()
 					if !running {
 						return
 					}
+					logger.Infof("[Grid] 🔔 K-line close event received, executing AI cycle")
 					if err := at.RunGridCycle(); err != nil {
 						logger.Infof("❌ Grid execution failed: %v", err)
 					}
+					
+				case <-fallbackTicker.C:
+					// Fallback timer: triggers when WS is not working or failed to start
+					at.isRunningMutex.RLock()
+					running := at.isRunning
+					at.isRunningMutex.RUnlock()
+					if !running {
+						return
+					}
+					
+					// Check if WS is actually working by looking at last kline time
+					lastKline := time.Unix(0, atomic.LoadInt64(&at.wsLastKlineClose))
+					timeSinceLastKline := time.Since(lastKline)
+					
+					// If never received WS event (zero time) OR no event for too long
+					// → fallback to timer-driven execution
+					if lastKline.IsZero() || timeSinceLastKline > triggerPeriod+time.Minute {
+						if lastKline.IsZero() {
+							logger.Infof("[Grid] ⏰ Fallback timer: no WS events yet, executing AI cycle")
+						} else {
+							logger.Infof("[Grid] ⏰ Fallback timer: WS silent for %v, executing AI cycle",
+								timeSinceLastKline)
+						}
+						if err := at.RunGridCycle(); err != nil {
+							logger.Infof("❌ Grid execution failed: %v", err)
+						}
+					}
+					
 				case <-at.stopMonitorCh:
+					logger.Infof("[Grid] AI cycle monitor stopped")
 					return
 				}
 			}
@@ -577,22 +624,9 @@ func (at *AutoTrader) Run() error {
 		select {
 		case <-ticker.C:
 			if isGridStrategy {
-				// Timer fallback: only triggers AI cycle when WS kline-close has been
-				// silent longer than the configured trigger period + 1 minute.
-				gridCfg := at.config.StrategyConfig.GridConfig
-				triggerPeriod := at.config.ScanInterval
-				if gridCfg != nil {
-					if d := parseTriggerTfDuration(gridCfg.AITriggerTf); d > 0 {
-						triggerPeriod = d
-					}
-				}
-				lastKline := time.Unix(0, atomic.LoadInt64(&at.wsLastKlineClose))
-				if time.Since(lastKline) > triggerPeriod+30*time.Second {
-					select {
-					case at.wsGridCycleCh <- struct{}{}:
-					default:
-					}
-				}
+				// Grid strategy: AI cycle is handled by dedicated goroutine with WS + fallback timer
+				// This main loop ticker is only for monitoring, no action needed
+				continue
 			} else {
 				if err := at.runCycle(); err != nil {
 					logger.Infof("❌ Execution failed: %v", err)
