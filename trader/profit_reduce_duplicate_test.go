@@ -25,12 +25,11 @@ func TestProfitReduceNoDuplicateOrders(t *testing.T) {
 		},
 		openOrders: []types.OpenOrder{
 			{
-				OrderID:    "existing-reduce-order",
-				Symbol:     "HYPEUSDT",
-				Side:       "BUY",
-				Price:      60.66,
-				Quantity:   1.9764,
-				ReduceOnly: true, // Existing reduce order
+				OrderID:  "existing-reduce-order",
+				Symbol:   "HYPEUSDT",
+				Side:     "BUY",         // SHORT position reduce = BUY
+				Price:    60.66,         // Near mark price (60.67)
+				Quantity: 1.9764,
 			},
 		},
 		placedOrders: []string{},

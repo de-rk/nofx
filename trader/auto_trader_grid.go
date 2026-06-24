@@ -1320,22 +1320,25 @@ func (at *AutoTrader) checkProfitReduce() {
 		// Bug fix: Profit reduce can trigger multiple times in short succession if the reduce order
 		// doesn't fill immediately. We check for any pending reduce-only order on the same side
 		// to avoid placing duplicate orders that would over-reduce the position.
+		// 
+		// Since OpenOrder doesn't have ReduceOnly field, we infer it from:
+		// 1. Order direction opposite to position (LONG position → SELL order, SHORT → BUY)
+		// 2. Order price near mark price (reduce orders are placed at mark price)
 		openOrders, err := at.trader.GetOpenOrders(symbol)
 		if err == nil {
 			hasPendingReduce := false
 			for _, order := range openOrders {
-				// Check if this is a reduce-only order for the same position side
-				if order.ReduceOnly {
-					// For long position: reduce orders are SELL
-					// For short position: reduce orders are BUY
-					if info.side == "long" && order.Side == "SELL" {
-						// Found existing reduce order for long position
-						logger.Infof("[Grid] Profit-reduce: skipping %s reduce — order %s already exists (%.4f @ %.4f)",
-							info.side, order.OrderID, order.Quantity, order.Price)
-						hasPendingReduce = true
-						break
-					} else if info.side == "short" && order.Side == "BUY" {
-						// Found existing reduce order for short position
+				// Check if this order is likely a reduce order based on direction and price
+				// For long position: reduce orders are SELL
+				// For short position: reduce orders are BUY
+				isReduceDirection := (info.side == "long" && order.Side == "SELL") ||
+					(info.side == "short" && order.Side == "BUY")
+				
+				if isReduceDirection {
+					// Check if price is close to mark price (within 1%)
+					// Reduce orders are typically placed at or near mark price
+					priceDiff := math.Abs(order.Price-info.markPrice) / info.markPrice
+					if priceDiff < 0.01 {
 						logger.Infof("[Grid] Profit-reduce: skipping %s reduce — order %s already exists (%.4f @ %.4f)",
 							info.side, order.OrderID, order.Quantity, order.Price)
 						hasPendingReduce = true

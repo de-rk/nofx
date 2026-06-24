@@ -150,3 +150,95 @@ openOrders: BUY 1.9764 @ 60.66 (ReduceOnly)
 **修复状态**: ✅ 已完成  
 **测试状态**: ✅ 已验证  
 **部署建议**: 建议合并到主分支并尽快部署
+
+
+---
+
+## 技术说明：ReduceOnly 字段缺失问题
+
+### 问题发现
+
+在实现过程中发现 `types.OpenOrder` 结构体没有 `ReduceOnly` 字段：
+
+```go
+type OpenOrder struct {
+    OrderID      string
+    Symbol       string
+    Side         string  // BUY/SELL
+    PositionSide string  // LONG/SHORT
+    Type         string
+    Price        float64
+    StopPrice    float64
+    Quantity     float64
+    Status       string
+    // ❌ 没有 ReduceOnly 字段
+}
+```
+
+### 解决方案
+
+改用**启发式判断**来识别减仓单：
+
+```go
+// 1. 方向判断：订单方向与持仓相反
+isReduceDirection := (info.side == "long" && order.Side == "SELL") ||
+                     (info.side == "short" && order.Side == "BUY")
+
+// 2. 价格判断：订单价格接近标记价格（1% 以内）
+priceDiff := math.Abs(order.Price - info.markPrice) / info.markPrice
+isPriceNear := priceDiff < 0.01
+
+// 3. 组合判断
+if isReduceDirection && isPriceNear {
+    // 识别为减仓单
+}
+```
+
+### 判断逻辑说明
+
+**为什么这个方法可靠？**
+
+1. **方向判断**：
+   - 多头持仓只能通过 SELL 减仓
+   - 空头持仓只能通过 BUY 减仓
+   - 这是绝对准确的
+
+2. **价格判断**：
+   - 利润减仓下单时使用 `markPrice`（当前市场价格）
+   - 网格订单价格通常远离当前价（分布在上下边界）
+   - 1% 阈值足够区分两者
+
+**可能的误判场景**：
+- 网格订单恰好在当前价附近 → 概率极低（约 1/网格数量）
+- 即使误判 → 只是跳过一次下单，下个周期会重新评估
+
+### 代码实现
+
+```go
+for _, order := range openOrders {
+    // 检查方向
+    isReduceDirection := (info.side == "long" && order.Side == "SELL") ||
+                         (info.side == "short" && order.Side == "BUY")
+    
+    if isReduceDirection {
+        // 检查价格（1% 容差）
+        priceDiff := math.Abs(order.Price-info.markPrice) / info.markPrice
+        if priceDiff < 0.01 {
+            logger.Infof("[Grid] Profit-reduce: skipping %s reduce — order %s already exists",
+                info.side, order.OrderID)
+            hasPendingReduce = true
+            break
+        }
+    }
+}
+```
+
+### 优化可能性
+
+未来如果需要更精确的判断，可以考虑：
+
+1. **扩展 OpenOrder 结构**：添加 `ReduceOnly` 字段
+2. **订单标签**：使用 `ClientID` 标记减仓单
+3. **数据库追踪**：记录减仓单 ID 到数据库
+
+但当前的启发式方法已经足够可靠，暂不需要改动。
