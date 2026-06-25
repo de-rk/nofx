@@ -213,18 +213,21 @@ func (t *OKXTrader) SetPrimaryKlineTf(tf string) {
 	}
 }
 
-// GetMinOrderSize returns the minimum lot size for a symbol (e.g. 0.1 for HYPEUSDT on OKX).
+// GetMinOrderSize returns the minimum order size in coins for a symbol (e.g. 0.1 for HYPEUSDT on OKX).
+// OKX reports MinSz/LotSz in contracts; multiply by CtVal to convert to coin units used throughout the system.
 func (t *OKXTrader) GetMinOrderSize(symbol string) (float64, error) {
 	inst, err := t.getInstrument(symbol)
 	if err != nil {
 		return 0, err
 	}
-	// MinSz is the minimum order size; LotSz is the lot step increment.
-	// Use MinSz when available, fall back to LotSz.
-	if inst.MinSz > 0 {
-		return inst.MinSz, nil
+	ctVal := inst.CtVal
+	if ctVal <= 0 {
+		ctVal = 1
 	}
-	return inst.LotSz, nil
+	if inst.MinSz > 0 {
+		return inst.MinSz * ctVal, nil
+	}
+	return inst.LotSz * ctVal, nil
 }
 
 // GetWSKlines returns WS-cached klines for a symbol and timeframe, converted to market.Kline.
