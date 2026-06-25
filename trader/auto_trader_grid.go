@@ -582,9 +582,10 @@ func (at *AutoTrader) InitializeGrid() error {
 			if err != nil || reduceEntry == nil {
 				continue
 			}
-			// Check if a close event happened AFTER the last reduce
+			// Check if a close or reset event happened AFTER the last reduce
 			closeEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce_close", side)
 			drawdownEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_drawdown_close", side)
+			resetEntry, _ := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce_reset", side)
 			closedAfter := false
 			if closeEntry != nil && closeEntry.CreatedAt.After(reduceEntry.CreatedAt) {
 				closedAfter = true
@@ -592,8 +593,11 @@ func (at *AutoTrader) InitializeGrid() error {
 			if drawdownEntry != nil && drawdownEntry.CreatedAt.After(reduceEntry.CreatedAt) {
 				closedAfter = true
 			}
+			if resetEntry != nil && resetEntry.CreatedAt.After(reduceEntry.CreatedAt) {
+				closedAfter = true
+			}
 			if closedAfter {
-				logger.Infof("[Grid] Skipping %s profit-reduce restore: position was closed after last reduce", side)
+				logger.Infof("[Grid] Skipping %s profit-reduce restore: position was closed/reset after last reduce", side)
 				continue
 			}
 			var pos, targetPct float64
