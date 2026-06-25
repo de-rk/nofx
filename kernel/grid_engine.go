@@ -375,7 +375,7 @@ func BuildGridSystemPrompt(strategyConfig *store.StrategyConfig, lang string) st
 func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 	ttradeNote := ""
 	if config.EnableTrappedReduce {
-		ttradeNote = "\n- **⛔ 禁止撤销 User Prompt 中「T字保护订单」列表内的任何订单**"
+		ttradeNote = "\n- **⛔ 如果 User Prompt 中出现「T字保护订单」列表，禁止撤销其中任何订单**"
 	}
 
 	return fmt.Sprintf(`# 网格交易 AI — %s
@@ -429,7 +429,7 @@ JSON 数组，每个决策一个对象：
 func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
 	ttradeNote := ""
 	if config.EnableTrappedReduce {
-		ttradeNote = "\n  - **⛔ Never cancel any order ID listed under \"T-Trade Protected Orders\" in the User Prompt**"
+		ttradeNote = "\n  - **⛔ If a \"T-Trade Protected Orders\" list appears in the User Prompt, never cancel any of those order IDs**"
 	}
 
 	return fmt.Sprintf(`# Grid Trading AI — %s
