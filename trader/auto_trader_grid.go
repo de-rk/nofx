@@ -1209,18 +1209,9 @@ func (at *AutoTrader) checkProfitReduce() {
 		sides[posSide] = &sideInfo{size: size, entryPrice: entry, markPrice: mark, unrealizedProfit: upl, side: posSide}
 	}
 
-	// Reset profit tracker for any side with no active position
-	// (handles forced close while in profit — drawdown protection, manual close, etc.)
-	at.gridState.mu.Lock()
-	if _, hasLong := sides["long"]; !hasLong && at.gridState.LongProfitReducedPct > 0 {
-		logger.Infof("[Grid] Profit-reduce: resetting long tracker (no active long position)")
-		at.gridState.LongProfitReducedPct = 0
-	}
-	if _, hasShort := sides["short"]; !hasShort && at.gridState.ShortProfitReducedPct > 0 {
-		logger.Infof("[Grid] Profit-reduce: resetting short tracker (no active short position)")
-		at.gridState.ShortProfitReducedPct = 0
-	}
-	at.gridState.mu.Unlock()
+	// Profit tracker resets happen only when profitPct <= 0 (below), or via manual profit_reduce_reset event.
+	// Do NOT reset here based on position absence — a t-trade or brief API lag can temporarily make a
+	// position disappear, which would spuriously clear alreadyReduced and allow duplicate reduces.
 
 	gridTrader, ok := at.trader.(GridTrader)
 	if !ok {
