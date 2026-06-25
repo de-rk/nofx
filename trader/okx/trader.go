@@ -80,7 +80,7 @@ type OKXInstrument struct {
 	InstID   string  // Instrument ID
 	CtVal    float64 // Contract value
 	CtMult   float64 // Contract multiplier
-	LotSz    float64 // Minimum order size
+	LotSz    float64 // Lot step size (order quantity increment)
 	MinSz    float64 // Minimum order size
 	MaxMktSz float64 // Maximum market order size
 	TickSz   float64 // Minimum price increment
@@ -219,10 +219,12 @@ func (t *OKXTrader) GetMinOrderSize(symbol string) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if inst.LotSz > 0 {
-		return inst.LotSz, nil
+	// MinSz is the minimum order size; LotSz is the lot step increment.
+	// Use MinSz when available, fall back to LotSz.
+	if inst.MinSz > 0 {
+		return inst.MinSz, nil
 	}
-	return inst.MinSz, nil
+	return inst.LotSz, nil
 }
 
 // GetWSKlines returns WS-cached klines for a symbol and timeframe, converted to market.Kline.
