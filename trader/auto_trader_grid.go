@@ -1345,13 +1345,22 @@ func (at *AutoTrader) checkProfitReduce() {
 		openOrders, err := at.trader.GetOpenOrders(symbol)
 		if err == nil {
 			hasPendingReduce := false
+			at.gridState.mu.RLock()
+			ttradeReduceIDs := make(map[string]bool, len(at.gridState.TTradeReduceOrders))
+			for id := range at.gridState.TTradeReduceOrders {
+				ttradeReduceIDs[id] = true
+			}
+			at.gridState.mu.RUnlock()
 			for _, order := range openOrders {
+				if ttradeReduceIDs[order.OrderID] {
+					continue // T-trade reduce order — not a profit-reduce
+				}
 				// Check if this order is likely a reduce order based on direction and price
 				// For long position: reduce orders are SELL
 				// For short position: reduce orders are BUY
 				isReduceDirection := (info.side == "long" && order.Side == "SELL") ||
 					(info.side == "short" && order.Side == "BUY")
-				
+
 				if isReduceDirection {
 					// Check if price is close to mark price (within 1%)
 					// Reduce orders are typically placed at or near mark price
