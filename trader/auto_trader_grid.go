@@ -2045,10 +2045,26 @@ func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
 		return fmt.Errorf("failed to get market price: %w", err)
 	}
 
-	// Reinitialize grid levels
+	// Recalculate bounds centered on current price (same logic as autoAdjustGrid)
+	at.gridState.mu.Lock()
+	if gridConfig.UseATRBounds {
+		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
+		if err != nil {
+			logger.Warnf("[Grid] Failed to get ATR for adjust_grid, using default bounds: %v", err)
+			at.calculateDefaultBoundsLocked(price, gridConfig)
+		} else {
+			at.calculateATRBoundsLocked(price, mktData, gridConfig)
+		}
+	} else {
+		at.calculateDefaultBoundsLocked(price, gridConfig)
+	}
+	at.gridState.GridSpacing = (at.gridState.UpperPrice - at.gridState.LowerPrice) / float64(gridConfig.GridCount-1)
+	at.gridState.mu.Unlock()
+
 	at.initializeGridLevels(price, gridConfig)
 
-	logger.Infof("[Grid] Adjusted grid bounds around price $%.2f", price)
+	logger.Infof("[Grid] Adjusted grid bounds around price $%.2f: $%.2f - $%.2f",
+		price, at.gridState.LowerPrice, at.gridState.UpperPrice)
 	return nil
 }
 
