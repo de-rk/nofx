@@ -373,34 +373,17 @@ func BuildGridSystemPrompt(strategyConfig *store.StrategyConfig, lang string) st
 }
 
 func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
-	trappedSection := ""
+	ttradeNote := ""
 	if config.EnableTrappedReduce {
-		threshold := config.TTradePositionThresholdPct
-		if threshold <= 0 {
-			threshold = 30.0
-		}
-		trappedSection = fmt.Sprintf(`
-## T字操作（仓位控制减仓）
-触发条件：任一方向仓位占总资金超过 %.0f%% 时，系统自动标记该方向所有符合条件的网格挂单为触发单（多仓超阈值→标记价格下方买单；空仓超阈值→标记价格上方卖单）。多空两个方向可同时独立运行。
-
-**状态说明：**
-| 状态 | 含义 | 你需要做什么 |
-|------|------|------------|
-| idle | 两个方向仓位均未超阈值 | 正常补单，系统自动监控 |
-| waiting_buy_fill | 多仓触发单挂出，等待成交 | 正常补网格单，**禁止执行 reduce_long/reduce_short** |
-| waiting_reduce_fill | 减仓单已挂出，等待成交 | 正常补网格单，**禁止执行 reduce_long/reduce_short** |
-
-**注意：** reduce_long/reduce_short 由系统在触发单成交后自动挂出，无需 AI 执行。
-`, threshold)
+		ttradeNote = "\n- **⛔ 禁止撤销 User Prompt 中「T字保护订单」列表内的任何订单**"
 	}
 
 	return fmt.Sprintf(`# 网格交易 AI — %s
 
 ## 角色定位
-你是双向网格交易的执行引擎。每个周期完成三件事：
+你是双向网格交易的执行引擎。每个周期完成两件事：
 1. 判断市场状态，确定方向偏好
 2. 补全空缺网格层级
-3. 处理特殊状态（T字操作）
 
 ## 网格配置
 交易对: %s | 层数: %d | 投资额: %.2f USDT | 杠杆: %dx | 分布: %s
@@ -421,50 +404,29 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - quantity 必须使用层级表中的「建议数量」
 - state = "pending" 的层级已有挂单，禁止重复下单
 
-### 减仓指令（由系统自动执行，AI 禁止主动使用）
-- reduce_long / reduce_short 由系统在 T字操作触发单成交后自动挂出
-- ⚠️ AI 在任何状态下都不应主动执行 reduce_long/reduce_short
-
 ### 其他
 - cancel_order / cancel_all_orders：撤单
   - cancel_order：撤销单个订单（order_id 字段填网格层级表中的订单ID，quantity 填 0）
-  - cancel_all_orders：撤销所有非T字订单
-  - **每次最多撤 3 个订单**（cancel_order 合计）
-  - **⛔ 禁止撤销 User Prompt 中「T字保护订单」列表内的任何订单**
+  - cancel_all_orders：撤销所有订单
+  - **每次最多撤 3 个订单**（cancel_order 合计）%s
 - adjust_grid：重新计算网格边界
 - hold：本周期不操作
 
 ### 余额为零时的处理
-当 available_balance ≤ $1 时，下单会被系统拦截。此时可以使用 hold、cancel_order、cancel_all_orders，禁止下单。在 reasoning 中简要说明下一步可能释放余额的条件（例如 T-trade 减仓单成交、现有网格单成交）。
-%s
+当 available_balance ≤ $1 时，下单会被系统拦截。此时可以使用 hold、cancel_order、cancel_all_orders，禁止下单。在 reasoning 中简要说明下一步可能释放余额的条件（例如现有网格单成交）。
+
 ## 输出格式
 JSON 数组，每个决策一个对象：
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"order_id":"","confidence":0,"reasoning":"..."}]
 **每个周期最多输出 8 个下单决策（place_buy_limit / place_sell_limit 合计），超出部分会被忽略。**
 **reasoning 字段保持简洁，不超过 2 句话。**
-`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
+`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, ttradeNote)
 }
 
 func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
-	trappedSection := ""
+	ttradeNote := ""
 	if config.EnableTrappedReduce {
-		threshold := config.TTradePositionThresholdPct
-		if threshold <= 0 {
-			threshold = 30.0
-		}
-		trappedSection = fmt.Sprintf(`
-## T-Trade (Position Size Reduction)
-Trigger: system auto-tags qualifying grid orders when either side's position exceeds %.0f%% of total investment (long > threshold → tag buy orders below price; short > threshold → tag sell orders above price). Both sides run independently and simultaneously.
-
-**Three states — your responsibility differs per state:**
-| State | Meaning | Your action |
-|-------|---------|-------------|
-| idle | Neither side exceeds threshold | Normal grid orders, system monitors |
-| waiting_buy_fill | Trigger order(s) placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
-| waiting_reduce_fill | Reduce order(s) placed, awaiting fill | Continue normal grid orders — do NOT execute reduce_long/reduce_short |
-
-**Note:** reduce_long/reduce_short are placed automatically by the system after trigger orders fill. AI must never use them.
-`, threshold)
+		ttradeNote = "\n  - **⛔ Never cancel any order ID listed under \"T-Trade Protected Orders\" in the User Prompt**"
 	}
 
 	return fmt.Sprintf(`# Grid Trading AI — %s
@@ -473,7 +435,6 @@ Trigger: system auto-tags qualifying grid orders when either side's position exc
 You are the execution engine for a bidirectional grid strategy. Each cycle:
 1. Assess market conditions and set directional bias
 2. Fill empty grid levels with orders
-3. Handle special states (T-trade)
 
 ## Grid Configuration
 Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: %s
@@ -494,28 +455,23 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 - quantity must use "Suggested Qty" from the level table
 - levels with state = "pending" already have an order — do NOT place another
 
-### Reduce Orders (auto-placed by system — AI must NOT use)
-- reduce_long / reduce_short are placed automatically after trigger orders fill
-- ⚠️ Do NOT use reduce_long or reduce_short in any state
-
 ### Other
 - cancel_order / cancel_all_orders: cancel orders
   - cancel_order: cancel a single order (set order_id to the Order ID from the grid level table, quantity to 0)
-  - cancel_all_orders: cancel all non-T-trade orders
-  - **Maximum 3 cancel_order decisions per cycle**
-  - **⛔ Never cancel any order ID listed under "T-Trade Protected Orders" in the User Prompt**
+  - cancel_all_orders: cancel all orders
+  - **Maximum 3 cancel_order decisions per cycle**%s
 - adjust_grid: recalculate grid bounds
 - hold: no action this cycle
 
 ### Zero-Balance Handling
-When available_balance ≤ $1, order placement is blocked by the system. You may still use hold, cancel_order, or cancel_all_orders. Do NOT attempt to place orders. In reasoning, briefly analyze what would unlock capital next (e.g. a T-trade reduce fill, an existing order fill).
-%s
+When available_balance ≤ $1, order placement is blocked by the system. You may still use hold, cancel_order, or cancel_all_orders. Do NOT attempt to place orders. In reasoning, briefly analyze what would unlock capital next (e.g. an existing order fill).
+
 ## Output Format
 JSON array, one object per decision:
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"order_id":"","confidence":0,"reasoning":"..."}]
 **Maximum 8 order decisions (place_buy_limit + place_sell_limit combined) per cycle — excess will be ignored.**
 **Keep reasoning concise — 2 sentences max.**
-`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, trappedSection)
+`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, ttradeNote)
 }
 
 // BuildGridUserPrompt builds the user prompt for grid trading AI
@@ -541,21 +497,6 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		sb.WriteString("## ⚠️ 被套状态\n")
 		sb.WriteString(fmt.Sprintf("- 方向: %s | 亏损: $%.2f (%.2f%%) | 均价: $%.2f | 当前: $%.2f | 价差: %.2f%%\n",
 			sideZh, t.TotalUnrealizedLoss, t.LossPct, t.AvgEntryPrice, t.CurrentPrice, t.PriceDiffPct))
-		switch t.TTradePhase {
-		case "waiting_buy_fill":
-			label := "买单"
-			if t.Side == "sell" {
-				label = "卖单"
-			}
-			sb.WriteString(fmt.Sprintf("- T字状态: **等待%s成交** (首单=%s @ %.2f, 总待减仓=%.4f)\n",
-				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，减仓单由系统自动挂出，正常补网格单\n")
-		case "waiting_reduce_fill":
-			sb.WriteString(fmt.Sprintf("- T字状态: **⏳ 减仓单已挂出，等待成交** (总待减仓=%.4f)\n", t.TTradePendingReduce))
-			sb.WriteString("- ⛔ 禁止执行 reduce_long/reduce_short，正常补网格单\n")
-		default:
-			sb.WriteString("- T字状态: 空闲\n")
-		}
 		sb.WriteString("\n")
 	}
 
@@ -692,21 +633,6 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		sb.WriteString("## ⚠️ Trapped Position\n")
 		sb.WriteString(fmt.Sprintf("- Side: %s | Loss: $%.2f (%.2f%%) | Avg Entry: $%.2f | Current: $%.2f | Diff: %.2f%%\n",
 			sideEn, t.TotalUnrealizedLoss, t.LossPct, t.AvgEntryPrice, t.CurrentPrice, t.PriceDiffPct))
-		switch t.TTradePhase {
-		case "waiting_buy_fill":
-			label := "BUY"
-			if t.Side == "sell" {
-				label = "SELL"
-			}
-			sb.WriteString(fmt.Sprintf("- T-Trade: **WAITING FOR %s FILL** (first=%s @ %.2f, total pending=%.4f)\n",
-				label, t.TTradeBuyOrderID, t.TTradeBuyPrice, t.TTradePendingReduce))
-			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — reduces are auto-placed by system, continue normal grid orders\n")
-		case "waiting_reduce_fill":
-			sb.WriteString(fmt.Sprintf("- T-Trade: **⏳ REDUCE ORDER(S) PLACED, AWAITING FILL** (total pending=%.4f)\n", t.TTradePendingReduce))
-			sb.WriteString("- ⛔ Do NOT execute reduce_long/reduce_short — continue normal grid orders\n")
-		default:
-			sb.WriteString("- T-Trade: IDLE\n")
-		}
 		sb.WriteString("\n")
 	}
 
