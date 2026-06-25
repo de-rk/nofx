@@ -612,13 +612,6 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	}
 	sb.WriteString("\n")
 
-	// Performance
-	sb.WriteString("## 绩效\n")
-	sb.WriteString(fmt.Sprintf("- 总利润: $%.2f | 交易次数: %d | 胜率: %.1f%% | 最大回撤: %.2f%% | 今日盈亏: $%.2f\n",
-		ctx.TotalProfit, ctx.TotalTrades,
-		float64(ctx.WinningTrades)/float64(max(ctx.TotalTrades, 1))*100,
-		ctx.MaxDrawdown, ctx.DailyPnL))
-	sb.WriteString("\n")
 
 	sb.WriteString("请分析以上数据，输出JSON数组格式的决策。\n")
 	return sb.String()
@@ -747,13 +740,6 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	}
 	sb.WriteString("\n")
 
-	// Performance
-	sb.WriteString("## Performance\n")
-	sb.WriteString(fmt.Sprintf("- Profit: $%.2f | Trades: %d | Win Rate: %.1f%% | Max DD: %.2f%% | Daily PnL: $%.2f\n",
-		ctx.TotalProfit, ctx.TotalTrades,
-		float64(ctx.WinningTrades)/float64(max(ctx.TotalTrades, 1))*100,
-		ctx.MaxDrawdown, ctx.DailyPnL))
-	sb.WriteString("\n")
 
 	sb.WriteString("Analyze the data above and output a JSON array of decisions.\n")
 	return sb.String()
