@@ -404,6 +404,9 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - quantity 必须使用层级表中的「建议数量」
 - state = "pending" 的层级已有挂单，禁止重复下单
 
+### 禁止操作
+- ⚠️ 禁止执行 reduce_long / reduce_short
+
 ### 其他
 - cancel_order / cancel_all_orders：撤单
   - cancel_order：撤销单个订单（order_id 字段填网格层级表中的订单ID，quantity 填 0）
@@ -454,6 +457,9 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 - place_sell_limit: open short at an empty sell-side level
 - quantity must use "Suggested Qty" from the level table
 - levels with state = "pending" already have an order — do NOT place another
+
+### Prohibited
+- ⚠️ Do NOT use reduce_long or reduce_short
 
 ### Other
 - cancel_order / cancel_all_orders: cancel orders
