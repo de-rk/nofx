@@ -576,8 +576,8 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 
 	// Grid levels
 	sb.WriteString("## 网格层级\n")
-	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 订单ID | 权益USD | 建议数量 | 订单数量 | 持仓 | 浮盈 |\n")
-	sb.WriteString("|------|------|------|------|--------|---------|----------|----------|------|------|\n")
+	sb.WriteString("| 层级 | 价格 | 状态 | 方向 | 订单ID | 权益USD | 建议数量 | 订单数量 | 持仓 |\n")
+	sb.WriteString("|------|------|------|------|--------|---------|----------|----------|------|\n")
 	for _, level := range ctx.Levels {
 		// Scale allocated weight by current total equity so suggested qty reflects actual account size
 		allocUSD := level.AllocatedUSD
@@ -606,9 +606,9 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		if orderID == "" {
 			orderID = "-"
 		}
-		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
+		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | %s | $%.2f | %.4f | %.4f | %.4f |\n",
 			level.Index, level.Price, level.State, level.Side, orderID, equityUSD, suggestedQty,
-			level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
+			level.OrderQuantity, level.PositionSize))
 	}
 	sb.WriteString("\n")
 
@@ -705,8 +705,8 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 
 	// Grid levels
 	sb.WriteString("## Grid Levels\n")
-	sb.WriteString("| Level | Price | State | Side | Order ID | Equity USD | Suggested Qty | Order Qty | Position | PnL |\n")
-	sb.WriteString("|-------|-------|-------|------|----------|------------|---------------|-----------|----------|-----|\n")
+	sb.WriteString("| Level | Price | State | Side | Order ID | Equity USD | Suggested Qty | Order Qty | Position |\n")
+	sb.WriteString("|-------|-------|-------|------|----------|------------|---------------|-----------|----------|\n")
 	for _, level := range ctx.Levels {
 		allocUSD := level.AllocatedUSD
 		if ctx.TotalInvestment > 0 && ctx.TotalEquity > 0 {
@@ -734,9 +734,9 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		if orderID == "" {
 			orderID = "-"
 		}
-		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | %s | $%.2f | %.4f | %.4f | %.4f | $%.2f |\n",
+		sb.WriteString(fmt.Sprintf("| %d | $%.2f | %s | %s | %s | $%.2f | %.4f | %.4f | %.4f |\n",
 			level.Index, level.Price, level.State, level.Side, orderID, equityUSD, suggestedQty,
-			level.OrderQuantity, level.PositionSize, level.UnrealizedPnL))
+			level.OrderQuantity, level.PositionSize))
 	}
 	sb.WriteString("\n")
 
