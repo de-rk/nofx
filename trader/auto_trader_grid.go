@@ -905,7 +905,7 @@ func (at *AutoTrader) RunGridCycle() error {
 
 	// Sync open orders from exchange FIRST so level states are up-to-date
 	// before T-trade fill detection runs
-	at.syncOpenOrdersFromExchange(openOrders)
+	at.syncExchangeState(openOrders, false)
 
 	// T-trade and profit-reduce run regardless of pause state — system-level operations
 	at.RunTTradeScan(openOrders)
@@ -1035,7 +1035,7 @@ func (at *AutoTrader) RunGridCycle() error {
 	at.gridState.mu.Unlock()
 
 	// Sync state with exchange
-	at.syncGridState()
+	at.syncExchangeState(nil, true)
 
 	// After AI places new orders, re-run T-trade tagging so new orders can be picked up.
 	if gridConfig.EnableTrappedReduce {
@@ -1049,7 +1049,7 @@ func (at *AutoTrader) RunGridCycle() error {
 		if hasNewOrder {
 			freshOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
 			if err == nil {
-				at.syncOpenOrdersFromExchange(freshOrders)
+				at.syncExchangeState(freshOrders, false)
 				at.ttradeTagOrders(freshOrders)
 
 				// Check if any newly placed order filled immediately (taker fill).
@@ -2068,121 +2068,35 @@ func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
 	return nil
 }
 
-// syncOpenOrdersFromExchange reconciles grid level states with actual open orders on the exchange.
-// Called before building AI context so the AI always sees up-to-date order state.
-// It does NOT attempt fill detection — that is handled by syncGridState after execution.
-func (at *AutoTrader) syncOpenOrdersFromExchange(openOrders []types.OpenOrder) {
+// syncExchangeState reconciles grid level states with the exchange.
+// If openOrders is nil, open orders are fetched from the exchange.
+// Handles: cancellation detection (pending→empty), fill detection (pending→filled),
+// position size reconciliation, adopt of untracked orders, and T-trade reduce dispatch.
+// If runPostChecks is true, also runs stop-loss check and grid skew auto-adjust.
+func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChecks bool) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
 	if openOrders == nil {
 		var err error
 		openOrders, err = at.trader.GetOpenOrders(gridConfig.Symbol)
 		if err != nil {
-			logger.Warnf("[Grid] syncOpenOrders: failed to get open orders: %v", err)
+			logger.Warnf("[Grid] syncExchangeState: failed to get open orders: %v", err)
 			return
 		}
 	}
 
-	// Build set of active order IDs from exchange
 	activeOrderIDs := make(map[string]bool, len(openOrders))
 	for _, o := range openOrders {
 		activeOrderIDs[o.OrderID] = true
 	}
 
-	at.gridState.mu.Lock()
-	defer at.gridState.mu.Unlock()
-
-	for i := range at.gridState.Levels {
-		level := &at.gridState.Levels[i]
-		if level.State != "pending" || level.OrderID == "" {
-			continue
-		}
-		if !activeOrderIDs[level.OrderID] {
-			// Grace period: if order was placed very recently, exchange API may not reflect it yet.
-			// Skip marking empty for 30 seconds after placement to avoid false resets.
-			if !level.OrderPlacedAt.IsZero() && time.Since(level.OrderPlacedAt) < 30*time.Second {
-				logger.Debugf("[Grid] syncOpenOrders: level %d order %s not yet visible on exchange (placed %.0fs ago), skipping",
-					i, level.OrderID, time.Since(level.OrderPlacedAt).Seconds())
-				continue
-			}
-			// Order is gone from exchange — mark empty so AI knows to re-place it.
-			// Fill detection (position accounting) is handled separately in syncGridState.
-			logger.Infof("[Grid] syncOpenOrders: level %d order %s no longer open, marking empty",
-				i, level.OrderID)
-			delete(at.gridState.OrderBook, level.OrderID)
-			level.State = "empty"
-			level.OrderID = ""
-			level.OrderQuantity = 0
-			level.OrderPlacedAt = time.Time{}
-		}
-	}
-
-	// Also register any exchange orders that are not yet tracked in OrderBook
-	// (e.g. orders placed outside this session or after a restart)
-	for _, o := range openOrders {
-		if _, tracked := at.gridState.OrderBook[o.OrderID]; tracked {
-			continue
-		}
-		// Try to match by price to an empty level
-		bestIdx := -1
-		bestDist := math.MaxFloat64
-		for i, level := range at.gridState.Levels {
-			if level.State != "empty" {
-				continue
-			}
-			dist := math.Abs(level.Price - o.Price)
-			if dist < bestDist {
-				bestDist = dist
-				bestIdx = i
-			}
-		}
-		// Only adopt if within half a grid spacing
-		if bestIdx >= 0 && (at.gridState.GridSpacing <= 0 || bestDist <= at.gridState.GridSpacing*0.5) {
-			at.gridState.Levels[bestIdx].State = "pending"
-			at.gridState.Levels[bestIdx].OrderID = o.OrderID
-			at.gridState.Levels[bestIdx].OrderQuantity = o.Quantity
-			at.gridState.OrderBook[o.OrderID] = bestIdx
-			logger.Infof("[Grid] syncOpenOrders: adopted untracked order %s → level %d (price=%.2f)",
-				o.OrderID, bestIdx, o.Price)
-		}
-	}
-
-	logger.Infof("[Grid] syncOpenOrders: exchange has %d open orders, grid has %d pending levels",
-		len(openOrders), func() int {
-			n := 0
-			for _, l := range at.gridState.Levels {
-				if l.State == "pending" {
-					n++
-				}
-			}
-			return n
-		}())
-}
-
-// syncGridState syncs grid state with exchange
-func (at *AutoTrader) syncGridState() {
-	gridConfig := at.config.StrategyConfig.GridConfig
-
-	// Get open orders from exchange
-	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
-	if err != nil {
-		logger.Warnf("[Grid] Failed to get open orders: %v", err)
-		return
-	}
-
-	// Build set of active order IDs
-	activeOrderIDs := make(map[string]bool)
-	for _, order := range openOrders {
-		activeOrderIDs[order.OrderID] = true
-	}
-
-	// Get current positions to verify fills
+	// Fetch positions for fill detection and reconciliation
 	positions, err := at.trader.GetPositions()
 	currentPositionSize := 0.0
 	actualLongSize := 0.0
 	actualShortSize := 0.0
 	if err != nil {
-		logger.Warnf("[Grid] Failed to get positions for state sync: %v", err)
+		logger.Warnf("[Grid] syncExchangeState: failed to get positions: %v", err)
 	} else {
 		for _, pos := range positions {
 			if sym, ok := pos["symbol"].(string); ok && sym == gridConfig.Symbol {
@@ -2201,7 +2115,7 @@ func (at *AutoTrader) syncGridState() {
 		}
 	}
 
-	// Pre-fetch order status for disappeared pending orders (outside lock, network calls)
+	// Pre-fetch order status for disappeared pending orders (outside lock — network calls)
 	type orderFillInfo struct {
 		avgPrice    float64
 		isFilled    bool
@@ -2210,28 +2124,23 @@ func (at *AutoTrader) syncGridState() {
 	fillInfoByOrderID := make(map[string]orderFillInfo)
 	at.gridState.mu.RLock()
 	for _, level := range at.gridState.Levels {
-		if level.State == "pending" && level.OrderID != "" && !activeOrderIDs[level.OrderID] {
-			status, err := at.trader.GetOrderStatus(gridConfig.Symbol, level.OrderID)
-			if err == nil {
-				s, _ := status["status"].(string)
-				avg, _ := status["avgPrice"].(float64)
-				fillInfoByOrderID[level.OrderID] = orderFillInfo{avgPrice: avg, isFilled: s == "FILLED", statusKnown: true}
-			} else {
-				// Network failure — mark as unknown so we don't misclassify as cancelled
-				fillInfoByOrderID[level.OrderID] = orderFillInfo{statusKnown: false}
-			}
+		if level.State != "pending" || level.OrderID == "" || activeOrderIDs[level.OrderID] {
+			continue
+		}
+		// Grace period: skip recently placed orders — exchange API may not reflect them yet
+		if !level.OrderPlacedAt.IsZero() && time.Since(level.OrderPlacedAt) < 30*time.Second {
+			continue
+		}
+		status, err := at.trader.GetOrderStatus(gridConfig.Symbol, level.OrderID)
+		if err == nil {
+			s, _ := status["status"].(string)
+			avg, _ := status["avgPrice"].(float64)
+			fillInfoByOrderID[level.OrderID] = orderFillInfo{avgPrice: avg, isFilled: s == "FILLED", statusKnown: true}
+		} else {
+			fillInfoByOrderID[level.OrderID] = orderFillInfo{statusKnown: false}
 		}
 	}
 	at.gridState.mu.RUnlock()
-
-	// Update levels based on order status
-	at.gridState.mu.Lock()
-	expectedPositionSize := 0.0
-	for _, level := range at.gridState.Levels {
-		if level.State == "filled" {
-			expectedPositionSize += level.PositionSize
-		}
-	}
 
 	// Collect T-trade reduces to dispatch after releasing the lock
 	type pendingReduce struct {
@@ -2241,63 +2150,69 @@ func (at *AutoTrader) syncGridState() {
 	}
 	var pendingReduces []pendingReduce
 
+	at.gridState.mu.Lock()
+
+	expectedPositionSize := 0.0
+	for _, level := range at.gridState.Levels {
+		if level.State == "filled" {
+			expectedPositionSize += level.PositionSize
+		}
+	}
+
 	for i := range at.gridState.Levels {
 		level := &at.gridState.Levels[i]
-		if level.State == "pending" && level.OrderID != "" {
-			if !activeOrderIDs[level.OrderID] {
-				// Determine fill vs cancel: prefer GetOrderStatus result, fall back to position heuristic
-				info := fillInfoByOrderID[level.OrderID]
-				// If status is unknown (network failure), skip this level — retry next cycle
-				if !info.statusKnown && !(math.Abs(currentPositionSize) > math.Abs(expectedPositionSize)) {
-					logger.Warnf("[Grid] Level %d order %s disappeared but status unknown (network error) — skipping, will retry next cycle", i, level.OrderID)
-					continue
-				}
-				wasFilled := info.isFilled || math.Abs(currentPositionSize) > math.Abs(expectedPositionSize)
-				if wasFilled {
-					// Use actual fill price from exchange; fall back to level price if unavailable
-					entryPrice := info.avgPrice
-					if entryPrice <= 0 {
-						entryPrice = level.Price
-					}
-					// Position increased, likely filled
-					level.State = "filled"
-					level.PositionEntry = entryPrice
-					level.PositionSize = level.OrderQuantity
-					at.gridState.TotalTrades++
-					logger.Infof("[Grid] Level %d order filled at $%.2f (level=$%.2f)", i, entryPrice, level.Price)
-
-					// Check if this was a T-trade prep order — collect for auto-reduce after unlock
-					if prep, ok := at.gridState.TTradePrepOrders[level.OrderID]; ok && !prep.ReduceQueued {
-						prep.ReduceQueued = true
-						delete(at.gridState.TTradePrepOrders, level.OrderID)
-						pendingReduces = append(pendingReduces, pendingReduce{
-							side: prep.Side, fillPrice: entryPrice, qty: prep.Qty, prepOrderID: level.OrderID,
-						})
-						logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f side=%s) — will place reduce after unlock",
-							prep.Qty, entryPrice, prep.Side)
-					}
-				} else {
-					// Position didn't increase as expected, likely cancelled
-					// If this was a T-trade prep order, remove it from map
-					if _, ok := at.gridState.TTradePrepOrders[level.OrderID]; ok {
-						logger.Infof("[Grid] ⚠️ T-trade prep order cancelled (orderID=%s) - removing from prep map",
-							level.OrderID)
-						delete(at.gridState.TTradePrepOrders, level.OrderID)
-					}
-					level.State = "empty"
-					level.OrderID = ""
-					level.OrderQuantity = 0
-					level.OrderPlacedAt = time.Time{}
-					logger.Infof("[Grid] Level %d order cancelled/expired", i)
-				}
-				delete(at.gridState.OrderBook, level.OrderID)
-			}
+		if level.State != "pending" || level.OrderID == "" || activeOrderIDs[level.OrderID] {
+			continue
 		}
+		// Grace period (re-checked under lock)
+		if !level.OrderPlacedAt.IsZero() && time.Since(level.OrderPlacedAt) < 30*time.Second {
+			logger.Debugf("[Grid] syncExchangeState: level %d order %s not yet visible (placed %.0fs ago), skipping",
+				i, level.OrderID, time.Since(level.OrderPlacedAt).Seconds())
+			continue
+		}
+		info := fillInfoByOrderID[level.OrderID]
+		if !info.statusKnown && !(math.Abs(currentPositionSize) > math.Abs(expectedPositionSize)) {
+			logger.Warnf("[Grid] Level %d order %s disappeared but status unknown (network error) — skipping, will retry next cycle", i, level.OrderID)
+			continue
+		}
+		wasFilled := info.isFilled || math.Abs(currentPositionSize) > math.Abs(expectedPositionSize)
+		if wasFilled {
+			entryPrice := info.avgPrice
+			if entryPrice <= 0 {
+				entryPrice = level.Price
+			}
+			level.State = "filled"
+			level.PositionEntry = entryPrice
+			level.PositionSize = level.OrderQuantity
+			at.gridState.TotalTrades++
+			logger.Infof("[Grid] Level %d order filled at $%.2f (level=$%.2f)", i, entryPrice, level.Price)
+
+			if prep, ok := at.gridState.TTradePrepOrders[level.OrderID]; ok && !prep.ReduceQueued {
+				prep.ReduceQueued = true
+				delete(at.gridState.TTradePrepOrders, level.OrderID)
+				pendingReduces = append(pendingReduces, pendingReduce{
+					side: prep.Side, fillPrice: entryPrice, qty: prep.Qty, prepOrderID: level.OrderID,
+				})
+				logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f side=%s) — will place reduce after unlock",
+					prep.Qty, entryPrice, prep.Side)
+			}
+		} else {
+			if _, ok := at.gridState.TTradePrepOrders[level.OrderID]; ok {
+				logger.Infof("[Grid] ⚠️ T-trade prep order cancelled (orderID=%s) — removing from prep map", level.OrderID)
+				delete(at.gridState.TTradePrepOrders, level.OrderID)
+			}
+			level.State = "empty"
+			level.OrderID = ""
+			level.OrderQuantity = 0
+			level.OrderPlacedAt = time.Time{}
+			logger.Infof("[Grid] Level %d order cancelled/expired", i)
+		}
+		delete(at.gridState.OrderBook, level.OrderID)
 	}
 
 	// Reconcile filled levels against actual exchange positions.
 	// If actual long/short size is less than what filled levels claim,
-	// reduce level PositionSize proportionally (handles reduce_long/reduce_short fills).
+	// scale down PositionSize proportionally (handles reduce_long/reduce_short fills).
 	if actualLongSize >= 0 || actualShortSize >= 0 {
 		expectedLong := 0.0
 		expectedShort := 0.0
@@ -2310,7 +2225,6 @@ func (at *AutoTrader) syncGridState() {
 				}
 			}
 		}
-
 		if expectedLong > 0 && actualLongSize < expectedLong-0.001 {
 			ratio := actualLongSize / expectedLong
 			logger.Infof("[Grid] Reconcile long: expected=%.4f actual=%.4f ratio=%.4f — scaling down filled levels",
@@ -2332,7 +2246,6 @@ func (at *AutoTrader) syncGridState() {
 				}
 			}
 		}
-
 		if expectedShort > 0 && actualShortSize < expectedShort-0.001 {
 			ratio := actualShortSize / expectedShort
 			logger.Infof("[Grid] Reconcile short: expected=%.4f actual=%.4f ratio=%.4f — scaling down filled levels",
@@ -2356,6 +2269,33 @@ func (at *AutoTrader) syncGridState() {
 		}
 	}
 
+	// Adopt untracked exchange orders (e.g. placed outside this session or after a restart)
+	for _, o := range openOrders {
+		if _, tracked := at.gridState.OrderBook[o.OrderID]; tracked {
+			continue
+		}
+		bestIdx := -1
+		bestDist := math.MaxFloat64
+		for i, level := range at.gridState.Levels {
+			if level.State != "empty" {
+				continue
+			}
+			dist := math.Abs(level.Price - o.Price)
+			if dist < bestDist {
+				bestDist = dist
+				bestIdx = i
+			}
+		}
+		if bestIdx >= 0 && (at.gridState.GridSpacing <= 0 || bestDist <= at.gridState.GridSpacing*0.5) {
+			at.gridState.Levels[bestIdx].State = "pending"
+			at.gridState.Levels[bestIdx].OrderID = o.OrderID
+			at.gridState.Levels[bestIdx].OrderQuantity = o.Quantity
+			at.gridState.OrderBook[o.OrderID] = bestIdx
+			logger.Infof("[Grid] syncExchangeState: adopted untracked order %s → level %d (price=%.2f)",
+				o.OrderID, bestIdx, o.Price)
+		}
+	}
+
 	at.gridState.mu.Unlock()
 
 	// Dispatch T-trade auto-reduces collected during the lock (must be outside lock)
@@ -2363,13 +2303,19 @@ func (at *AutoTrader) syncGridState() {
 		go at.placeTTradeReduceOrder(pr.side, pr.fillPrice, pr.qty, pr.prepOrderID)
 	}
 
-	logger.Debugf("[Grid] Synced state: position=%.4f, orders=%d", currentPositionSize, len(openOrders))
+	pendingCount := 0
+	for _, l := range at.gridState.Levels {
+		if l.State == "pending" {
+			pendingCount++
+		}
+	}
+	logger.Infof("[Grid] syncExchangeState: exchange=%d open orders, grid=%d pending levels, position=%.4f",
+		len(openOrders), pendingCount, currentPositionSize)
 
-	// Check stop loss
-	at.checkAndExecuteStopLoss()
-
-	// Check grid skew
-	at.autoAdjustGrid()
+	if runPostChecks {
+		at.checkAndExecuteStopLoss()
+		at.autoAdjustGrid()
+	}
 }
 
 // saveGridDecisionRecord saves the grid decision to database
