@@ -3214,34 +3214,9 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 		openOrderIDs[o.OrderID] = true
 	}
 
-	maxWait := 3 * time.Hour
-
 	for reduceID, entry := range reduceCopy {
-		// Timeout: cancel and re-place at fresh price
-		if !entry.PlacedAt.IsZero() && time.Since(entry.PlacedAt) > maxWait {
-			logger.Warnf("[Grid] ⚠️ T-trade reduce %s timed out — cancelling and re-placing", reduceID)
-			if canceler, ok := at.trader.(interface {
-				CancelOrder(symbol, orderID string) error
-			}); ok {
-				canceler.CancelOrder(gridConfig.Symbol, reduceID)
-			}
-			rePlacePrepSide := "buy"
-			if entry.Side == "buy" {
-				rePlacePrepSide = "sell"
-			}
-			ok := at.placeTTradeReduceOrder(rePlacePrepSide, entry.PrepFillPrice, entry.Qty, entry.PrepOrderID)
-			if ok {
-				at.gridState.mu.Lock()
-				delete(at.gridState.TTradeReduceOrders, reduceID)
-				at.gridState.mu.Unlock()
-			} else {
-				logger.Warnf("[Grid] T-trade reduce timeout re-placement failed — will retry next scan")
-			}
-			continue
-		}
-
 		if openOrderIDs[reduceID] {
-			continue // still pending
+			continue // still pending on exchange
 		}
 
 		// Disappeared — check status
