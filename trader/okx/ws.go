@@ -705,17 +705,18 @@ func (ws *OKXWebSocket) handleAccount(raw json.RawMessage) {
 
 func (ws *OKXWebSocket) handlePositions(raw json.RawMessage) {
 	var positions []struct {
-		InstId  string `json:"instId"`
-		PosSide string `json:"posSide"`
-		Pos     string `json:"pos"`
-		AvgPx   string `json:"avgPx"`
-		MarkPx  string `json:"markPx"`
-		Upl     string `json:"upl"`
-		Lever   string `json:"lever"`
-		LiqPx   string `json:"liqPx"`
-		MgnMode string `json:"mgnMode"`
-		CTime   string `json:"cTime"`
-		UTime   string `json:"uTime"`
+		InstId   string `json:"instId"`
+		PosSide  string `json:"posSide"`
+		Pos      string `json:"pos"`
+		AvgPx    string `json:"avgPx"`
+		MarkPx   string `json:"markPx"`
+		Upl      string `json:"upl"`
+		UplRatio string `json:"uplRatio"`
+		Lever    string `json:"lever"`
+		LiqPx    string `json:"liqPx"`
+		MgnMode  string `json:"mgnMode"`
+		CTime    string `json:"cTime"`
+		UTime    string `json:"uTime"`
 	}
 	if err := json.Unmarshal(raw, &positions); err != nil {
 		return
@@ -736,6 +737,7 @@ func (ws *OKXWebSocket) handlePositions(raw json.RawMessage) {
 		entry, _ := strconv.ParseFloat(pos.AvgPx, 64)
 		mark, _ := strconv.ParseFloat(pos.MarkPx, 64)
 		upl, _ := strconv.ParseFloat(pos.Upl, 64)
+		uplRatio, _ := strconv.ParseFloat(pos.UplRatio, 64)
 		lever, _ := strconv.ParseFloat(pos.Lever, 64)
 		liqPx, _ := strconv.ParseFloat(pos.LiqPx, 64)
 		cTime, _ := strconv.ParseInt(pos.CTime, 10, 64)
@@ -756,6 +758,7 @@ func (ws *OKXWebSocket) handlePositions(raw json.RawMessage) {
 			"entryPrice":       entry,
 			"markPrice":        mark,
 			"unRealizedProfit": upl,
+			"uplRatio":         uplRatio,
 			"leverage":         lever,
 			"liquidationPrice": liqPx,
 			"side":             side,

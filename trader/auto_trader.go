@@ -508,6 +508,8 @@ func (at *AutoTrader) Run() error {
 
 		// Event-driven T-trade and profit-reduce scan.
 		go func() {
+			profitReduceTicker := time.NewTicker(10 * time.Second)
+			defer profitReduceTicker.Stop()
 			for {
 				select {
 				case <-at.wsScanCh:
@@ -537,6 +539,23 @@ func (at *AutoTrader) Run() error {
 					}
 					if gridConfig.EnableProfitReduce {
 						at.checkProfitReduce(positions)
+					}
+					if triggered, err := at.checkProfitDrawdown(); err != nil {
+						logger.Warnf("[Grid] profit drawdown check failed: %v", err)
+					} else if triggered {
+						at.handleProfitDrawdownTrigger()
+					}
+				case <-profitReduceTicker.C:
+					// Periodic fallback — runs when WS position push is absent (no active fills)
+					if at.gridState == nil || !at.gridState.IsInitialized {
+						continue
+					}
+					gridConfig := at.config.StrategyConfig.GridConfig
+					if gridConfig == nil {
+						continue
+					}
+					if gridConfig.EnableProfitReduce {
+						at.checkProfitReduce(nil)
 					}
 					if triggered, err := at.checkProfitDrawdown(); err != nil {
 						logger.Warnf("[Grid] profit drawdown check failed: %v", err)

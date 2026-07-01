@@ -490,18 +490,19 @@ func (t *OKXTrader) GetPositions() ([]map[string]interface{}, error) {
 	}
 
 	var positions []struct {
-		InstId  string `json:"instId"`
-		PosSide string `json:"posSide"`
-		Pos     string `json:"pos"`
-		AvgPx   string `json:"avgPx"`
-		MarkPx  string `json:"markPx"`
-		Upl     string `json:"upl"`
-		Lever   string `json:"lever"`
-		LiqPx   string `json:"liqPx"`
-		Margin  string `json:"margin"`
-		MgnMode string `json:"mgnMode"` // Margin mode: "cross" or "isolated"
-		CTime   string `json:"cTime"`   // Position created time (ms)
-		UTime   string `json:"uTime"`   // Position last update time (ms)
+		InstId   string `json:"instId"`
+		PosSide  string `json:"posSide"`
+		Pos      string `json:"pos"`
+		AvgPx    string `json:"avgPx"`
+		MarkPx   string `json:"markPx"`
+		Upl      string `json:"upl"`
+		UplRatio string `json:"uplRatio"`
+		Lever    string `json:"lever"`
+		LiqPx    string `json:"liqPx"`
+		Margin   string `json:"margin"`
+		MgnMode  string `json:"mgnMode"`
+		CTime    string `json:"cTime"`
+		UTime    string `json:"uTime"`
 	}
 
 	if err := json.Unmarshal(data, &positions); err != nil {
@@ -556,18 +557,21 @@ func (t *OKXTrader) GetPositions() ([]map[string]interface{}, error) {
 			mgnMode = "cross"
 		}
 
+		uplRatio, _ := strconv.ParseFloat(pos.UplRatio, 64)
+
 		posMap := map[string]interface{}{
 			"symbol":           symbol,
 			"positionAmt":      posAmt,
 			"entryPrice":       entryPrice,
 			"markPrice":        markPrice,
 			"unRealizedProfit": upl,
+			"uplRatio":         uplRatio,
 			"leverage":         leverage,
 			"liquidationPrice": liqPrice,
 			"side":             side,
-			"mgnMode":          mgnMode, // Margin mode: "cross" or "isolated"
-			"createdTime":      cTime,   // Position open time (ms)
-			"updatedTime":      uTime,   // Position last update time (ms)
+			"mgnMode":          mgnMode,
+			"createdTime":      cTime,
+			"updatedTime":      uTime,
 		}
 		result = append(result, posMap)
 	}

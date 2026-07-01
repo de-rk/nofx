@@ -1194,7 +1194,8 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 		entryPrice       float64
 		markPrice        float64
 		unrealizedProfit float64
-		side             string // "long" or "short"
+		uplRatio         float64 // exchange-provided ratio (upl/margin); 0 if unavailable
+		side             string
 	}
 
 	sides := map[string]*sideInfo{}
@@ -1218,7 +1219,8 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			mark = entry
 		}
 		upl, _ := pos["unRealizedProfit"].(float64)
-		sides[posSide] = &sideInfo{size: size, entryPrice: entry, markPrice: mark, unrealizedProfit: upl, side: posSide}
+		uplRatio, _ := pos["uplRatio"].(float64)
+		sides[posSide] = &sideInfo{size: size, entryPrice: entry, markPrice: mark, unrealizedProfit: upl, uplRatio: uplRatio, side: posSide}
 	}
 
 	// Profit tracker resets happen only when profitPct <= 0 (below), or via manual profit_reduce_reset event.
@@ -1241,17 +1243,23 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 
 	at.gridState.mu.RLock()
 	for _, info := range sides {
-		if info.entryPrice == 0 || info.markPrice == 0 {
+		if info.entryPrice == 0 {
 			continue
 		}
-		// Margin-based profit: unrealizedProfit / (positionValue / leverage)
-		margin := info.size * info.entryPrice / float64(gridConfig.Leverage)
-		if margin == 0 {
-			continue
+		// Use exchange-provided uplRatio when available (already upl/margin).
+		// Fall back to manual calculation if not provided.
+		var profitPct float64
+		if info.uplRatio != 0 {
+			profitPct = info.uplRatio * 100
+		} else {
+			margin := info.size * info.entryPrice / float64(gridConfig.Leverage)
+			if margin == 0 {
+				continue
+			}
+			profitPct = info.unrealizedProfit / margin * 100
 		}
-		profitPct := info.unrealizedProfit / margin * 100
-		logger.Infof("[Grid] Profit-reduce check: %s entry=%.4f mark=%.4f upl=%.2f margin=%.2f profit=%.2f%%",
-			info.side, info.entryPrice, info.markPrice, info.unrealizedProfit, margin, profitPct)
+		logger.Infof("[Grid] Profit-reduce check: %s entry=%.4f mark=%.4f upl=%.2f uplRatio=%.4f profit=%.2f%%",
+			info.side, info.entryPrice, info.markPrice, info.unrealizedProfit, info.uplRatio, profitPct)
 
 		if profitPct <= 0 {
 			actions = append(actions, reduceAction{info: *info, qty: 0, closeAll: false, targetReducePct: -1})
