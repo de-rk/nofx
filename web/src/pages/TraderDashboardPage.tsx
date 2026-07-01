@@ -140,6 +140,12 @@ export function TraderDashboardPage({
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
     const [positionsCurrentPage, setPositionsCurrentPage] = useState<number>(1)
 
+    // Live prices from chart WS ticker, keyed by symbol
+    const [livePrices, setLivePrices] = useState<Record<string, number>>({})
+    const handlePriceUpdate = (symbol: string, price: number) => {
+        setLivePrices(prev => prev[symbol] === price ? prev : { ...prev, [symbol]: price })
+    }
+
     // Calculate paginated positions
     const totalPositions = positions?.length || 0
     const totalPositionPages = Math.ceil(totalPositions / positionsPageSize)
@@ -536,6 +542,7 @@ export function TraderDashboardPage({
                                     selectedTrader.exchange_id,
                                     exchanges
                                 )}
+                                onPriceUpdate={handlePriceUpdate}
                             />
                         </div>
 
@@ -631,8 +638,8 @@ export function TraderDashboardPage({
                                                     {/* Detail row */}
                                                     <div className="flex items-center gap-4 mt-2 pt-2 text-[11px] font-mono text-nofx-text-muted" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                                                         <span>{language === 'zh' ? '入场' : 'Entry'} <span className="text-nofx-text-main">{formatPrice(pos.entry_price)}</span></span>
-                                                        <span>{language === 'zh' ? '标记' : 'Mark'} <span className="text-nofx-text-main">{formatPrice(pos.mark_price)}</span></span>
-                                                        <span>{language === 'zh' ? '价值' : 'Value'} <span className="text-nofx-text-main">${(pos.quantity * pos.mark_price).toFixed(0)}</span></span>
+                                                        <span>{language === 'zh' ? '标记' : 'Mark'} <span className="text-nofx-text-main">{formatPrice(livePrices[pos.symbol] ?? pos.mark_price)}</span></span>
+                                                        <span>{language === 'zh' ? '价值' : 'Value'} <span className="text-nofx-text-main">${(pos.quantity * (livePrices[pos.symbol] ?? pos.mark_price)).toFixed(0)}</span></span>
                                                         <span>{language === 'zh' ? '强平' : 'Liq.'} <span className="text-nofx-text-main">{formatPrice(pos.liquidation_price)}</span></span>
                                                     </div>
                                                 </div>

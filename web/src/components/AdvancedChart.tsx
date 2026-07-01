@@ -44,6 +44,7 @@ interface AdvancedChartProps {
   height?: number
   exchange?: string // 交易所类型：binance, bybit, okx, bitget, hyperliquid, aster, lighter
   onSymbolChange?: (symbol: string) => void // 币种切换回调
+  onPriceUpdate?: (symbol: string, price: number) => void // 实时价格回调
 }
 
 // 获取成交额货币单位
@@ -83,10 +84,11 @@ export function AdvancedChart({
   interval = '5m',
   traderID,
   height = 550,
-  exchange = 'binance', // 默认使用 binance
-  onSymbolChange: _onSymbolChange, // Available for future use
+  exchange = 'binance',
+  onSymbolChange: _onSymbolChange,
+  onPriceUpdate,
 }: AdvancedChartProps) {
-  void _onSymbolChange // Prevent unused warning
+  void _onSymbolChange
   const { language } = useLanguage()
   const quoteUnit = getQuoteUnit(exchange)
   const baseUnit = getBaseUnit(exchange, symbol)
@@ -753,6 +755,7 @@ export function AdvancedChart({
             const price = +tick.last
             if (!price) return
             setMarketStats(prev => prev ? { ...prev, price } : null)
+            onPriceUpdate?.(symbol, price)
             // Update the current forming candle's close so the chart price line moves
             if (lastCandleTimeRef.current > 0 && currentCandleRef.current && candlestickSeriesRef.current) {
               const c = currentCandleRef.current

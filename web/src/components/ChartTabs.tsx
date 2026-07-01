@@ -8,9 +8,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 interface ChartTabsProps {
   traderId: string
-  selectedSymbol?: string // 从外部选择的币种
-  updateKey?: number // 强制更新的 key
-  exchangeId?: string // 交易所ID
+  selectedSymbol?: string
+  updateKey?: number
+  exchangeId?: string
+  onPriceUpdate?: (symbol: string, price: number) => void
 }
 
 type ChartTab = 'equity' | 'kline'
@@ -51,7 +52,7 @@ function getMarketTypeFromExchange(exchangeId: string | undefined): MarketType {
   return 'crypto'
 }
 
-export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: ChartTabsProps) {
+export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId, onPriceUpdate }: ChartTabsProps) {
   const { language } = useLanguage()
   const [activeTab, setActiveTab] = useState<ChartTab>('equity')
   const [chartSymbol, setChartSymbol] = useState<string>('BTC')
@@ -328,6 +329,7 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
                 // Dynamic auto-sizing via ResizeObserver
                 exchange={currentExchange}
                 onSymbolChange={setChartSymbol}
+                onPriceUpdate={onPriceUpdate}
               />
             </motion.div>
           )}
