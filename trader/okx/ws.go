@@ -326,13 +326,18 @@ func (ws *OKXWebSocket) authenticate() error {
 
 func (ws *OKXWebSocket) subscribe() {
 	// Private: account + positions + orders
+	// positions: updateInterval=2000 → OKX pushes every 2s regardless of events
 	ws.privMu.Lock()
 	if ws.privConn != nil {
 		ws.privConn.WriteJSON(map[string]interface{}{
 			"op": "subscribe",
 			"args": []map[string]interface{}{
 				{"channel": "account", "ccy": "USDT"},
-				{"channel": "positions", "instType": "SWAP"},
+				{
+					"channel":     "positions",
+					"instType":    "SWAP",
+					"extraParams": "{\"updateInterval\":\"2000\"}",
+				},
 				{"channel": "orders", "instType": "SWAP"},
 			},
 		})
