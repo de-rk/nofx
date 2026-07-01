@@ -2241,6 +2241,22 @@ func (s *Server) handlePositions(c *gin.Context) {
 		return
 	}
 
+	// Override markPrice with live ticker price (more real-time than position push)
+	type marketPricer interface {
+		GetMarketPrice(symbol string) (float64, error)
+	}
+	if pricer, ok := trader.GetUnderlyingTrader().(marketPricer); ok {
+		for _, pos := range positions {
+			symbol, _ := pos["symbol"].(string)
+			if symbol == "" {
+				continue
+			}
+			if livePrice, err := pricer.GetMarketPrice(symbol); err == nil && livePrice > 0 {
+				pos["markPrice"] = livePrice
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, positions)
 }
 
