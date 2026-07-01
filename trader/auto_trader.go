@@ -136,8 +136,9 @@ type AutoTrader struct {
 	positionFirstSeenTime map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
 	stopMonitorCh         chan struct{}      // Used to stop monitoring goroutine
 	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
-	wsScanCh              chan struct{}      // Receives WS push events to trigger T-trade/profit-reduce scan
-	wsGridCycleCh         chan struct{}      // Receives 5m kline-close events to trigger grid AI cycle
+	wsScanCh              chan struct{}                   // Receives WS order/fill events to trigger T-trade scan
+	wsPosUpdateCh         chan []map[string]interface{}   // Receives WS position pushes for immediate profit-reduce check
+	wsGridCycleCh         chan struct{}                   // Receives 5m kline-close events to trigger grid AI cycle
 	wsLastKlineClose      int64             // Unix nanoseconds of last kline-close event (atomic)
 	OnOrderUpdate         func()            // Called when OKX WS fires an order event; set by API for SSE broadcast
 	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
@@ -487,6 +488,7 @@ func (at *AutoTrader) Run() error {
 	// send to these channels — they must exist before that wiring happens.
 	if isGridStrategy {
 		at.wsScanCh = make(chan struct{}, 1)
+		at.wsPosUpdateCh = make(chan []map[string]interface{}, 1)
 		at.wsGridCycleCh = make(chan struct{}, 1)
 	}
 
@@ -524,10 +526,18 @@ func (at *AutoTrader) Run() error {
 							at.RunTTradeScan(openOrders)
 						}
 					}
-					if gridConfig.EnableProfitReduce {
-						at.checkProfitReduce()
+				case positions := <-at.wsPosUpdateCh:
+					// WS position push — run profit-reduce and drawdown checks with fresh data
+					if at.gridState == nil || !at.gridState.IsInitialized {
+						continue
 					}
-					// Profit drawdown check — runs on every position update, independent of AI cycle
+					gridConfig := at.config.StrategyConfig.GridConfig
+					if gridConfig == nil {
+						continue
+					}
+					if gridConfig.EnableProfitReduce {
+						at.checkProfitReduce(positions)
+					}
 					if triggered, err := at.checkProfitDrawdown(); err != nil {
 						logger.Warnf("[Grid] profit drawdown check failed: %v", err)
 					} else if triggered {

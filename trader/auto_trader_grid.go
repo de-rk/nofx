@@ -737,7 +737,7 @@ func (at *AutoTrader) InitializeGrid() error {
 		StartWS(symbol string, primaryTf string) error
 	}
 	type wsCallbackSetter interface {
-		SetWSCallbacks(onPosition, onOrder, onKlineClose func())
+		SetWSCallbacks(onPosition func([]map[string]interface{}), onOrder, onKlineClose func())
 	}
 	triggerTf := gridConfig.AITriggerTf
 	if triggerTf == "" {
@@ -751,6 +751,14 @@ func (at *AutoTrader) InitializeGrid() error {
 
 			// Wire WS push events to the appropriate channels
 			if setter, ok := at.trader.(wsCallbackSetter); ok {
+				notifyPosition := func(positions []map[string]interface{}) {
+					if at.wsPosUpdateCh != nil {
+						select {
+						case at.wsPosUpdateCh <- positions:
+						default:
+						}
+					}
+				}
 				notifyScan := func() {
 					if at.wsScanCh != nil {
 						select {
@@ -772,7 +780,7 @@ func (at *AutoTrader) InitializeGrid() error {
 						}
 					}
 				}
-				setter.SetWSCallbacks(notifyScan, notifyScan, notifyGridCycle)
+				setter.SetWSCallbacks(notifyPosition, notifyScan, notifyGridCycle)
 				logger.Infof("[Grid] event-driven mode: AI cycle on %s kline close", triggerTf)
 			}
 		}
@@ -911,7 +919,7 @@ func (at *AutoTrader) RunGridCycle() error {
 	at.RunTTradeScan(openOrders)
 
 	if at.config.StrategyConfig.GridConfig.EnableProfitReduce {
-		at.checkProfitReduce()
+		at.checkProfitReduce(nil)
 	}
 
 	if gridConfig.EnableInvestmentRefresh {
@@ -1164,7 +1172,8 @@ func (at *AutoTrader) getMinOrderSize(symbol string) (float64, error) {
 // checkProfitReduce checks per-side unrealized profit and reduces position accordingly:
 // - Every ProfitReduceStepPct increment → reduce that % of current position
 // - If profit > step*1.2 AND position value < 100 USD → close entire side
-func (at *AutoTrader) checkProfitReduce() {
+// positions may be passed directly from a WS push; if nil, fetched via GetPositions.
+func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	symbol := gridConfig.Symbol
 	step := gridConfig.ProfitReduceStepPct
@@ -1172,9 +1181,12 @@ func (at *AutoTrader) checkProfitReduce() {
 		step = 10.0
 	}
 
-	positions, err := at.trader.GetPositions()
-	if err != nil {
-		return
+	if positions == nil {
+		var err error
+		positions, err = at.trader.GetPositions()
+		if err != nil {
+			return
+		}
 	}
 
 	type sideInfo struct {

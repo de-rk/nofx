@@ -77,7 +77,7 @@ type OKXWebSocket struct {
 
 	// Event callbacks — called after cache is updated. Use non-blocking channel
 	// sends in callers to debounce rapid-fire pushes.
-	OnPositionUpdate func() // fired on every positions push
+	OnPositionUpdate func([]map[string]interface{}) // fired on every positions push, with parsed positions
 	OnOrderEvent     func() // fired on every orders push (fill, cancel, new)
 	OnKlineClose     func() // fired when a 5m candle confirms close (confirm=1)
 
@@ -770,7 +770,7 @@ func (ws *OKXWebSocket) handlePositions(raw json.RawMessage) {
 	ws.positionsOk = true
 	ws.positionsMu.Unlock()
 	if ws.OnPositionUpdate != nil {
-		ws.OnPositionUpdate()
+		ws.OnPositionUpdate(result)
 	}
 }
 
