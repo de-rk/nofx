@@ -250,6 +250,11 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 	// Validate configuration and collect warnings
 	warnings := validateStrategyConfig(&req.Config)
 
+	// Push updated config to all running traders using this strategy
+	if err := s.traderManager.PushStrategyToTraders(userID, strategyID, s.store); err != nil {
+		logger.Warnf("Failed to push strategy to traders: %v", err)
+	}
+
 	response := gin.H{"message": "Strategy updated successfully"}
 	if len(warnings) > 0 {
 		response["warnings"] = warnings
