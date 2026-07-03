@@ -3141,6 +3141,14 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 			at.gridState.mu.Lock()
 			if p, exists := at.gridState.TTradePrepOrders[orderID]; exists && !p.ReduceQueued {
 				p.ReduceQueued = true
+				// Mark the grid level as filled so syncExchangeState doesn't
+				// re-detect this fill and trigger a duplicate reduce via late-detect.
+				for i := range at.gridState.Levels {
+					if at.gridState.Levels[i].OrderID == orderID {
+						at.gridState.Levels[i].State = "filled"
+						break
+					}
+				}
 				// Copy fields before releasing lock — p may be modified by concurrent ttradeTagOrders
 				fillLogged := p.FillAlreadyLogged
 				side := p.Side
