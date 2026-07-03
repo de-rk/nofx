@@ -2217,8 +2217,10 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 					prep.Qty, entryPrice, prep.Side)
 			} else if !ok && gridConfig.EnableTrappedReduce {
 				// Order filled but was never tagged — too fast for ttradeTagOrders to catch.
-				// Re-evaluate threshold now (position already reflects the fill).
+				// Use the pre-fill estimated position size so we don't incorrectly dispatch
+				// reduces for fills that occurred while the threshold wasn't yet met.
 				orderSide := strings.ToLower(level.Side)
+				qty := level.OrderQuantity
 				tThreshold := gridConfig.TTradePositionThresholdPct
 				if tThreshold <= 0 {
 					tThreshold = 30.0
@@ -2226,15 +2228,23 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 				totalInv := gridConfig.TotalInvestment
 				lev := float64(gridConfig.Leverage)
 				var active bool
-				if orderSide == "sell" && actualShortSize > 0 && totalInv > 0 && lev > 0 {
-					posValue := actualShortSize * entryPrice / lev
+				if orderSide == "sell" && totalInv > 0 && lev > 0 {
+					// Subtract this fill's qty to estimate the position size before this fill.
+					preFillSize := actualShortSize - qty
+					if preFillSize < 0 {
+						preFillSize = 0
+					}
+					posValue := preFillSize * entryPrice / lev
 					active = posValue/totalInv*100 >= tThreshold
-				} else if orderSide == "buy" && actualLongSize > 0 && totalInv > 0 && lev > 0 {
-					posValue := actualLongSize * entryPrice / lev
+				} else if orderSide == "buy" && totalInv > 0 && lev > 0 {
+					preFillSize := actualLongSize - qty
+					if preFillSize < 0 {
+						preFillSize = 0
+					}
+					posValue := preFillSize * entryPrice / lev
 					active = posValue/totalInv*100 >= tThreshold
 				}
 				if active {
-					qty := level.OrderQuantity
 					logger.Infof("[Grid] 🏷 T-trade late-detect: order %s (%s @ $%.4f qty=%.4f) filled before tagging — placing reduce",
 						level.OrderID, orderSide, entryPrice, qty)
 					pendingReduces = append(pendingReduces, pendingReduce{
