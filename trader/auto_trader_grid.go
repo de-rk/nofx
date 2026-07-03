@@ -2215,6 +2215,32 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 				})
 				logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f side=%s) — will place reduce after unlock",
 					prep.Qty, entryPrice, prep.Side)
+			} else if !ok && gridConfig.EnableTrappedReduce {
+				// Order filled but was never tagged — too fast for ttradeTagOrders to catch.
+				// Re-evaluate threshold now (position already reflects the fill).
+				orderSide := strings.ToLower(level.Side)
+				tThreshold := gridConfig.TTradePositionThresholdPct
+				if tThreshold <= 0 {
+					tThreshold = 30.0
+				}
+				totalInv := gridConfig.TotalInvestment
+				lev := float64(gridConfig.Leverage)
+				var active bool
+				if orderSide == "sell" && actualShortSize > 0 && totalInv > 0 && lev > 0 {
+					posValue := actualShortSize * entryPrice / lev
+					active = posValue/totalInv*100 >= tThreshold
+				} else if orderSide == "buy" && actualLongSize > 0 && totalInv > 0 && lev > 0 {
+					posValue := actualLongSize * entryPrice / lev
+					active = posValue/totalInv*100 >= tThreshold
+				}
+				if active {
+					qty := level.OrderQuantity
+					logger.Infof("[Grid] 🏷 T-trade late-detect: order %s (%s @ $%.4f qty=%.4f) filled before tagging — placing reduce",
+						level.OrderID, orderSide, entryPrice, qty)
+					pendingReduces = append(pendingReduces, pendingReduce{
+						side: orderSide, fillPrice: entryPrice, qty: qty, prepOrderID: level.OrderID,
+					})
+				}
 			}
 		} else {
 			if _, ok := at.gridState.TTradePrepOrders[level.OrderID]; ok {
@@ -3461,19 +3487,28 @@ func (at *AutoTrader) buildTTradeContext(currentPrice float64) (longInfo, shortI
 		posValue := size * entry / float64(gridConfig.Leverage)
 		posPct := posValue / totalInvestment * 100
 
+		active := posPct >= threshold
 		if side == "long" {
 			longInfo = tTradeSideInfo{
-				Active:       posPct >= threshold,
+				Active:       active,
 				PositionSize: size,
 				PositionPct:  posPct,
 				AvgEntry:     entry,
 			}
+			if !active {
+				logger.Infof("[Grid] T-trade LONG inactive: size=%.4f entry=%.2f posValue=$%.2f (%.1f%% < threshold %.1f%% of $%.0f TotalInvestment)",
+					size, entry, posValue, posPct, threshold, totalInvestment)
+			}
 		} else if side == "short" {
 			shortInfo = tTradeSideInfo{
-				Active:       posPct >= threshold,
+				Active:       active,
 				PositionSize: size,
 				PositionPct:  posPct,
 				AvgEntry:     entry,
+			}
+			if !active {
+				logger.Infof("[Grid] T-trade SHORT inactive: size=%.4f entry=%.2f posValue=$%.2f (%.1f%% < threshold %.1f%% of $%.0f TotalInvestment)",
+					size, entry, posValue, posPct, threshold, totalInvestment)
 			}
 		}
 	}
