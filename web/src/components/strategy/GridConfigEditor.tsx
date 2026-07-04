@@ -585,21 +585,17 @@ export function GridConfigEditor({
               <div className="p-4 rounded-lg" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
                 <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>{t('tTradePositionThreshold')}</label>
                 <p className="text-xs mb-2" style={{ color: '#848E9C' }}>{t('tTradePositionThresholdDesc')}</p>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    value={config.t_trade_position_threshold_pct ?? 30}
-                    onChange={(e) => updateField('t_trade_position_threshold_pct', parseInt(e.target.value))}
-                    disabled={disabled}
-                    min={10}
-                    max={50}
-                    step={5}
-                    className="flex-1 accent-yellow-500"
-                  />
-                  <span className="w-12 text-center font-mono text-sm" style={{ color: '#F0B90B' }}>
-                    {config.t_trade_position_threshold_pct ?? 30}%
-                  </span>
-                </div>
+                <input
+                  type="number"
+                  value={config.t_trade_position_threshold_pct ?? 30}
+                  onChange={(e) => updateField('t_trade_position_threshold_pct', parseFloat(e.target.value))}
+                  disabled={disabled}
+                  min={10}
+                  max={50}
+                  step={1}
+                  className="w-full px-3 py-2 rounded text-sm"
+                  style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+                />
               </div>
             </div>
           )}
