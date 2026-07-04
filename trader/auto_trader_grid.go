@@ -3096,13 +3096,6 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 			statusMap, err := at.trader.GetOrderStatus(gridConfig.Symbol, orderID)
 			at.gridState.mu.Lock()
 			delete(at.gridState.TTradePrepOrders, orderID)
-			// Mark level filled so syncExchangeState late-detect doesn't re-fire.
-			for i := range at.gridState.Levels {
-				if at.gridState.Levels[i].OrderID == orderID {
-					at.gridState.Levels[i].State = "filled"
-					break
-				}
-			}
 			at.gridState.mu.Unlock()
 			if err == nil {
 				statusStr, _ := statusMap["status"].(string)
@@ -3115,6 +3108,15 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 					at.logGridTrade("ttrade", "ttrade_fill", prep.Side, gridConfig.Symbol,
 						fmt.Sprintf("prep %s filled @ %.2f (timeout check)", orderID, fillPrice),
 						orderID, prep.Qty, fillPrice, 0, 0, 0, 0, true, "")
+					// Mark level filled only on confirmed fill — not on cancel/expire.
+					at.gridState.mu.Lock()
+					for i := range at.gridState.Levels {
+						if at.gridState.Levels[i].OrderID == orderID {
+							at.gridState.Levels[i].State = "filled"
+							break
+						}
+					}
+					at.gridState.mu.Unlock()
 					go at.placeTTradeReduceOrder(prep.Side, fillPrice, prep.Qty, orderID)
 				} else {
 					logger.Warnf("[Grid] ⚠️ T-trade prep %s timed out (status=%s) — removing (order kept alive)", orderID, statusStr)
