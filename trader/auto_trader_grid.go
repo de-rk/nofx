@@ -1115,7 +1115,10 @@ func (at *AutoTrader) RunGridCycle() error {
 									// Add to TTradePrepOrders as fallback so ttradeProcessFills
 									// can re-place the reduce on the next cycle if this goroutine fails.
 									// ReduceQueued=true prevents double-placement if goroutine succeeds first.
+									// Also mark level as filled so syncExchangeState late-detect doesn't
+									// re-fire and dispatch a duplicate reduce.
 									at.gridState.mu.Lock()
+									at.gridState.Levels[r.d.LevelIndex].State = "filled"
 									at.gridState.TTradePrepOrders[orderID] = &TTradePrepEntry{
 										OrderID:           orderID,
 										Price:             fillPrice,
