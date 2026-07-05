@@ -403,6 +403,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - place_sell_limit：在卖方空层开空仓
 - quantity 必须使用层级表中的「建议数量」
 - state = "pending" 的层级已有挂单，禁止重复下单
+- **补单优先级：优先补靠近当前价格的层级，再铺离价格较远的边缘层级。同侧有多个空层时，按与当前价距离从近到远排序下单。**
 
 ### 禁止操作
 - ⚠️ 禁止执行 reduce_long / reduce_short
@@ -457,6 +458,7 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 - place_sell_limit: open short at an empty sell-side level
 - quantity must use "Suggested Qty" from the level table
 - levels with state = "pending" already have an order — do NOT place another
+- **Order priority: fill levels closest to the current price first, then spread outward to edge levels. When multiple empty levels exist on the same side, sort by distance from current price (nearest first).**
 
 ### Prohibited
 - ⚠️ Do NOT use reduce_long or reduce_short
