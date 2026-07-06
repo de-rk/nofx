@@ -3268,6 +3268,17 @@ func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64,
 			PlacedAt:      time.Now(),
 		}
 		at.gridState.LastTrappedReduceAt = time.Now()
+		// Clear the grid level so the AI sees it as empty and can re-fill it
+		for i := range at.gridState.Levels {
+			if at.gridState.Levels[i].OrderID == prepOrderID {
+				at.gridState.Levels[i].State = "empty"
+				at.gridState.Levels[i].OrderID = ""
+				at.gridState.Levels[i].OrderQuantity = 0
+				at.gridState.Levels[i].PositionSize = 0
+				at.gridState.Levels[i].PositionEntry = 0
+				break
+			}
+		}
 		at.gridState.mu.Unlock()
 		logger.Infof("[Grid] ✅ T-trade reduce order placed: %s @ %.4f", orderID, reducePrice)
 		return true
