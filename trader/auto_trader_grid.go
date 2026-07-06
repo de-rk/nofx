@@ -1747,6 +1747,13 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 	at.gridState.mu.Unlock()
 
 	logger.Infof("[Grid] Periodic investment refresh: %.2f -> %.2f USDT (interval=%dd)", old, inv, days)
+
+	// Reset grid after investment refresh so allocations and level quantities reflect new investment
+	if err := at.adjustGrid(nil); err != nil {
+		logger.Warnf("[Grid] Investment refresh: grid reset failed: %v", err)
+	} else {
+		logger.Infof("[Grid] Grid reset after investment refresh")
+	}
 }
 
 // checkTotalPositionLimit checks if adding a new position would exceed total limits.
