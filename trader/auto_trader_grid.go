@@ -1748,12 +1748,22 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 
 	logger.Infof("[Grid] Periodic investment refresh: %.2f -> %.2f USDT (interval=%dd)", old, inv, days)
 
-	// Reset grid after investment refresh so allocations and level quantities reflect new investment
-	if err := at.adjustGrid(nil); err != nil {
-		logger.Warnf("[Grid] Investment refresh: grid reset failed: %v", err)
-	} else {
-		logger.Infof("[Grid] Grid reset after investment refresh")
+	// Skip grid reset if T-trade is in progress
+	at.gridState.mu.RLock()
+	hasPendingTTrade := len(at.gridState.TTradePrepOrders) > 0 || len(at.gridState.TTradeReduceOrders) > 0
+	at.gridState.mu.RUnlock()
+	if hasPendingTTrade {
+		logger.Infof("[Grid] Investment refresh: skipping grid reset — T-trade order in progress")
+		return
 	}
+
+	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
+	if err != nil {
+		logger.Warnf("[Grid] Investment refresh: failed to get price for grid reset: %v", err)
+		return
+	}
+	logger.Infof("[Grid] Investment refresh: resetting grid around $%.2f", currentPrice)
+	at.resetGrid(currentPrice)
 }
 
 // checkTotalPositionLimit checks if adding a new position would exceed total limits.
@@ -2485,6 +2495,63 @@ func (at *AutoTrader) checkGridSkew() (bool, int, int) {
 	return skewed, buyFilled, sellFilled
 }
 
+// resetGrid cancels all orders, recalculates bounds around currentPrice, reinitializes levels,
+// and restores any filled positions to the nearest new level. Caller must NOT hold the lock.
+func (at *AutoTrader) resetGrid(currentPrice float64) {
+	gridConfig := at.config.StrategyConfig.GridConfig
+
+	if err := at.cancelAllGridOrders(); err != nil {
+		logger.Errorf("[Grid] resetGrid: cancel orders failed: %v", err)
+	}
+
+	at.gridState.mu.Lock()
+	defer at.gridState.mu.Unlock()
+
+	filledPositions := make(map[int]kernel.GridLevelInfo)
+	for i, level := range at.gridState.Levels {
+		if level.State == "filled" {
+			filledPositions[i] = level
+		}
+	}
+
+	if gridConfig.UseATRBounds {
+		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
+		if err != nil {
+			logger.Warnf("[Grid] resetGrid: ATR fetch failed, using default bounds: %v", err)
+			at.calculateDefaultBoundsLocked(currentPrice, gridConfig)
+		} else {
+			at.calculateATRBoundsLocked(currentPrice, mktData, gridConfig)
+		}
+	} else {
+		at.calculateDefaultBoundsLocked(currentPrice, gridConfig)
+	}
+	at.gridState.GridSpacing = (at.gridState.UpperPrice - at.gridState.LowerPrice) / float64(gridConfig.GridCount-1)
+	logger.Infof("[Grid] New bounds: $%.2f - $%.2f, spacing: $%.2f",
+		at.gridState.LowerPrice, at.gridState.UpperPrice, at.gridState.GridSpacing)
+
+	at.initializeGridLevelsLocked(currentPrice, gridConfig)
+
+	for _, filledLevel := range filledPositions {
+		closestIdx := -1
+		closestDist := math.MaxFloat64
+		for i, newLevel := range at.gridState.Levels {
+			if dist := math.Abs(newLevel.Price - filledLevel.PositionEntry); dist < closestDist {
+				closestDist = dist
+				closestIdx = i
+			}
+		}
+		if closestIdx >= 0 {
+			at.gridState.Levels[closestIdx].State = "filled"
+			at.gridState.Levels[closestIdx].PositionEntry = filledLevel.PositionEntry
+			at.gridState.Levels[closestIdx].PositionSize = filledLevel.PositionSize
+			at.gridState.Levels[closestIdx].UnrealizedPnL = filledLevel.UnrealizedPnL
+			at.gridState.Levels[closestIdx].OrderID = filledLevel.OrderID
+			at.gridState.Levels[closestIdx].OrderQuantity = filledLevel.OrderQuantity
+			logger.Infof("[Grid] Restored filled position at level %d (entry $%.2f)", closestIdx, filledLevel.PositionEntry)
+		}
+	}
+}
+
 // autoAdjustGrid automatically adjusts grid when heavily skewed
 func (at *AutoTrader) autoAdjustGrid() {
 	// Don't adjust grid if T-trade is in progress
@@ -2506,97 +2573,25 @@ func (at *AutoTrader) autoAdjustGrid() {
 
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Get current price
 	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
 	if err != nil {
 		logger.Errorf("[Grid] Failed to get price for auto-adjust: %v", err)
 		return
 	}
 
-	// Check if price is near grid boundary
 	at.gridState.mu.RLock()
 	upper := at.gridState.UpperPrice
 	lower := at.gridState.LowerPrice
 	at.gridState.mu.RUnlock()
 
-	// Only adjust if price has moved significantly (>30% of grid range)
 	gridRange := upper - lower
 	midPrice := (upper + lower) / 2
-	priceDeviation := math.Abs(currentPrice - midPrice)
-
-	if priceDeviation < gridRange*0.3 {
-		return // Price still near center, don't adjust
+	if math.Abs(currentPrice-midPrice) < gridRange*0.3 {
+		return
 	}
 
 	logger.Infof("[Grid] Adjusting grid around new price $%.2f", currentPrice)
-
-	// Cancel existing orders first (before taking the lock for state modification)
-	if err := at.cancelAllGridOrders(); err != nil {
-		logger.Errorf("[Grid] Failed to cancel orders during auto-adjust: %v", err)
-		// Continue with adjustment anyway
-	}
-
-	// CRITICAL FIX: Hold lock for the entire adjustment operation to ensure atomicity
-	at.gridState.mu.Lock()
-	defer at.gridState.mu.Unlock()
-
-	// Preserve filled positions before reinitializing
-	filledPositions := make(map[int]kernel.GridLevelInfo)
-	for i, level := range at.gridState.Levels {
-		if level.State == "filled" {
-			filledPositions[i] = level
-		}
-	}
-
-	// CRITICAL FIX: Recalculate grid bounds centered on current price
-	// Use the same logic as InitializeGrid() - either ATR-based or default percentage
-	if gridConfig.UseATRBounds {
-		// Try to get ATR for bound calculation
-		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
-		if err != nil {
-			logger.Warnf("[Grid] Failed to get market data for ATR during adjust: %v, using default bounds", err)
-			at.calculateDefaultBoundsLocked(currentPrice, gridConfig)
-		} else {
-			at.calculateATRBoundsLocked(currentPrice, mktData, gridConfig)
-		}
-	} else {
-		// Use default bounds calculation (scaled by grid count)
-		at.calculateDefaultBoundsLocked(currentPrice, gridConfig)
-	}
-
-	// Recalculate grid spacing based on new bounds
-	at.gridState.GridSpacing = (at.gridState.UpperPrice - at.gridState.LowerPrice) / float64(gridConfig.GridCount-1)
-
-	logger.Infof("[Grid] New bounds: $%.2f - $%.2f, spacing: $%.2f",
-		at.gridState.LowerPrice, at.gridState.UpperPrice, at.gridState.GridSpacing)
-
-	// Initialize new grid levels (without lock since we already hold it)
-	at.initializeGridLevelsLocked(currentPrice, gridConfig)
-
-	// CRITICAL FIX: Restore filled positions - find closest new level for each filled position
-	for _, filledLevel := range filledPositions {
-		closestIdx := -1
-		closestDist := math.MaxFloat64
-
-		for i, newLevel := range at.gridState.Levels {
-			dist := math.Abs(newLevel.Price - filledLevel.PositionEntry)
-			if dist < closestDist {
-				closestDist = dist
-				closestIdx = i
-			}
-		}
-
-		if closestIdx >= 0 {
-			// Restore the filled state to the closest level
-			at.gridState.Levels[closestIdx].State = "filled"
-			at.gridState.Levels[closestIdx].PositionEntry = filledLevel.PositionEntry
-			at.gridState.Levels[closestIdx].PositionSize = filledLevel.PositionSize
-			at.gridState.Levels[closestIdx].UnrealizedPnL = filledLevel.UnrealizedPnL
-			at.gridState.Levels[closestIdx].OrderID = filledLevel.OrderID
-			at.gridState.Levels[closestIdx].OrderQuantity = filledLevel.OrderQuantity
-			logger.Infof("[Grid] Restored filled position at level %d (entry $%.2f)", closestIdx, filledLevel.PositionEntry)
-		}
-	}
+	at.resetGrid(currentPrice)
 }
 
 // calculateDefaultBoundsLocked calculates default bounds (caller must hold lock)
