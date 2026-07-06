@@ -3268,14 +3268,6 @@ func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64,
 			PlacedAt:      time.Now(),
 		}
 		at.gridState.LastTrappedReduceAt = time.Now()
-		// Reset level to empty so the AI can re-fill it next cycle
-		for i := range at.gridState.Levels {
-			if at.gridState.Levels[i].OrderID == prepOrderID {
-				at.gridState.Levels[i].State = "empty"
-				at.gridState.Levels[i].OrderID = ""
-				break
-			}
-		}
 		at.gridState.mu.Unlock()
 		logger.Infof("[Grid] ✅ T-trade reduce order placed: %s @ %.4f", orderID, reducePrice)
 		return true
@@ -3327,6 +3319,14 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 			}
 			logger.Infof("[Grid] ✅ T-trade reduce %s FILLED @ %.4f — clearing", reduceID, fillPrice)
 			delete(at.gridState.TTradeReduceOrders, reduceID)
+			// Reset the prep level to empty so the AI and ttradeSupplementOrder see it as available
+			for i := range at.gridState.Levels {
+				if at.gridState.Levels[i].OrderID == entry.PrepOrderID {
+					at.gridState.Levels[i].State = "empty"
+					at.gridState.Levels[i].OrderID = ""
+					break
+				}
+			}
 			at.gridState.mu.Unlock()
 			at.logGridTrade("ttrade", "ttrade_reduce", entry.PrepSide, gridConfig.Symbol,
 				fmt.Sprintf("auto-reduce from prep %s fill=%.4f spread=%.1f%%", entry.PrepOrderID, entry.PrepFillPrice, entry.SpreadPct),
