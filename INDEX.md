@@ -231,6 +231,12 @@ HTTP 请求
 | **WebSocket K线事件不触发 AI 周期** — goroutine 只监听 WS channel，WS 失败时永远阻塞，AI 只执行一次 | 事件监听缺少降级定时器 | `trader/auto_trader.go` — 在监听 goroutine 内加 `fallbackTicker`，WS 静默超时后自动降级触发 |
 | **`OpenOrder.ReduceOnly` 编译错误** — `types.OpenOrder` 不含该字段，上述修复引入的编译错误 | 使用了不存在的结构体字段 | 同上，改为启发式判断（方向匹配 + 价格差 < 1%） |
 
+### 2026-07-07
+
+| Bug | 根因 | 修复位置 |
+|-----|------|----------|
+| **浮盈减仓被网格卖单误判阻塞** — `checkProfitReduce()` 的"已有挂单"检查只排除了 T-trade 减仓单，未排除网格层 SELL 单；AI 在网格层挂的 SELL 单价格恰好在 mark 价 1% 以内时，被误判为已有浮盈减仓单，导致永久跳过 | 缺少网格层订单 ID 的排除逻辑 | `trader/auto_trader_grid.go` `checkProfitReduce()` — 在 `gridState.mu.RLock()` 内同时收集 `gridState.Levels` 的 `OrderID`，与 T-trade 减仓单一并排除 |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
