@@ -44,7 +44,7 @@
 | 文件 | 说明 |
 |------|------|
 | `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理 |
-| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid |
+| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查） |
 | `grid_regime.go` | 网格市场状态检测（震荡/趋势/突破） |
 | `interface.go` | `GridTrader` 接口定义 |
 | `helpers.go` | 通用工具函数（数量计算、价格格式化等） |
