@@ -1364,10 +1364,19 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			for id := range at.gridState.TTradeReduceOrders {
 				ttradeReduceIDs[id] = true
 			}
+			gridLevelOrderIDs := make(map[string]bool, len(at.gridState.Levels))
+			for _, level := range at.gridState.Levels {
+				if level.OrderID != "" {
+					gridLevelOrderIDs[level.OrderID] = true
+				}
+			}
 			at.gridState.mu.RUnlock()
 			for _, order := range openOrders {
 				if ttradeReduceIDs[order.OrderID] {
 					continue // T-trade reduce order — not a profit-reduce
+				}
+				if gridLevelOrderIDs[order.OrderID] {
+					continue // Grid level order placed by AI — not a profit-reduce
 				}
 				// Check if this order is likely a reduce order based on direction and price
 				// For long position: reduce orders are SELL
