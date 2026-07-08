@@ -103,6 +103,7 @@ export function AdvancedChart({
   const lastCandleTimeRef = useRef<number>(0) // 跟踪最后一根K线时间，防止 update 报错
   const currentCandleRef = useRef<{ open: number; high: number; low: number; close: number } | null>(null) // 当前蜡烛 OHLC
   const priceLinesRef = useRef<any[]>([]) // 存储挂单价格线
+  const loadDataRef = useRef<((isRefresh?: boolean) => Promise<void>) | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -675,6 +676,7 @@ export function AdvancedChart({
       }
     }
 
+    loadDataRef.current = loadData
     loadData(false) // 首次加载
 
     // 实时自动刷新：OKX 使用 WebSocket 推送，其他交易所每 15 秒轮询
@@ -706,6 +708,17 @@ export function AdvancedChart({
     let pongTimer: ReturnType<typeof setTimeout>
     let reconnectTimer: ReturnType<typeof setTimeout>
     let backoff = 1000
+    let failCount = 0
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null
+
+    const startFallback = () => {
+      if (!fallbackInterval) {
+        fallbackInterval = setInterval(() => loadDataRef.current?.(true), 15000)
+      }
+    }
+    const stopFallback = () => {
+      if (fallbackInterval) { clearInterval(fallbackInterval); fallbackInterval = null }
+    }
 
     // Reset the silence timer on every received message (per OKX docs)
     const resetSilenceTimer = () => {
@@ -730,6 +743,8 @@ export function AdvancedChart({
 
       ws.onopen = () => {
         backoff = 1000
+        failCount = 0
+        stopFallback()
         // Subscribe to candle channel for OHLCV updates + tickers for real-time price
         ws!.send(JSON.stringify({
           op: 'subscribe',
@@ -801,6 +816,8 @@ export function AdvancedChart({
         clearTimeout(silenceTimer)
         clearTimeout(pongTimer)
         if (!destroyed) {
+          failCount++
+          if (failCount >= 3) startFallback() // 连续失败 3 次后降级轮询
           reconnectTimer = setTimeout(() => {
             backoff = Math.min(backoff * 2, 30000)
             connect()
@@ -817,6 +834,7 @@ export function AdvancedChart({
       clearTimeout(silenceTimer)
       clearTimeout(pongTimer)
       clearTimeout(reconnectTimer)
+      stopFallback()
       ws?.close()
     }
   }, [exchange, symbol, interval, chartReady])
