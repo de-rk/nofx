@@ -195,6 +195,7 @@
 | `components/PositionHistory.tsx` | 历史持仓列表 |
 | `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏 |
 | `components/LoginPage.tsx` / `RegisterPage.tsx` | 登录/注册页 |
+| `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip |
 
 ### 策略组件 (`components/strategy/`)
 
