@@ -98,7 +98,7 @@ function App() {
 
   const [currentPage, setCurrentPage] = useState<Page>(getInitialPage())
   // 从 URL 参数读取初始 trader 标识（格式: name-id前4位）
-  const [selectedTraderSlug, setSelectedTraderSlug] = useState<string | undefined>(() => {
+  const [selectedTraderSlug, _setSelectedTraderSlug] = useState<string | undefined>(() => {
     const params = new URLSearchParams(window.location.search)
     return params.get('trader') || undefined
   })
@@ -134,7 +134,7 @@ function App() {
       const path = window.location.pathname
       const hash = window.location.hash.slice(1)
       const params = new URLSearchParams(window.location.search)
-      const traderParam = params.get('trader')
+      void params.get('trader') // reserved for future slug-based navigation
 
       if (path === '/traders' || hash === 'traders') {
         setCurrentPage('traders')
@@ -151,6 +151,7 @@ function App() {
         hash === ''
       ) {
         setCurrentPage('trader')
+      }
       setRoute(path)
     }
 
