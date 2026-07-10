@@ -193,7 +193,7 @@
 | `components/TraderConfigModal.tsx` | Trader 创建/编辑弹窗 |
 | `components/EquityChart.tsx` | 权益曲线图表 |
 | `components/PositionHistory.tsx` | 历史持仓列表 |
-| `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏 |
+| `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏（策略市场、Traders、Dashboard、Strategy、Prompt测试） |
 | `components/LoginPage.tsx` / `RegisterPage.tsx` | 登录/注册页 |
 | `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip |
 
