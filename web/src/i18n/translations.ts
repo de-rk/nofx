@@ -8,7 +8,6 @@ export const translations = {
     aiTraders: 'AI Traders',
     details: 'Details',
     tradingPanel: 'Trading Panel',
-    competition: 'Competition',
     running: 'RUNNING',
     stopped: 'STOPPED',
     adminMode: 'Admin Mode',
@@ -93,23 +92,8 @@ export const translations = {
     fullscreen: 'Fullscreen',
     exitFullscreen: 'Exit Fullscreen',
 
-    // Competition Page
-    aiCompetition: 'AI Competition',
     traders: 'traders',
-    liveBattle: 'Live Battle',
-    realTimeBattle: 'Real-time Battle',
     leader: 'Leader',
-    live: 'LIVE',
-    realTime: 'LIVE',
-    performanceComparison: 'Performance Comparison',
-    realTimePnL: 'Real-time PnL %',
-    realTimePnLPercent: 'Real-time PnL %',
-    headToHead: 'Head-to-Head Battle',
-    leadingBy: 'Leading by {gap}%',
-    behindBy: 'Behind by {gap}%',
-    equity: 'Equity',
-    pnl: 'P&L',
-    pos: 'Pos',
 
     // AI Traders Management
     manageAITraders: 'Manage your AI trading bots',
@@ -793,7 +777,6 @@ export const translations = {
     aiTraders: 'AI交易员',
     details: '详情',
     tradingPanel: '交易面板',
-    competition: '竞赛',
     running: '运行中',
     stopped: '已停止',
     adminMode: '管理员模式',
@@ -878,23 +861,7 @@ export const translations = {
     fullscreen: '全屏',
     exitFullscreen: '退出全屏',
 
-    // Competition Page
-    aiCompetition: 'AI竞赛',
-    traders: '交易员',
-    liveBattle: '实时对战',
-    realTimeBattle: '实时对战',
     leader: '领先者',
-    live: '实时',
-    realTime: '实时',
-    performanceComparison: '表现对比',
-    realTimePnL: '实时收益率',
-    realTimePnLPercent: '实时收益率',
-    headToHead: '正面对决',
-    leadingBy: '领先 {gap}%',
-    behindBy: '落后 {gap}%',
-    equity: '权益',
-    pnl: '收益',
-    pos: '持仓',
 
     // AI Traders Management
     manageAITraders: '管理您的AI交易机器人',
