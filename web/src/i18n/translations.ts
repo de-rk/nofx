@@ -17,7 +17,6 @@ export const translations = {
     view: 'View',
 
     // Navigation
-    realtimeNav: 'Leaderboard',
     configNav: 'Config',
     dashboardNav: 'Dashboard',
     strategyNav: 'Strategy',
@@ -100,7 +99,6 @@ export const translations = {
     liveBattle: 'Live Battle',
     realTimeBattle: 'Real-time Battle',
     leader: 'Leader',
-    leaderboard: 'Leaderboard',
     live: 'LIVE',
     realTime: 'LIVE',
     performanceComparison: 'Performance Comparison',
@@ -804,7 +802,6 @@ export const translations = {
     view: '查看',
 
     // Navigation
-    realtimeNav: '排行榜',
     configNav: '配置',
     dashboardNav: '看板',
     strategyNav: '策略',
@@ -887,7 +884,6 @@ export const translations = {
     liveBattle: '实时对战',
     realTimeBattle: '实时对战',
     leader: '领先者',
-    leaderboard: '排行榜',
     live: '实时',
     realTime: '实时',
     performanceComparison: '表现对比',

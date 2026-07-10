@@ -8,7 +8,6 @@ import { AITradersPage } from './components/AITradersPage'
 import { LoginPage } from './components/LoginPage'
 import { RegisterPage } from './components/RegisterPage'
 import { ResetPasswordPage } from './components/ResetPasswordPage'
-import { CompetitionPage } from './components/CompetitionPage'
 import { LandingPage } from './pages/LandingPage'
 import { StrategyStudioPage } from './pages/StrategyStudioPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
@@ -34,7 +33,6 @@ import type {
 } from './types'
 
 type Page =
-  | 'competition'
   | 'traders'
   | 'trader'
   | 'strategy'
@@ -67,7 +65,7 @@ function App() {
     if (path === '/prompt-test' || hash === 'prompt-test') return 'prompt-test'
     if (path === '/dashboard' || hash === 'trader' || hash === 'details')
       return 'trader'
-    return 'competition' // 默认为竞赛页面
+    return 'trader' // 默认为 dashboard
   }
 
   // Login required overlay state
@@ -82,7 +80,6 @@ function App() {
   // Unified page navigation handler
   const navigateToPage = (page: Page) => {
     const pathMap: Record<Page, string> = {
-      'competition': '/competition',
       'strategy-market': '/strategy-market',
       'traders': '/traders',
       'trader': '/dashboard',
@@ -150,20 +147,10 @@ function App() {
       } else if (
         path === '/dashboard' ||
         hash === 'trader' ||
-        hash === 'details'
-      ) {
-        setCurrentPage('trader')
-        // 如果 URL 中有 trader 参数（slug 格式），更新选中的 trader
-        if (traderParam) {
-          setSelectedTraderSlug(traderParam)
-        }
-      } else if (
-        path === '/competition' ||
-        hash === 'competition' ||
+        hash === 'details' ||
         hash === ''
       ) {
-        setCurrentPage('competition')
-      }
+        setCurrentPage('trader')
       setRoute(path)
     }
 
@@ -178,7 +165,7 @@ function App() {
   // 切换页面时更新URL hash (当前通过按钮直接调用setCurrentPage，这个函数暂时保留用于未来扩展)
   // const navigateToPage = (page: Page) => {
   //   setCurrentPage(page);
-  //   window.location.hash = page === 'competition' ? '' : 'trader';
+  //   window.location.hash = page === 'trader' ? '' : page;
   // };
 
   // 获取trader列表（仅在用户登录时）
@@ -357,9 +344,7 @@ function App() {
 
   // Set current page based on route for consistent navigation state
   useEffect(() => {
-    if (route === '/competition') {
-      setCurrentPage('competition')
-    } else if (route === '/traders') {
+    if (route === '/traders') {
       setCurrentPage('traders')
     } else if (route === '/dashboard') {
       setCurrentPage('trader')
@@ -431,9 +416,7 @@ function App() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
           >
-            {currentPage === 'competition' ? (
-              <CompetitionPage />
-            ) : currentPage === 'strategy-market' ? (
+            {currentPage === 'strategy-market' ? (
               <StrategyMarketPage />
             ) : currentPage === 'traders' ? (
               <AITradersPage

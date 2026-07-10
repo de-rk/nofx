@@ -139,7 +139,7 @@ export default function HeroSection({ language }: HeroSectionProps) {
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12"
         >
           <motion.a
-            href="/competition"
+            href="/dashboard"
             className="group flex items-center gap-3 px-8 py-4 rounded-xl font-bold text-lg transition-all"
             style={{
               background: 'linear-gradient(135deg, #F0B90B 0%, #FCD535 100%)',
@@ -153,7 +153,7 @@ export default function HeroSection({ language }: HeroSectionProps) {
             whileTap={{ scale: 0.98 }}
           >
             <Play className="w-5 h-5" />
-            {t('liveCompetition', language) || 'Live Competition'}
+            {t('dashboardNav', language) || 'Dashboard'}
             <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
           </motion.a>
 

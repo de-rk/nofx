@@ -7,7 +7,6 @@ import { useSystemConfig } from '../hooks/useSystemConfig'
 import { OFFICIAL_LINKS } from '../constants/branding'
 
 type Page =
-  | 'competition'
   | 'traders'
   | 'trader'
   | 'strategy'
@@ -101,7 +100,6 @@ export default function HeaderBar({
                 { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'prompt-test', path: '/prompt-test', label: language === 'zh' ? 'Prompt测试' : 'Prompt Test', requiresAuth: true },
-                { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
               ]
 
               const handleNavClick = (tab: typeof navTabs[0]) => {
@@ -303,7 +301,6 @@ export default function HeaderBar({
                     { page: 'traders', path: '/traders', label: t('configNav', language), requiresAuth: true },
                     { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                     { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
-                    { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                   ]
 
                   const handleMobileNavClick = (tab: typeof navTabs[0]) => {
