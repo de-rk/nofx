@@ -280,41 +280,6 @@ func (at *AutoTrader) updateDailyPnL(realizedPnL float64) {
 	at.gridState.mu.Unlock()
 }
 
-// emergencyExit closes all positions and cancels all orders
-func (at *AutoTrader) emergencyExit(reason string) error {
-	gridConfig := at.config.StrategyConfig.GridConfig
-
-	logger.Errorf("[Grid] EMERGENCY EXIT: %s", reason)
-
-	// Cancel all orders
-	if err := at.cancelAllGridOrders(); err != nil {
-		logger.Errorf("[Grid] Failed to cancel orders in emergency: %v", err)
-	}
-
-	// Close all positions
-	positions, err := at.trader.GetPositions()
-	if err == nil {
-		for _, pos := range positions {
-			if sym, ok := pos["symbol"].(string); ok && sym == gridConfig.Symbol {
-				if size, ok := pos["positionAmt"].(float64); ok && size != 0 {
-					if size > 0 {
-						at.trader.CloseLong(gridConfig.Symbol, size)
-					} else {
-						at.trader.CloseShort(gridConfig.Symbol, -size)
-					}
-				}
-			}
-		}
-	}
-
-	// Pause grid and reset PeakEquity so drawdown check doesn't re-trigger on next cycle
-	at.gridState.mu.Lock()
-	at.gridState.IsPaused = true
-	at.gridState.PeakEquity = 0
-	at.gridState.mu.Unlock()
-
-	return nil
-}
 
 // handleBreakout handles price breakout from grid range
 func (at *AutoTrader) handleBreakout(breakoutType BreakoutType, breakoutPct float64) error {
@@ -1742,6 +1707,10 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 	bal, err := at.trader.GetBalance()
 	if err != nil {
 		logger.Warnf("[Grid] Investment refresh: failed to get balance: %v", err)
+		// Reset timer so the outage period doesn't count toward the refresh interval
+		at.gridState.mu.Lock()
+		at.gridState.LastInvestmentRefreshAt = time.Now()
+		at.gridState.mu.Unlock()
 		return
 	}
 	inv := at.investmentFromBalance(bal)
