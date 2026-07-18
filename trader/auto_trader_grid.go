@@ -1851,6 +1851,19 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 		return fmt.Errorf("total position value $%.2f would exceed limit $%.2f", currentValue+orderValue, maxValue)
 	}
 
+	// Dedup: skip if any pending grid level already has an order at this price.
+	// Catches AI hallucinations that place two orders at the same price in one cycle.
+	at.gridState.mu.RLock()
+	for _, level := range at.gridState.Levels {
+		if level.State == "pending" && level.OrderID != "" && math.Abs(level.Price-d.Price)/d.Price < 0.001 {
+			at.gridState.mu.RUnlock()
+			logger.Warnf("[Grid] Dedup: skipping %s @ %.4f — pending order %s already at this price",
+				side, d.Price, level.OrderID)
+			return nil
+		}
+	}
+	at.gridState.mu.RUnlock()
+
 	// In hedge mode: place_buy_limit always opens long, place_sell_limit always opens short.
 	// Closing positions is handled exclusively by reduce_long / reduce_short actions.
 	positionSide := "LONG"
