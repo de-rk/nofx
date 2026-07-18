@@ -2007,12 +2007,9 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 		// Active reduces: ttrade_reduce_placed without ttrade_reduce
 		if placedEntries, _ := at.store.Grid().GetGridTradeLogsByActionSince(at.id, "ttrade_reduce_placed", since24h); len(placedEntries) > 0 {
 			for _, e := range placedEntries {
-				reduceID := e.RelatedOrderID
-				if reduceID == "" {
-					// Fallback: parse from reason text for pre-related_order_id entries
-					var parsedPrepID string
-					fmt.Sscanf(e.Reason, "reduce order %s placed for prep %s", &reduceID, &parsedPrepID)
-				}
+				// Parse reduce order ID from reason text (format: "reduce order <id> placed for prep <prepID>")
+				var reduceID, parsedPrepID string
+				fmt.Sscanf(e.Reason, "reduce order %s placed for prep %s", &reduceID, &parsedPrepID)
 				if reduceID == "" {
 					continue
 				}
