@@ -1961,7 +1961,7 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 func (at *AutoTrader) cancelAllGridOrders() error {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Build set of T-trade order IDs to protect
+	// Build set of T-trade order IDs to protect (memory + DB fallback for post-restart)
 	at.gridState.mu.RLock()
 	protectedIDs := make(map[string]bool, len(at.gridState.TTradePrepOrders)+len(at.gridState.TTradeReduceOrders))
 	for id := range at.gridState.TTradePrepOrders {
@@ -1971,6 +1971,48 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 		protectedIDs[id] = true
 	}
 	at.gridState.mu.RUnlock()
+
+	// DB fallback: if memory is empty (post-restart), load active T-trade orders from DB
+	if len(protectedIDs) == 0 && at.store != nil {
+		since3h := time.Now().Add(-3 * time.Hour)
+		since24h := time.Now().Add(-24 * time.Hour)
+		// Active preps: ttrade_tag without ttrade_fill/ttrade_cancel
+		if tagEntries, _ := at.store.Grid().GetGridTradeLogsByActionSince(at.id, "ttrade_tag", since3h); len(tagEntries) > 0 {
+			for _, e := range tagEntries {
+				if e.OrderID == "" {
+					continue
+				}
+				if fill, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_fill", e.OrderID); fill != nil {
+					continue
+				}
+				if cancel, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_cancel", e.OrderID); cancel != nil {
+					continue
+				}
+				protectedIDs[e.OrderID] = true
+			}
+		}
+		// Active reduces: ttrade_reduce_placed without ttrade_reduce
+		if placedEntries, _ := at.store.Grid().GetGridTradeLogsByActionSince(at.id, "ttrade_reduce_placed", since24h); len(placedEntries) > 0 {
+			for _, e := range placedEntries {
+				reduceID := e.RelatedOrderID
+				if reduceID == "" {
+					// Fallback: parse from reason text for pre-related_order_id entries
+					var parsedPrepID string
+					fmt.Sscanf(e.Reason, "reduce order %s placed for prep %s", &reduceID, &parsedPrepID)
+				}
+				if reduceID == "" {
+					continue
+				}
+				if reduce, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce", e.OrderID); reduce != nil {
+					continue
+				}
+				protectedIDs[reduceID] = true
+			}
+		}
+		if len(protectedIDs) > 0 {
+			logger.Infof("[Grid] cancelAllGridOrders: restored %d T-trade order IDs from DB (post-restart protection)", len(protectedIDs))
+		}
+	}
 
 	// Get all open orders
 	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)

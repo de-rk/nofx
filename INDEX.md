@@ -245,6 +245,12 @@ HTTP 请求
 | **API 中断后 investment refresh 误触发网格重置** — 主账号 API Key IP 白名单限制导致长时间 `GetBalance()` 失败，失联期间刷新计时器未更新，API 恢复后立即判定超过刷新间隔，触发 `resetGrid()` 撤销全部挂单 | `GetBalance()` 失败时未重置 `LastInvestmentRefreshAt`，导致失联时长计入刷新间隔 | `trader/auto_trader_grid.go` `checkInvestmentRefresh()` — `GetBalance()` 失败时将 `LastInvestmentRefreshAt` 更新为当前时间，失联期间不计入间隔 |
 | **`emergencyExit()` 未使用但存在副作用风险** — 函数从未被调用，但内部直接调用 `CancelAllOrders` 会绕过 T-trade 保护，且不清理内存状态 | 死代码 | `trader/auto_trader_grid.go` — 删除 `emergencyExit()` 函数 |
 
+### 2026-07-18
+
+| Bug | 根因 | 修复位置 |
+|-----|------|----------|
+| **重启后 `cancelAllGridOrders` 误撤 T-trade 订单** — `cancelAllGridOrders` 的 `protectedIDs` 完全依赖内存 `TTradePrepOrders`/`TTradeReduceOrders`；重启后内存为空，investment refresh / breakout 触发 `resetGrid()` → `cancelAllGridOrders()` 时，所有 T-trade prep/reduce 订单被当作普通网格订单撤销 | 缺少 DB 兜底查询，重启后保护列表为空 | `trader/auto_trader_grid.go` `cancelAllGridOrders()` — 内存为空时从 DB 查询活跃 T-trade 订单（`ttrade_tag` 3h 内无 fill/cancel + `ttrade_reduce_placed` 24h 内无 reduce），合并到 `protectedIDs` |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
