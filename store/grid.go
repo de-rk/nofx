@@ -706,6 +706,14 @@ func (s *GridStore) GetGridTradeLogsByAction(instanceID, action string, limit in
 	return entries, err
 }
 
+// GetGridTradeLogsByActionSince returns log entries matching action created after `since`, newest first.
+func (s *GridStore) GetGridTradeLogsByActionSince(instanceID, action string, since time.Time) ([]GridTradeLogModel, error) {
+	var entries []GridTradeLogModel
+	err := s.db.Where("instance_id = ? AND action = ? AND created_at > ?", instanceID, action, since).
+		Order("created_at DESC").Find(&entries).Error
+	return entries, err
+}
+
 func (s *GridStore) GetGridTradeLogs(instanceID string, limit int) ([]GridTradeLogModel, error) {
 	var logs []GridTradeLogModel
 	q := s.db.Where("instance_id = ?", instanceID).Order("created_at desc")
