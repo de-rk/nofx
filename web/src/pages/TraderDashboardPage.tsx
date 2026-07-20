@@ -8,6 +8,7 @@ import { t, type Language } from '../i18n/translations'
 import { Eye, EyeOff, Copy, Check } from 'lucide-react'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
 import { GridRiskPanel } from '../components/strategy/GridRiskPanel'
+import { TTradePanel } from '../components/TTradePanel'
 import type {
     SystemStatus,
     AccountInfo,
@@ -129,7 +130,7 @@ export function TraderDashboardPage({
     onNavigateToTraders,
     exchanges,
 }: TraderDashboardPageProps) {
-    const [rightTab, setRightTab] = useState<'decisions' | 'tradelog'>('decisions')
+    const [rightTab, setRightTab] = useState<'decisions' | 'tradelog' | 'ttrade'>('decisions')
     const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | undefined>(undefined)
     const [chartUpdateKey, setChartUpdateKey] = useState<number>(0)
     const chartSectionRef = useRef<HTMLDivElement>(null)
@@ -733,6 +734,17 @@ export function TraderDashboardPage({
                                     <span className="text-xs bg-white/10 px-1.5 py-0.5 rounded-full">{gridTradeLogs.length}</span>
                                 )}
                             </button>
+                            <button
+                                onClick={() => setRightTab('ttrade')}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${rightTab === 'ttrade' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'text-nofx-text-muted hover:text-nofx-text-main border border-transparent'}`}
+                            >
+                                🎯 T-trade
+                                {gridTradeLogs && gridTradeLogs.some(l => l.source === 'ttrade') && (
+                                    <span className="text-xs bg-white/10 px-1.5 py-0.5 rounded-full">
+                                        {new Set(gridTradeLogs.filter(l => l.source === 'ttrade' && l.order_id).map(l => l.order_id)).size}
+                                    </span>
+                                )}
+                            </button>
                             {rightTab === 'decisions' && (
                                 <select
                                     value={decisionsLimit}
@@ -771,8 +783,10 @@ export function TraderDashboardPage({
                                         </div>
                                     )}
                                 </div>
-                            ) : (
+                            ) : rightTab === 'tradelog' ? (
                                 <GridTradeLogList logs={gridTradeLogs} language={language} />
+                            ) : (
+                                <TTradePanel logs={gridTradeLogs} />
                             )}
                         </div>
                     </div>

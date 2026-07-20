@@ -251,6 +251,7 @@ HTTP 请求
 |-----|------|----------|
 | **重启后 `cancelAllGridOrders` 误撤 T-trade 订单** — `cancelAllGridOrders` 的 `protectedIDs` 完全依赖内存 `TTradePrepOrders`/`TTradeReduceOrders`；重启后内存为空，investment refresh / breakout 触发 `resetGrid()` → `cancelAllGridOrders()` 时，所有 T-trade prep/reduce 订单被当作普通网格订单撤销 | 缺少 DB 兜底查询，重启后保护列表为空 | `trader/auto_trader_grid.go` `cancelAllGridOrders()` — 内存为空时从 DB 查询活跃 T-trade 订单（`ttrade_tag` 3h 内无 fill/cancel + `ttrade_reduce_placed` 24h 内无 reduce），合并到 `protectedIDs` |
 | **AI 同一周期对同一价格重复下单** — `placeGridLimitOrder` 无价格去重检查，AI 幻觉或逻辑错误时可能在同一周期对同一价格下多个订单，导致仓位超标或资金占用异常 | 缺少下单前价格去重 | `trader/auto_trader_grid.go` `placeGridLimitOrder()` — 遍历所有 pending levels，若价格在 0.1% 容差内则跳过下单，记录 Warn 日志 |
+| **T-trade 生命周期无前端可视化** — 之前回退了 `TTradeDrawer` 组件，用户无法在 UI 看到标记→成交→减仓挂单→减仓成交→补单的完整生命周期 | — | `web/src/components/TTradePanel.tsx`（新建）— 按 `order_id` 分组 ttrade 日志，展开显示每个 prep 的完整事件链；`TraderDashboardPage` 新增 `🎯 T-trade` tab |
 
 ### 已知设计限制（待优化）
 
