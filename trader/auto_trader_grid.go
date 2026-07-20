@@ -1567,12 +1567,12 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		ctx.TrappedInfo = at.buildTrappedPositionInfo(ctx.CurrentPrice)
 	}
 
-	// Populate protected T-trade order IDs — only reduce orders are protected
-	at.gridState.mu.RLock()
-	for id := range at.gridState.TTradeReduceOrders {
+	// Populate protected T-trade order IDs — only reduce orders are protected from AI
+	// cancellation. Falls back to DB when memory is empty (post-restart) so protection
+	// doesn't silently vanish after a deploy/restart.
+	for id := range at.activeTTradeReduceOrderIDs() {
 		ctx.TTradeProtectedOrderIDs = append(ctx.TTradeProtectedOrderIDs, id)
 	}
-	at.gridState.mu.RUnlock()
 
 	return ctx, nil
 }
@@ -1939,11 +1939,9 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 		return fmt.Errorf("cancel_order: no order ID found (level=%d price=%.2f)", d.LevelIndex, d.Price)
 	}
 
-	// Protect T-trade reduce orders only — prep/tag orders can be cancelled by AI
-	at.gridState.mu.RLock()
-	_, isReduceOrder := at.gridState.TTradeReduceOrders[orderID]
-	at.gridState.mu.RUnlock()
-	if isReduceOrder {
+	// Protect T-trade reduce orders only — prep/tag orders can be cancelled by AI.
+	// Falls back to DB when memory is empty (post-restart) so protection survives restarts.
+	if at.activeTTradeReduceOrderIDs()[orderID] {
 		logger.Warnf("[Grid] cancel_order blocked: order %s is a protected T-trade reduce order",
 			orderID)
 		return nil
@@ -1970,25 +1968,19 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 	return nil
 }
 
-// cancelAllGridOrders cancels all grid orders
-func (at *AutoTrader) cancelAllGridOrders() error {
-	gridConfig := at.config.StrategyConfig.GridConfig
-
-	// Build set of T-trade order IDs to protect (memory + DB fallback for post-restart)
+// activeTTradePrepOrderIDs returns prep (tag) order IDs still awaiting fill. Reads in-memory
+// state first; if empty (e.g. right after a process restart, since this map is never
+// persisted), falls back to reconstructing the active set from grid_trade_logs.
+func (at *AutoTrader) activeTTradePrepOrderIDs() map[string]bool {
 	at.gridState.mu.RLock()
-	protectedIDs := make(map[string]bool, len(at.gridState.TTradePrepOrders)+len(at.gridState.TTradeReduceOrders))
+	ids := make(map[string]bool, len(at.gridState.TTradePrepOrders))
 	for id := range at.gridState.TTradePrepOrders {
-		protectedIDs[id] = true
-	}
-	for id := range at.gridState.TTradeReduceOrders {
-		protectedIDs[id] = true
+		ids[id] = true
 	}
 	at.gridState.mu.RUnlock()
 
-	// DB fallback: if memory is empty (post-restart), load active T-trade orders from DB
-	if len(protectedIDs) == 0 && at.store != nil {
+	if len(ids) == 0 && at.store != nil {
 		since3h := time.Now().Add(-3 * time.Hour)
-		since24h := time.Now().Add(-24 * time.Hour)
 		// Active preps: ttrade_tag without ttrade_fill/ttrade_cancel
 		if tagEntries, _ := at.store.Grid().GetGridTradeLogsByActionSince(at.id, "ttrade_tag", since3h); len(tagEntries) > 0 {
 			for _, e := range tagEntries {
@@ -2001,9 +1993,29 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 				if cancel, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_cancel", e.OrderID); cancel != nil {
 					continue
 				}
-				protectedIDs[e.OrderID] = true
+				ids[e.OrderID] = true
 			}
 		}
+		if len(ids) > 0 {
+			logger.Infof("[Grid] activeTTradePrepOrderIDs: restored %d prep order IDs from DB (post-restart protection)", len(ids))
+		}
+	}
+	return ids
+}
+
+// activeTTradeReduceOrderIDs returns reduce order IDs still awaiting fill. Reads in-memory
+// state first; if empty (e.g. right after a process restart, since this map is never
+// persisted), falls back to reconstructing the active set from grid_trade_logs.
+func (at *AutoTrader) activeTTradeReduceOrderIDs() map[string]bool {
+	at.gridState.mu.RLock()
+	ids := make(map[string]bool, len(at.gridState.TTradeReduceOrders))
+	for id := range at.gridState.TTradeReduceOrders {
+		ids[id] = true
+	}
+	at.gridState.mu.RUnlock()
+
+	if len(ids) == 0 && at.store != nil {
+		since24h := time.Now().Add(-24 * time.Hour)
 		// Active reduces: ttrade_reduce_placed without ttrade_reduce
 		if placedEntries, _ := at.store.Grid().GetGridTradeLogsByActionSince(at.id, "ttrade_reduce_placed", since24h); len(placedEntries) > 0 {
 			for _, e := range placedEntries {
@@ -2016,13 +2028,32 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 				if reduce, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce", e.OrderID); reduce != nil {
 					continue
 				}
-				protectedIDs[reduceID] = true
+				ids[reduceID] = true
 			}
 		}
-		if len(protectedIDs) > 0 {
-			logger.Infof("[Grid] cancelAllGridOrders: restored %d T-trade order IDs from DB (post-restart protection)", len(protectedIDs))
+		if len(ids) > 0 {
+			logger.Infof("[Grid] activeTTradeReduceOrderIDs: restored %d reduce order IDs from DB (post-restart protection)", len(ids))
 		}
 	}
+	return ids
+}
+
+// activeTTradeProtectedIDs returns the set of order IDs (prep + reduce) that must not be
+// cancelled by grid maintenance.
+func (at *AutoTrader) activeTTradeProtectedIDs() map[string]bool {
+	protectedIDs := at.activeTTradePrepOrderIDs()
+	for id := range at.activeTTradeReduceOrderIDs() {
+		protectedIDs[id] = true
+	}
+	return protectedIDs
+}
+
+// cancelAllGridOrders cancels all grid orders
+func (at *AutoTrader) cancelAllGridOrders() error {
+	gridConfig := at.config.StrategyConfig.GridConfig
+
+	// Build set of T-trade order IDs to protect (memory + DB fallback for post-restart)
+	protectedIDs := at.activeTTradeProtectedIDs()
 
 	// Get all open orders
 	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)

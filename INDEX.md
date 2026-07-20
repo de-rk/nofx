@@ -258,6 +258,7 @@ HTTP 请求
 | 变更 | 说明 | 修改位置 |
 |-----|------|----------|
 | **日志/交易日志保留期改为 7 天** — `data/` 下的 `.log` 文件与 `grid_trade_logs` 表数据统一保留 7 天 | 原为日志文件 14 天、`grid_trade_logs` 30 天 | `logger/logger.go`（`Init` 内文件清理 cutoff）、`store/grid.go` `LogGridTrade()`（每次写入后清理 cutoff） |
+| **重启后 AI 可撤销 T-trade 减仓单（保护失效）** — 07-18 只修复了 `cancelAllGridOrders`（网格重置路径）的重启后保护；但 AI 每周期决策路径（prompt 里的「T字保护订单」列表 + `cancel_order` 执行时的二次校验）仍然只读内存 `TTradeReduceOrders`，重启后内存为空，AI 未被告知需保护、且直接执行也不会被拦截，导致减仓单被误撤 | 同一类问题的另一个未修复入口，`TTradePrepOrders`/`TTradeReduceOrders` 从不落盘 | `trader/auto_trader_grid.go` — 拆分出 `activeTTradePrepOrderIDs()` / `activeTTradeReduceOrderIDs()`（内存 + DB 兜底，各自独立回退）与 `activeTTradeProtectedIDs()`（二者合并，供 `cancelAllGridOrders` 使用）；构建 AI prompt 的 `ctx.TTradeProtectedOrderIDs` 与 `cancel_order` 执行时的保护校验均改为调用 `activeTTradeReduceOrderIDs()` |
 
 ### 已知设计限制（待优化）
 
