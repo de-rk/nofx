@@ -87,8 +87,8 @@ func Init(cfg *Config) error {
 	// Setup log file output (write to both stdout and file)
 	logDir := "data"
 	if err := os.MkdirAll(logDir, 0755); err == nil {
-		// Purge log files older than 14 days
-		cutoff := time.Now().AddDate(0, 0, -14)
+		// Purge log files older than 7 days
+		cutoff := time.Now().AddDate(0, 0, -7)
 		if entries, err := os.ReadDir(logDir); err == nil {
 			for _, e := range entries {
 				if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
