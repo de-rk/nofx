@@ -10,7 +10,6 @@ interface TTradeGroup {
   fillLog?: GridTradeLog
   reducePlacedLog?: GridTradeLog
   reduceLog?: GridTradeLog
-  supplementLog?: GridTradeLog
 }
 
 function groupTTradeEvents(logs: GridTradeLog[]): TTradeGroup[] {
@@ -32,7 +31,6 @@ function groupTTradeEvents(logs: GridTradeLog[]): TTradeGroup[] {
     const fillLog = events.find(e => e.action === 'ttrade_fill')
     const reducePlacedLog = events.find(e => e.action === 'ttrade_reduce_placed')
     const reduceLog = events.find(e => e.action === 'ttrade_reduce')
-    const supplementLog = events.find(e => e.action === 'ttrade_tag' && e.reason?.includes('re-tag'))
 
     result.push({
       prepOrderId,
@@ -43,7 +41,6 @@ function groupTTradeEvents(logs: GridTradeLog[]): TTradeGroup[] {
       fillLog,
       reducePlacedLog,
       reduceLog,
-      supplementLog,
     })
   }
 
@@ -111,7 +108,7 @@ export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
 
   return (
     <div className="space-y-3">
-      {groups.map(({ prepOrderId, symbol, side, events, tagLog, fillLog, reducePlacedLog, reduceLog, supplementLog }) => {
+      {groups.map(({ prepOrderId, symbol, side, events, tagLog, fillLog, reducePlacedLog, reduceLog }) => {
         const isExpanded = expanded.has(prepOrderId)
         const isBuy = side === 'buy'
         const sideColor = isBuy ? 'text-green-400' : 'text-red-400'
