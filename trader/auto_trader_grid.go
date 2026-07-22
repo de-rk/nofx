@@ -614,13 +614,7 @@ func (at *AutoTrader) InitializeGrid() error {
 				// TTradeReduceOrders so ttradeRepairOrders monitors the pending reduce.
 				reducePlacedEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce_placed", entry.OrderID)
 				if reducePlacedEntry != nil && reducePlacedEntry.CreatedAt.After(entry.CreatedAt) {
-					// Prefer structured RelatedOrderID; fall back to parsing Reason text for
-					// historical rows written before this column existed.
 					reduceOrderID := reducePlacedEntry.RelatedOrderID
-					if reduceOrderID == "" {
-						var parsedPrepID string
-						fmt.Sscanf(reducePlacedEntry.Reason, "reduce order %s placed for prep %s", &reduceOrderID, &parsedPrepID)
-					}
 					if reduceOrderID != "" {
 						prepSide := reducePlacedEntry.Side
 						reduceSide := "sell"
@@ -2023,13 +2017,7 @@ func (at *AutoTrader) activeTTradeReduceOrderIDs() map[string]bool {
 		// Active reduces: ttrade_reduce_placed without ttrade_reduce
 		if placedEntries, _ := at.store.Grid().GetGridTradeLogsByActionSince(at.id, "ttrade_reduce_placed", since24h); len(placedEntries) > 0 {
 			for _, e := range placedEntries {
-				// Prefer structured RelatedOrderID; fall back to parsing Reason text for
-				// historical rows written before this column existed.
 				reduceID := e.RelatedOrderID
-				if reduceID == "" {
-					var parsedPrepID string
-					fmt.Sscanf(e.Reason, "reduce order %s placed for prep %s", &reduceID, &parsedPrepID)
-				}
 				if reduceID == "" {
 					continue
 				}
