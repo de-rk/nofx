@@ -232,9 +232,10 @@ type GridTradeLogModel struct {
 	MarkPrice    float64   `json:"mark_price"`   // mark price at time of action
 	MarginProfit float64   `json:"margin_profit"` // margin profit % at time of action
 	UnrealizedPL float64   `json:"unrealized_pl"` // unrealized P&L at time of action
-	Reason       string    `json:"reason" gorm:"type:text"` // AI reasoning or system note
-	OrderID      string    `json:"order_id"`     // exchange order ID (if available)
-	Success      bool      `json:"success"`      // whether the action succeeded
+	Reason         string  `json:"reason" gorm:"type:text"` // AI reasoning or system note
+	OrderID        string  `json:"order_id"`                // exchange order ID (if available)
+	RelatedOrderID string  `json:"related_order_id"`        // secondary order ID this entry references (e.g. reduce order ID for a ttrade_reduce_placed row keyed by prep OrderID) — structured replacement for parsing IDs out of Reason text
+	Success        bool    `json:"success"`                 // whether the action succeeded
 	ErrorMsg     string    `json:"error_msg"`    // error message if failed
 }
 

@@ -614,9 +614,13 @@ func (at *AutoTrader) InitializeGrid() error {
 				// TTradeReduceOrders so ttradeRepairOrders monitors the pending reduce.
 				reducePlacedEntry, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce_placed", entry.OrderID)
 				if reducePlacedEntry != nil && reducePlacedEntry.CreatedAt.After(entry.CreatedAt) {
-					// Parse reduce order ID from reason: "reduce order {ID} placed for prep ..."
-					var reduceOrderID, parsedPrepID string
-					fmt.Sscanf(reducePlacedEntry.Reason, "reduce order %s placed for prep %s", &reduceOrderID, &parsedPrepID)
+					// Prefer structured RelatedOrderID; fall back to parsing Reason text for
+					// historical rows written before this column existed.
+					reduceOrderID := reducePlacedEntry.RelatedOrderID
+					if reduceOrderID == "" {
+						var parsedPrepID string
+						fmt.Sscanf(reducePlacedEntry.Reason, "reduce order %s placed for prep %s", &reduceOrderID, &parsedPrepID)
+					}
 					if reduceOrderID != "" {
 						prepSide := reducePlacedEntry.Side
 						reduceSide := "sell"
@@ -2019,9 +2023,13 @@ func (at *AutoTrader) activeTTradeReduceOrderIDs() map[string]bool {
 		// Active reduces: ttrade_reduce_placed without ttrade_reduce
 		if placedEntries, _ := at.store.Grid().GetGridTradeLogsByActionSince(at.id, "ttrade_reduce_placed", since24h); len(placedEntries) > 0 {
 			for _, e := range placedEntries {
-				// Parse reduce order ID from reason text (format: "reduce order <id> placed for prep <prepID>")
-				var reduceID, parsedPrepID string
-				fmt.Sscanf(e.Reason, "reduce order %s placed for prep %s", &reduceID, &parsedPrepID)
+				// Prefer structured RelatedOrderID; fall back to parsing Reason text for
+				// historical rows written before this column existed.
+				reduceID := e.RelatedOrderID
+				if reduceID == "" {
+					var parsedPrepID string
+					fmt.Sscanf(e.Reason, "reduce order %s placed for prep %s", &reduceID, &parsedPrepID)
+				}
 				if reduceID == "" {
 					continue
 				}
@@ -2898,27 +2906,35 @@ func (at *AutoTrader) checkAndExecuteStopLoss() {
 
 // logGridTrade writes a structured trade action record to grid_trade_logs.
 // source: "ai" | "ttrade" | "profit_reduce" | "profit_drawdown"
+// relatedOrderID is optional (variadic to avoid touching every call site): pass a second
+// order ID the entry references (e.g. the reduce order ID for a ttrade_reduce_placed row
+// keyed by the prep OrderID), stored structured instead of embedded in the Reason text.
 func (at *AutoTrader) logGridTrade(source, action, side, symbol, reason, orderID string,
-	qty, price, entryPrice, markPrice, marginProfit, unrealizedPL float64, success bool, errMsg string) {
+	qty, price, entryPrice, markPrice, marginProfit, unrealizedPL float64, success bool, errMsg string, relatedOrderID ...string) {
 	if at.store == nil {
 		return
 	}
+	var related string
+	if len(relatedOrderID) > 0 {
+		related = relatedOrderID[0]
+	}
 	entry := &store.GridTradeLogModel{
-		InstanceID:   at.id,
-		Source:       source,
-		Action:       action,
-		Symbol:       symbol,
-		Side:         side,
-		Quantity:     qty,
-		Price:        price,
-		EntryPrice:   entryPrice,
-		MarkPrice:    markPrice,
-		MarginProfit: marginProfit,
-		UnrealizedPL: unrealizedPL,
-		Reason:       reason,
-		OrderID:      orderID,
-		Success:      success,
-		ErrorMsg:     errMsg,
+		InstanceID:     at.id,
+		Source:         source,
+		Action:         action,
+		Symbol:         symbol,
+		Side:           side,
+		Quantity:       qty,
+		Price:          price,
+		EntryPrice:     entryPrice,
+		MarkPrice:      markPrice,
+		MarginProfit:   marginProfit,
+		UnrealizedPL:   unrealizedPL,
+		Reason:         reason,
+		OrderID:        orderID,
+		RelatedOrderID: related,
+		Success:        success,
+		ErrorMsg:       errMsg,
 	}
 	if err := at.store.Grid().LogGridTrade(entry); err != nil {
 		logger.Warnf("[Grid] Failed to write trade log: %v", err)
@@ -3317,7 +3333,7 @@ func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64,
 		// (ttrade_reduce is logged at fill time; this prevents duplicate reduce on restart)
 		at.logGridTrade("ttrade", "ttrade_reduce_placed", prepSide, gridConfig.Symbol,
 			fmt.Sprintf("reduce order %s placed for prep %s fill=%.4f spread=%.1f%%", orderID, prepOrderID, fillPrice, spreadPct),
-			prepOrderID, qty, reducePrice, fillPrice, 0, 0, 0, true, "")
+			prepOrderID, qty, reducePrice, fillPrice, 0, 0, 0, true, "", orderID)
 		at.gridState.mu.Lock()
 		at.gridState.TTradeReduceOrders[orderID] = &TTradeReduceEntry{
 			ReduceOrderID: orderID,
