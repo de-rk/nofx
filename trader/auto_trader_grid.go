@@ -1224,7 +1224,7 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			}
 			profitPct = info.unrealizedProfit / margin * 100
 		}
-		logger.Infof("[Grid] Profit-reduce check: %s entry=%.4f mark=%.4f upl=%.2f uplRatio=%.4f profit=%.2f%%",
+		logger.Debugf("[Grid] Profit-reduce check: %s entry=%.4f mark=%.4f upl=%.2f uplRatio=%.4f profit=%.2f%%",
 			info.side, info.entryPrice, info.markPrice, info.unrealizedProfit, info.uplRatio, profitPct)
 
 		if profitPct <= 0 {
@@ -1245,7 +1245,7 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 		targetReducePct := math.Floor(profitPct/step) * step
 		
 		// Debug logging to track state
-		logger.Infof("[Grid] Profit-reduce %s: profitPct=%.2f%% targetStep=%.0f%% alreadyReduced=%.0f%% step=%.0f%%",
+		logger.Debugf("[Grid] Profit-reduce %s: profitPct=%.2f%% targetStep=%.0f%% alreadyReduced=%.0f%% step=%.0f%%",
 			info.side, profitPct, targetReducePct, alreadyReduced, step)
 		
 		// Bug fix: Prevent multiple triggers at same step level
@@ -1256,7 +1256,7 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 		// 3. Without this check, it would trigger again at 18% step
 		// The correct behavior: only trigger again when profit reaches next step (24%)
 		if targetReducePct <= alreadyReduced {
-			logger.Infof("[Grid] Profit-reduce %s: skipping — already reduced at %.0f%% (current target %.0f%%)",
+			logger.Debugf("[Grid] Profit-reduce %s: skipping — already reduced at %.0f%% (current target %.0f%%)",
 				info.side, alreadyReduced, targetReducePct)
 			continue
 		}
@@ -1352,7 +1352,7 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 					// Reduce orders are typically placed at or near mark price
 					priceDiff := math.Abs(order.Price-info.markPrice) / info.markPrice
 					if priceDiff < 0.01 {
-						logger.Infof("[Grid] Profit-reduce: skipping %s reduce — order %s already exists (%.4f @ %.4f)",
+						logger.Debugf("[Grid] Profit-reduce: skipping %s reduce — order %s already exists (%.4f @ %.4f)",
 							info.side, order.OrderID, order.Quantity, order.Price)
 						hasPendingReduce = true
 						break
