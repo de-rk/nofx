@@ -592,14 +592,21 @@ func (at *AutoTrader) Run() error {
 						return
 					}
 					
-					// Check if WS is actually working by looking at last kline time
-					lastKline := time.Unix(0, atomic.LoadInt64(&at.wsLastKlineClose))
-					timeSinceLastKline := time.Since(lastKline)
-					
-					// If never received WS event (zero time) OR no event for too long
-					// → fallback to timer-driven execution
-					if lastKline.IsZero() || timeSinceLastKline > triggerPeriod+time.Minute {
-						if lastKline.IsZero() {
+					// Check if WS is actually working by looking at last kline time.
+					// wsLastKlineClose is 0 until the first WS event arrives — check the raw
+					// value directly rather than converting to time.Time first: time.Unix(0, 0)
+					// is the Unix epoch, not Go's zero time.Time, so lastKline.IsZero() would
+					// never be true and this log would misreport bogus multi-decade durations.
+					lastKlineNanos := atomic.LoadInt64(&at.wsLastKlineClose)
+					neverReceived := lastKlineNanos == 0
+					var timeSinceLastKline time.Duration
+					if !neverReceived {
+						timeSinceLastKline = time.Since(time.Unix(0, lastKlineNanos))
+					}
+
+					// If never received WS event OR no event for too long → fallback to timer-driven execution
+					if neverReceived || timeSinceLastKline > triggerPeriod+time.Minute {
+						if neverReceived {
 							logger.Infof("[Grid] ⏰ Fallback timer: no WS events yet, executing AI cycle")
 						} else {
 							logger.Infof("[Grid] ⏰ Fallback timer: WS silent for %v, executing AI cycle",
