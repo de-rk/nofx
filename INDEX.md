@@ -171,6 +171,12 @@
 | `experience/experience.go` | AI 经验积累（历史决策反馈） |
 | `llm/qwen_agent.go` | 千问 Agent 独立封装 |
 
+## scripts/ — 独立运维/分析工具（不接触实盘交易路径）
+
+| 目录 | 说明 |
+|------|------|
+| `scripts/grid_backtest/` | 网格策略离线回测 + 模拟退火参数搜索。纯离线：拉历史K线（`market.GetKlinesRange`）、复刻网格边界/权重/止盈减仓算法（`grid.go`/`simulate.go`，逐行对照 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`/`checkProfitReduce`），用退火搜索 `grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier` 组合，按「收益 - 1.5×最大回撤」打分（`Score()`）。成交模型是简化版：K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队/手续费（见 `simulate.go` 顶部注释）。只打印建议参数，不写回任何配置或数据库。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000` |
+
 ---
 
 ## web/src/ — 前端（React + TypeScript）
