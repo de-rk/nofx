@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
-import { FlaskConical, Loader2, Play, Square, AlertTriangle } from 'lucide-react'
+import { FlaskConical, Loader2, Play, Square, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { notify } from '../lib/notify'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
 
@@ -37,6 +37,15 @@ export function GridBacktestPage() {
   const [investment, setInvestment] = useState(1000)
   const [leverage, setLeverage] = useState(5)
   const [iterations, setIterations] = useState(2000)
+
+  // Baseline grid params — prefilled from the active strategy's grid_config
+  // when available (see useEffect below), otherwise a generic guess.
+  const [gridCount, setGridCount] = useState(20)
+  const [atrMultiplier, setAtrMultiplier] = useState(3.0)
+  const [distribution, setDistribution] = useState('gaussian')
+  const [profitReduceStepPct, setProfitReduceStepPct] = useState(6)
+  const [profitReduceMultiplier, setProfitReduceMultiplier] = useState(0.1)
+  const [loadedFromActiveStrategy, setLoadedFromActiveStrategy] = useState(false)
 
   const [isRunning, setIsRunning] = useState(false)
   const [baseline, setBaseline] = useState<{ params: GridParams; result: SimResult } | null>(null)
@@ -76,6 +85,7 @@ export function GridBacktestPage() {
       score: { zh: '评分', en: 'Score' },
       blewUp: { zh: '⚠️ 该组合曾导致权益归零，风险极高', en: '⚠️ This combination blew up (equity <= 0) — very high risk' },
       clickToRun: { zh: '设置参数后点击"开始回测"', en: 'Set parameters and click "Run backtest"' },
+      loadedFromActive: { zh: '已从当前激活策略加载基准参数', en: 'Baseline params loaded from active strategy' },
       fillModelNote: {
         zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交、做市排队和手续费。结果仅供参考。',
         en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills, maker queue, or fees modeled. Results are indicative only.',
@@ -83,6 +93,37 @@ export function GridBacktestPage() {
     }
     return translations[key]?.[language] || key
   }
+
+  // Prefill baseline params from the currently active strategy's grid_config,
+  // if one exists and is a grid strategy. Falls back to the generic guess
+  // (already set as initial state) if there's no active strategy, it's not
+  // a grid strategy, or the request fails — this is a convenience prefill,
+  // not a hard requirement.
+  useEffect(() => {
+    if (!token) return
+    ;(async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/api/strategies/active`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!resp.ok) return
+        const data = await resp.json()
+        const gc = data?.config?.grid_config
+        if (!gc) return
+        if (gc.symbol) setSymbol(gc.symbol)
+        if (typeof gc.leverage === 'number') setLeverage(gc.leverage)
+        if (typeof gc.grid_count === 'number') setGridCount(gc.grid_count)
+        if (typeof gc.atr_multiplier === 'number') setAtrMultiplier(gc.atr_multiplier)
+        if (gc.distribution) setDistribution(gc.distribution)
+        if (typeof gc.profit_reduce_step_pct === 'number') setProfitReduceStepPct(gc.profit_reduce_step_pct)
+        if (typeof gc.profit_reduce_multiplier === 'number') setProfitReduceMultiplier(gc.profit_reduce_multiplier)
+        if (typeof gc.total_investment === 'number' && gc.total_investment > 0) setInvestment(gc.total_investment)
+        setLoadedFromActiveStrategy(true)
+      } catch {
+        // no active strategy / not a grid strategy / request failed — keep generic defaults
+      }
+    })()
+  }, [token])
 
   const stop = () => {
     abortRef.current?.abort()
@@ -107,6 +148,11 @@ export function GridBacktestPage() {
       investment: String(investment),
       leverage: String(leverage),
       iterations: String(iterations),
+      grid_count: String(gridCount),
+      atr_multiplier: String(atrMultiplier),
+      distribution,
+      profit_reduce_step_pct: String(profitReduceStepPct),
+      profit_reduce_multiplier: String(profitReduceMultiplier),
     })
 
     try {
@@ -271,6 +317,80 @@ export function GridBacktestPage() {
                 step={100}
                 value={iterations}
                 onChange={(e) => setIterations(Number(e.target.value))}
+                disabled={isRunning}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              />
+            </div>
+          </div>
+
+          {loadedFromActiveStrategy && (
+            <div className="flex items-center gap-2 text-xs text-green-400 mb-4">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {t('loadedFromActive')}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('gridCount')}</label>
+              <input
+                type="number"
+                min={2}
+                max={100}
+                value={gridCount}
+                onChange={(e) => setGridCount(Number(e.target.value))}
+                disabled={isRunning}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('atrMultiplier')}</label>
+              <input
+                type="number"
+                min={0.1}
+                max={20}
+                step={0.1}
+                value={atrMultiplier}
+                onChange={(e) => setAtrMultiplier(Number(e.target.value))}
+                disabled={isRunning}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('distribution')}</label>
+              <select
+                value={distribution}
+                onChange={(e) => setDistribution(e.target.value)}
+                disabled={isRunning}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              >
+                {['gaussian', 'pyramid', 'uniform'].map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('profitReduceStep')}</label>
+              <input
+                type="number"
+                min={0.1}
+                max={100}
+                step={0.5}
+                value={profitReduceStepPct}
+                onChange={(e) => setProfitReduceStepPct(Number(e.target.value))}
+                disabled={isRunning}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('profitReduceMultiplier')}</label>
+              <input
+                type="number"
+                min={0.01}
+                max={1}
+                step={0.01}
+                value={profitReduceMultiplier}
+                onChange={(e) => setProfitReduceMultiplier(Number(e.target.value))}
                 disabled={isRunning}
                 className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
               />

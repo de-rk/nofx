@@ -31,6 +31,16 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 	iterations := queryInt(c, "iterations", 2000, 100, 20000)
 	seed := int64(queryInt(c, "seed", 1, 1, 1<<30))
 
+	// Baseline grid params default to a generic guess, but the caller (the
+	// frontend) may pass the active strategy's actual values instead so the
+	// "baseline" comparison reflects what's really configured, not a
+	// hardcoded stand-in.
+	gridCount := queryInt(c, "grid_count", 20, 2, 100)
+	atrMultiplier := queryFloat(c, "atr_multiplier", 3.0, 0.1, 20)
+	distribution := c.DefaultQuery("distribution", "gaussian")
+	profitReduceStepPct := queryFloat(c, "profit_reduce_step_pct", 6, 0.1, 100)
+	profitReduceMultiplier := queryFloat(c, "profit_reduce_multiplier", 0.1, 0.01, 1)
+
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -63,12 +73,12 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 	startIdx := warmupBars
 
 	initial := backtest.GridParams{
-		GridCount:              20,
-		ATRMultiplier:          3.0,
-		Distribution:           "gaussian",
+		GridCount:              gridCount,
+		ATRMultiplier:          atrMultiplier,
+		Distribution:           distribution,
 		Leverage:               leverage,
-		ProfitReduceStepPct:    6,
-		ProfitReduceMultiplier: 0.1,
+		ProfitReduceStepPct:    profitReduceStepPct,
+		ProfitReduceMultiplier: profitReduceMultiplier,
 	}
 
 	baseline := backtest.Simulate(klines, startIdx, totalInvestment, initial)
