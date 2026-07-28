@@ -277,6 +277,14 @@ HTTP 请求
 | **浮盈减仓每次 WS 持仓推送都打 Info 日志，刷爆日志文件** — `checkProfitReduce()` 由 OKX WS 持仓推送触发（约 1-3 秒一次），其中三条无条件/近乎每次触发的日志（逐次检查详情、逐次目标步进计算、"已减仓跳过"）全部是 `Info` 级别，导致每分钟产生数十条重复日志，与实际下单动作无关 | 诊断用日志误用 `Info` 而非 `Debug`，未区分"例行检查"与"实际执行动作" | `trader/auto_trader_grid.go` `checkProfitReduce()` — 将 4 处逐次检查/无操作跳过的日志降级为 `Debugf`（默认 `info` 级别不输出）；实际下单/状态变更（`profit_reduce`/`profit_reduce_close` 下单、`LongProfitReducedPct`/`ShortProfitReducedPct` 状态更新）保持 `Infof` 不变 |
 | **Fallback 定时器"WS 静默 495844h"日志荒谬** — `wsLastKlineClose` 从未收到过 WS 事件时是 `int64` 零值，`time.Unix(0, 0)` 转出来的是 1970-01-01（Unix 纪元），不是 Go 的 `time.Time{}` 零值，导致 `lastKline.IsZero()` 永远为 false，日志误报"WS silent for 495844h..."这类无意义时长 | `time.Unix(0, 0)` ≠ Go 零值 `time.Time{}`，转换前后语义不同 | `trader/auto_trader.go` — fallback ticker 分支改为直接判断 `atomic.LoadInt64(&at.wsLastKlineClose) == 0`（`neverReceived`），只在确实收到过事件时才计算 `time.Since(...)`，不再依赖转换后的 `IsZero()` |
 
+### 2026-07-29
+
+| 变更 | 说明 | 修改位置 |
+|-----|------|----------|
+| **T-trade 减仓单被交易所撤单前若已部分成交，重挂时数量算错导致超额减仓** — `ttradeRepairOrders` 发现减仓单状态变为 `CANCELED`/`EXPIRED` 时，直接用 `entry.Qty`（下单时的原始全额数量）重新挂一笔同等数量的减仓单，完全没检查 OKX 返回的 `executedQty`。但交易所的 `canceled` 状态并不代表零成交——一个单可以先部分成交、剩余部分再被撤，此时 `executedQty > 0`。已成交的那部分已经真实减了仓，重挂时还按全额重挂，等于对同一批仓位多减了一次，是持仓在价格未触及预期点位时也会莫名减少的原因之一 | `GetOrderStatus` 各交易所实现普遍返回 `executedQty`（部分成交量），但 `ttradeRepairOrders` 的 `CANCELED`/`EXPIRED` 分支从未读取它 | `trader/auto_trader_grid.go` `ttradeRepairOrders()` — `CANCELED`/`EXPIRED` 分支改为读取 `statusMap["executedQty"]`：若 >0，先把已成交部分记一条 `ttrade_reduce` 日志（避免这部分减仓事件丢失），再用 `entry.Qty - executedQty`（剩余未成交量）重新挂单，而不是原始全额；若剩余量 ≤0（已通过多次部分成交完全成交）则直接清理该条目、释放对应网格层，不再重挂 |
+| **止盈减仓单（profit_reduce）无任何保护，`resetGrid`/`cancelAllGridOrders` 会把它连同普通网格挂单一起撤销，且撤销后没有补偿机制** — T-trade 减仓单一直有 `activeTTradeReduceOrderIDs()` 保护，但 `checkProfitReduce()` 挂出的止盈减仓单从未被追踪，`cancelAllGridOrders` 视其为普通挂单一并撤销；`checkProfitReduce` 只在浮盈达到**新**的百分比阶梯时才会重新计算下单，同一阶梯不会重试，撤销后这笔减仓意图直接丢失，不会自动补挂 | 缺少与 T-trade 平行的追踪+保护机制 | `trader/auto_trader_grid.go` — `GridState` 新增 `ProfitReduceOrderIDs map[string]bool`；`checkProfitReduce()` 下单成功后写入该表；`syncExchangeState()` 每轮用当前交易所挂单列表清理已成交/已撤销的过期条目，避免无限增长；新增 `activeProfitReduceOrderIDs()`（纯内存，无 DB 兜底——止盈减仓触发频繁且 `syncExchangeState` 每轮都清理，不需要像 T-trade 那样跨重启持久化）；`cancelAllGridOrders()` 与 `cancelGridOrder()`（AI 的 `cancel_order` 执行路径）均改为同时读取 T-trade 与止盈减仓两套保护集合 |
+| **T-trade 减仓单重挂价格会随 `t_trade_spread_pct` 配置变动而漂移，无法从价格判断是否为"复活"的同一笔单** — `placeTTradeReduceOrder` 原来永远读取*当前* `gridConfig.TTradeSpreadPct` 重新计算价格，若这期间用户改过该配置，重挂出来的价格会和原单不同 | 重新计算价格用了实时配置而非下单时记录的 spread | `trader/auto_trader_grid.go` `placeTTradeReduceOrder()` — 新增可选 variadic 参数 `overrideSpreadPct`（不影响原有 4 处调用点）；`ttradeRepairOrders()` 重挂剩余数量时显式传入 `entry.SpreadPct`（下单时记录的原始 spread），确保重挂价格与原单 `entry.ReducePrice` 完全一致，便于从价格直接识别是否为同一笔单的复活 |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |

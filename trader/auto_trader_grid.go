@@ -111,6 +111,14 @@ type GridState struct {
 	LongProfitReducedPct  float64 // cumulative % already reduced for long (multiples of 10)
 	ShortProfitReducedPct float64 // cumulative % already reduced for short (multiples of 10)
 
+	// ProfitReduceOrderIDs tracks reduce-only orders placed by checkProfitReduce
+	// that are still (believed to be) open on the exchange, so cancelAllGridOrders
+	// can skip them the same way it already skips T-trade reduce orders — without
+	// this, a resetGrid/investment-refresh cycle would cancel them with no
+	// mechanism to re-place the lost reduce intent (checkProfitReduce only
+	// re-fires once profit reaches a *new* step, not on the same step again).
+	ProfitReduceOrderIDs map[string]bool
+
 	// Periodic investment refresh
 	LastInvestmentRefreshAt time.Time
 }
@@ -118,11 +126,12 @@ type GridState struct {
 // NewGridState creates a new grid state
 func NewGridState(config *store.GridStrategyConfig) *GridState {
 	return &GridState{
-		Config:             config,
-		Levels:             make([]kernel.GridLevelInfo, 0),
-		OrderBook:          make(map[string]int),
-		TTradePrepOrders:   make(map[string]*TTradePrepEntry),
-		TTradeReduceOrders: make(map[string]*TTradeReduceEntry),
+		Config:               config,
+		Levels:               make([]kernel.GridLevelInfo, 0),
+		OrderBook:            make(map[string]int),
+		TTradePrepOrders:     make(map[string]*TTradePrepEntry),
+		TTradeReduceOrders:   make(map[string]*TTradeReduceEntry),
+		ProfitReduceOrderIDs: make(map[string]bool),
 	}
 }
 
@@ -279,7 +288,6 @@ func (at *AutoTrader) updateDailyPnL(realizedPnL float64) {
 	at.gridState.TotalProfit += realizedPnL
 	at.gridState.mu.Unlock()
 }
-
 
 // handleBreakout handles price breakout from grid range
 func (at *AutoTrader) handleBreakout(breakoutType BreakoutType, breakoutPct float64) error {
@@ -1243,11 +1251,11 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			alreadyReduced = at.gridState.ShortProfitReducedPct
 		}
 		targetReducePct := math.Floor(profitPct/step) * step
-		
+
 		// Debug logging to track state
 		logger.Debugf("[Grid] Profit-reduce %s: profitPct=%.2f%% targetStep=%.0f%% alreadyReduced=%.0f%% step=%.0f%%",
 			info.side, profitPct, targetReducePct, alreadyReduced, step)
-		
+
 		// Bug fix: Prevent multiple triggers at same step level
 		// We should only trigger once per step. If alreadyReduced is already at this step or higher,
 		// we should skip. This prevents the scenario where:
@@ -1315,7 +1323,7 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 		// Bug fix: Profit reduce can trigger multiple times in short succession if the reduce order
 		// doesn't fill immediately. We check for any pending reduce-only order on the same side
 		// to avoid placing duplicate orders that would over-reduce the position.
-		// 
+		//
 		// Since OpenOrder doesn't have ReduceOnly field, we infer it from:
 		// 1. Order direction opposite to position (LONG position → SELL order, SHORT → BUY)
 		// 2. Order price near mark price (reduce orders are placed at mark price)
@@ -1382,6 +1390,9 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 		orderID := ""
 		if result != nil {
 			orderID = result.OrderID
+			at.gridState.mu.Lock()
+			at.gridState.ProfitReduceOrderIDs[orderID] = true
+			at.gridState.mu.Unlock()
 		}
 		errMsg := ""
 		if err != nil {
@@ -1424,7 +1435,7 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			} else {
 				at.gridState.ShortProfitReducedPct = newPct
 			}
-			logger.Infof("[Grid] Profit-reduce %s: state updated from %.0f%% to %.0f%%", 
+			logger.Infof("[Grid] Profit-reduce %s: state updated from %.0f%% to %.0f%%",
 				info.side, oldPct, newPct)
 		}
 		at.gridState.mu.Unlock()
@@ -1937,10 +1948,19 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 		return fmt.Errorf("cancel_order: no order ID found (level=%d price=%.2f)", d.LevelIndex, d.Price)
 	}
 
-	// Protect T-trade reduce orders only — prep/tag orders can be cancelled by AI.
+	// Protect T-trade reduce orders — prep/tag orders can be cancelled by AI.
 	// Falls back to DB when memory is empty (post-restart) so protection survives restarts.
 	if at.activeTTradeReduceOrderIDs()[orderID] {
 		logger.Warnf("[Grid] cancel_order blocked: order %s is a protected T-trade reduce order",
+			orderID)
+		return nil
+	}
+
+	// Protect profit-reduce orders the same way — cancelling one here leaves
+	// no mechanism to re-place the lost reduce intent (checkProfitReduce only
+	// re-fires once profit reaches a *new* step, not the same step again).
+	if at.activeProfitReduceOrderIDs()[orderID] {
+		logger.Warnf("[Grid] cancel_order blocked: order %s is a protected profit-reduce order",
 			orderID)
 		return nil
 	}
@@ -2044,12 +2064,36 @@ func (at *AutoTrader) activeTTradeProtectedIDs() map[string]bool {
 	return protectedIDs
 }
 
+// activeProfitReduceOrderIDs returns reduce-only order IDs placed by
+// checkProfitReduce that are still tracked as open, so grid maintenance
+// (cancelAllGridOrders / resetGrid) doesn't cancel them out from under a
+// stepped or full-close reduce with no mechanism to re-place the lost intent.
+// Unlike the T-trade helpers, this has no DB fallback: checkProfitReduce runs
+// frequently (every WS position push) and syncExchangeState prunes stale
+// entries every cycle, so the in-memory map is expected to stay accurate
+// without needing to survive a restart the way T-trade's less-frequent
+// tag/fill/reduce cycle does.
+func (at *AutoTrader) activeProfitReduceOrderIDs() map[string]bool {
+	at.gridState.mu.RLock()
+	defer at.gridState.mu.RUnlock()
+	ids := make(map[string]bool, len(at.gridState.ProfitReduceOrderIDs))
+	for id := range at.gridState.ProfitReduceOrderIDs {
+		ids[id] = true
+	}
+	return ids
+}
+
 // cancelAllGridOrders cancels all grid orders
 func (at *AutoTrader) cancelAllGridOrders() error {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
-	// Build set of T-trade order IDs to protect (memory + DB fallback for post-restart)
+	// Build set of T-trade + profit-reduce order IDs to protect (memory + DB
+	// fallback for post-restart on the T-trade side; profit-reduce is
+	// memory-only, see activeProfitReduceOrderIDs).
 	protectedIDs := at.activeTTradeProtectedIDs()
+	for id := range at.activeProfitReduceOrderIDs() {
+		protectedIDs[id] = true
+	}
 
 	// Get all open orders
 	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
@@ -2186,6 +2230,17 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 	for _, o := range openOrders {
 		activeOrderIDs[o.OrderID] = true
 	}
+
+	// Prune ProfitReduceOrderIDs entries no longer open on the exchange (filled
+	// or cancelled) so the map doesn't grow unbounded and cancelAllGridOrders'
+	// protection set stays accurate to what's actually still resting.
+	at.gridState.mu.Lock()
+	for id := range at.gridState.ProfitReduceOrderIDs {
+		if !activeOrderIDs[id] {
+			delete(at.gridState.ProfitReduceOrderIDs, id)
+		}
+	}
+	at.gridState.mu.Unlock()
 
 	// Fetch positions for fill detection and reconciliation
 	positions, err := at.trader.GetPositions()
@@ -3271,11 +3326,19 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 	}
 }
 
-// placeTTradeReduceOrder auto-places a reduce limit order after a T-trade prep fills.
-// Returns true if the order was successfully placed.
-func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64, qty float64, prepOrderID string) bool {
+// placeTTradeReduceOrder auto-places a reduce-only limit order after a T-trade
+// prep fills, at fillPrice offset by a spread percentage. Returns true if the
+// order was successfully placed. overrideSpreadPct is optional (variadic to
+// avoid touching the four call sites that want the live-configured spread):
+// pass a value to pin the exact spread used — e.g. when re-placing a
+// cancelled-with-remainder reduce order, so it lands at the same price as
+// the original even if gridConfig.TTradeSpreadPct has since changed.
+func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64, qty float64, prepOrderID string, overrideSpreadPct ...float64) bool {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	spreadPct := gridConfig.TTradeSpreadPct
+	if len(overrideSpreadPct) > 0 {
+		spreadPct = overrideSpreadPct[0]
+	}
 	if spreadPct < 0.2 {
 		spreadPct = 0.2
 	}
@@ -3405,13 +3468,52 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 			go at.ttradeSupplementOrder(entry.PrepSide)
 			continue
 		case "CANCELED", "EXPIRED":
-			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing", reduceID)
 			at.gridState.mu.Unlock()
+			// A CANCELED/EXPIRED order can still have a nonzero executedQty if it
+			// was partially filled before being cancelled. That portion already
+			// reduced the real position — re-placing the full original Qty would
+			// double-count it (over-reduce). Only re-place the remainder.
+			executedQty := 0.0
+			if v, ok := statusMap["executedQty"].(float64); ok {
+				executedQty = v
+			}
+			if executedQty > 0 {
+				fillPrice := entry.ReducePrice
+				if avg, ok := statusMap["avgPrice"].(float64); ok && avg > 0 {
+					fillPrice = avg
+				}
+				logger.Infof("[Grid] T-trade reduce %s partially filled (%.4f of %.4f) before cancel @ %.4f — logging partial, re-placing remainder",
+					reduceID, executedQty, entry.Qty, fillPrice)
+				at.logGridTrade("ttrade", "ttrade_reduce", entry.PrepSide, gridConfig.Symbol,
+					fmt.Sprintf("partial auto-reduce from prep %s fill=%.4f spread=%.1f%% (cancelled with remainder)", entry.PrepOrderID, entry.PrepFillPrice, entry.SpreadPct),
+					entry.PrepOrderID, executedQty, fillPrice, entry.PrepFillPrice, 0, 0, 0, true, "")
+			}
+			remainingQty := entry.Qty - executedQty
+			if remainingQty <= 0 {
+				logger.Infof("[Grid] T-trade reduce %s fully filled via partial fills before cancel — clearing, no remainder to re-place", reduceID)
+				at.gridState.mu.Lock()
+				delete(at.gridState.TTradeReduceOrders, reduceID)
+				for i := range at.gridState.Levels {
+					if at.gridState.Levels[i].OrderID == entry.PrepOrderID {
+						at.gridState.Levels[i].State = "empty"
+						at.gridState.Levels[i].OrderID = ""
+						break
+					}
+				}
+				at.gridState.mu.Unlock()
+				go at.ttradeSupplementOrder(entry.PrepSide)
+				continue
+			}
+			logger.Warnf("[Grid] T-trade reduce %s cancelled — re-placing remainder %.4f at the same price (spread=%.1f%%)", reduceID, remainingQty, entry.SpreadPct)
 			cancelledPrepSide := "buy"
 			if entry.Side == "buy" {
 				cancelledPrepSide = "sell"
 			}
-			ok := at.placeTTradeReduceOrder(cancelledPrepSide, entry.PrepFillPrice, entry.Qty, entry.PrepOrderID)
+			// Pin the original spread so the re-placed order lands at exactly
+			// entry.ReducePrice, even if gridConfig.TTradeSpreadPct has since
+			// changed — this makes it possible to tell from the price alone
+			// that this is a revival of the same reduce intent, not a new one.
+			ok := at.placeTTradeReduceOrder(cancelledPrepSide, entry.PrepFillPrice, remainingQty, entry.PrepOrderID, entry.SpreadPct)
 			if ok {
 				// Remove old entry only after successful re-placement
 				at.gridState.mu.Lock()
