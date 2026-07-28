@@ -87,7 +87,7 @@ func main() {
 	printResult("Best found", result.Best, result.BestResult)
 
 	if result.BestResult.BlewUp {
-		fmt.Println("\n⚠️  Best result still blew up (equity <= 0) somewhere in the window — this symbol/period combination may not be suitable for grid trading regardless of parameters.")
+		fmt.Println("\n⚠️  Best result still triggered a simulated cross-margin liquidation somewhere in the window — this symbol/period combination may not be suitable for grid trading regardless of parameters.")
 	}
 
 	fmt.Println("\nThis is a suggestion only — nothing was written back to any config. Review and apply manually if it looks reasonable.")

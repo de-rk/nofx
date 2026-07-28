@@ -83,12 +83,12 @@ export function GridBacktestPage() {
       filledLevels: { zh: '成交层数', en: 'Filled levels' },
       reduces: { zh: '减仓次数(多/空)', en: 'Reduces (long/short)' },
       score: { zh: '评分', en: 'Score' },
-      blewUp: { zh: '⚠️ 该组合曾导致权益归零，风险极高', en: '⚠️ This combination blew up (equity <= 0) — very high risk' },
+      blewUp: { zh: '⚠️ 该组合触发全仓强平（按简化维持保证金率估算），风险极高', en: '⚠️ This combination triggered cross-margin liquidation (approximated maintenance margin rate) — very high risk' },
       clickToRun: { zh: '设置参数后点击"开始回测"', en: 'Set parameters and click "Run backtest"' },
       loadedFromActive: { zh: '已从当前激活策略加载基准参数', en: 'Baseline params loaded from active strategy' },
       fillModelNote: {
-        zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交、做市排队和手续费。结果仅供参考。',
-        en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills, maker queue, or fees modeled. Results are indicative only.',
+        zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交、做市排队和手续费。爆仓判断按全仓模式，用固定维持保证金率（0.5%）估算，不是交易所精确的分层保证金率表。结果仅供参考。',
+        en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills, maker queue, or fees modeled. Liquidation is approximated for cross-margin using a flat 0.5% maintenance margin rate, not an exchange\'s exact tiered schedule. Results are indicative only.',
       },
     }
     return translations[key]?.[language] || key

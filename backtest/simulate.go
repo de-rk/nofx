@@ -92,6 +92,17 @@ func stepFloor(profitPct, step float64) float64 {
 	return float64(steps) * step
 }
 
+// crossMarginMaintenanceRate approximates a cross-margin account's blended
+// maintenance margin rate as a flat percentage of total notional (long +
+// short), rather than modeling an exchange's tiered maintenance-margin
+// schedule (which varies by notional bracket and gets stricter at higher
+// leverage). This is a simplification: real cross-margin liquidation is
+// tiered and leverage-dependent, but a flat rate is enough to catch grid
+// parameter combinations (especially high leverage) that would blow up an
+// account well before its equity reaches zero. 0.5% matches OKX's typical
+// maintenance margin rate for major pairs at low-to-mid leverage.
+const crossMarginMaintenanceRate = 0.005
+
 // Simulate runs one backtest pass over klines (ascending time order) for the
 // given parameter set, starting at klines[startIdx]. Bars before startIdx are
 // used only to seed the ATR14 lookback window — they are never used to size
@@ -104,6 +115,12 @@ func stepFloor(profitPct, step float64) float64 {
 // Equity/drawdown are evaluated on each bar's Close, so intrabar spikes
 // through a level (not settled by Close) are not reflected in the drawdown
 // figure — a known limitation, not a bug.
+//
+// Liquidation model: cross-margin, checked once per bar against the
+// account's combined long+short notional (see crossMarginMaintenanceRate).
+// This replaces a plain equity<=0 check, which was far more permissive than
+// any real exchange's liquidation threshold and would let a backtest report
+// a "surviving" account that would have actually been liquidated.
 func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p GridParams) SimResult {
 	if startIdx >= len(klines) {
 		return SimResult{}
@@ -160,9 +177,14 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 			cashReleased += realized
 		}
 
-		// 3. Equity / drawdown tracking.
+		// 3. Cross-margin liquidation check + equity/drawdown tracking.
+		// Notional is marked at the current bar's close (not entry price) —
+		// maintenance margin scales with current position value, same as a
+		// real exchange.
 		equity := equityAt(bar.Close)
-		if equity <= 0 {
+		totalNotional := long.Qty*bar.Close + short.Qty*bar.Close
+		maintenanceMargin := totalNotional * crossMarginMaintenanceRate
+		if equity <= maintenanceMargin {
 			return SimResult{
 				FinalEquity:    0,
 				ReturnPct:      -100,

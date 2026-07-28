@@ -177,7 +177,7 @@
 |------|------|
 | `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化）、`SimResult`（单次回测结果） |
 | `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD` |
-| `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队/手续费）+ 复刻 `checkProfitReduce()` 的止盈阶梯减仓逐 bar 检查，输出收益率/最大回撤/成交层数/减仓次数；`Score()` 按「收益 - 1.5×最大回撤」打分 |
+| `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队/手续费）+ 复刻 `checkProfitReduce()` 的止盈阶梯减仓逐 bar 检查 + 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率，逐 bar 用当前多空总名义价值算维持保证金，账户权益跌破即判定 `BlewUp`，比之前"权益归零才算爆仓"更贴近实盘全仓强平线），输出收益率/最大回撤/成交层数/减仓次数；`Score()` 按「收益 - 1.5×最大回撤」打分，爆仓给 `-1e9` 极端惩罚分 |
 | `backtest/anneal.go` | `Anneal()` 通用模拟退火循环，`AnnealConfig.OnProgress` 回调用于流式上报迭代进度（供 SSE handler 使用），不知道传输层细节 |
 | `scripts/grid_backtest/main.go` | CLI 入口，薄封装调用 `backtest` 包。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000` |
 | `api/backtest.go` | `handleGridBacktestRun` — SSE 接口，流式推送 `baseline`/`progress`/`done`/`error` 四种事件，路由 `GET /api/backtest/grid/run`（`api/server.go`，需登录）。基准网格参数（`grid_count`/`atr_multiplier`/`distribution`/`profit_reduce_step_pct`/`profit_reduce_multiplier`）可通过 query 覆盖，默认才用硬编码猜测值 |
