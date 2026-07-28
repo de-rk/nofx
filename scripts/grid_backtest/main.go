@@ -17,13 +17,18 @@ import (
 
 func main() {
 	var (
-		symbol          string
-		timeframe       string
-		days            int
-		totalInvestment float64
-		leverage        int
-		iterations      int
-		seed            int64
+		symbol                     string
+		timeframe                  string
+		days                       int
+		totalInvestment            float64
+		leverage                   int
+		iterations                 int
+		seed                       int64
+		enableTTrade               bool
+		ttradePositionThresholdPct float64
+		ttradeSpreadPct            float64
+		profitDrawdownThresholdPct float64
+		enableSmallPositionClose   bool
 	)
 	flag.StringVar(&symbol, "symbol", "HYPEUSDT", "trading symbol")
 	flag.StringVar(&timeframe, "timeframe", "15m", "candle timeframe for the backtest")
@@ -32,6 +37,11 @@ func main() {
 	flag.IntVar(&leverage, "leverage", 5, "starting leverage (also searched)")
 	flag.IntVar(&iterations, "iterations", 3000, "simulated annealing iterations")
 	flag.Int64Var(&seed, "seed", 1, "RNG seed (change for a different search trajectory)")
+	flag.BoolVar(&enableTTrade, "enable-ttrade", false, "simulate T-trade (trapped-position tag/reduce) handling")
+	flag.Float64Var(&ttradePositionThresholdPct, "ttrade-position-threshold-pct", 30, "position size %% of total investment that activates T-trade")
+	flag.Float64Var(&ttradeSpreadPct, "ttrade-spread-pct", 0.2, "price spread %% for T-trade reduce orders (floored at 0.2)")
+	flag.Float64Var(&profitDrawdownThresholdPct, "profit-drawdown-threshold-pct", 0, "peak-profit pullback %% that triggers a full close (0 disables)")
+	flag.BoolVar(&enableSmallPositionClose, "enable-small-position-close", false, "fully close a side once profit > 2x step and notional < $100")
 	flag.Parse()
 
 	tfDur, err := market.TFDuration(timeframe)
@@ -59,12 +69,17 @@ func main() {
 	startIdx := warmupBars
 
 	initial := backtest.GridParams{
-		GridCount:              20,
-		ATRMultiplier:          3.0,
-		Distribution:           "gaussian",
-		Leverage:               leverage,
-		ProfitReduceStepPct:    6,
-		ProfitReduceMultiplier: 0.1,
+		GridCount:                  20,
+		ATRMultiplier:              3.0,
+		Distribution:               "gaussian",
+		Leverage:                   leverage,
+		ProfitReduceStepPct:        6,
+		ProfitReduceMultiplier:     0.1,
+		EnableTTrade:               enableTTrade,
+		TTradePositionThresholdPct: ttradePositionThresholdPct,
+		TTradeSpreadPct:            ttradeSpreadPct,
+		ProfitDrawdownThresholdPct: profitDrawdownThresholdPct,
+		EnableSmallPositionClose:   enableSmallPositionClose,
 	}
 
 	baseline := backtest.Simulate(klines, startIdx, totalInvestment, initial)
@@ -98,6 +113,15 @@ func printResult(label string, p backtest.GridParams, r backtest.SimResult) {
 	fmt.Printf("--- %s ---\n", label)
 	fmt.Printf("  grid_count=%d atr_multiplier=%.2f distribution=%s leverage=%d profit_reduce_step_pct=%.1f profit_reduce_multiplier=%.2f\n",
 		p.GridCount, p.ATRMultiplier, p.Distribution, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier)
-	fmt.Printf("  return=%.2f%% max_drawdown=%.2f%% filled_levels=%d long_reduces=%d short_reduces=%d blew_up=%v score=%.2f\n",
-		r.ReturnPct, r.MaxDrawdownPct, r.FilledLevels, r.LongReduces, r.ShortReduces, r.BlewUp, r.Score)
+	if p.EnableTTrade {
+		fmt.Printf("  ttrade: enabled position_threshold_pct=%.1f spread_pct=%.2f\n", p.TTradePositionThresholdPct, p.TTradeSpreadPct)
+	}
+	if p.ProfitDrawdownThresholdPct > 0 {
+		fmt.Printf("  profit_drawdown_threshold_pct=%.1f\n", p.ProfitDrawdownThresholdPct)
+	}
+	if p.EnableSmallPositionClose {
+		fmt.Printf("  small_position_close: enabled\n")
+	}
+	fmt.Printf("  return=%.2f%% max_drawdown=%.2f%% filled_levels=%d long_reduces=%d short_reduces=%d ttrade_reduces=%d drawdown_closes=%d small_position_closes=%d blew_up=%v score=%.2f\n",
+		r.ReturnPct, r.MaxDrawdownPct, r.FilledLevels, r.LongReduces, r.ShortReduces, r.TTradeReduces, r.DrawdownCloses, r.SmallPositionCloses, r.BlewUp, r.Score)
 }

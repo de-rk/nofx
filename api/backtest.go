@@ -32,7 +32,7 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 	seed := int64(queryInt(c, "seed", 1, 1, 1<<30))
 
 	// Baseline grid params default to a generic guess, but the caller (the
-	// frontend) may pass the active strategy's actual values instead so the
+	// frontend) may pass a selected strategy's actual values instead so the
 	// "baseline" comparison reflects what's really configured, not a
 	// hardcoded stand-in.
 	gridCount := queryInt(c, "grid_count", 20, 2, 100)
@@ -40,6 +40,11 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 	distribution := c.DefaultQuery("distribution", "gaussian")
 	profitReduceStepPct := queryFloat(c, "profit_reduce_step_pct", 6, 0.1, 100)
 	profitReduceMultiplier := queryFloat(c, "profit_reduce_multiplier", 0.1, 0.01, 1)
+	enableTTrade := queryBool(c, "enable_trapped_reduce", false)
+	ttradePositionThresholdPct := queryFloat(c, "t_trade_position_threshold_pct", 30, 1, 100)
+	ttradeSpreadPct := queryFloat(c, "t_trade_spread_pct", 0.2, 0.01, 10)
+	profitDrawdownThresholdPct := queryFloat(c, "profit_drawdown_threshold", 0, 0, 100)
+	enableSmallPositionClose := queryBool(c, "enable_small_position_close", false)
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -73,12 +78,17 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 	startIdx := warmupBars
 
 	initial := backtest.GridParams{
-		GridCount:              gridCount,
-		ATRMultiplier:          atrMultiplier,
-		Distribution:           distribution,
-		Leverage:               leverage,
-		ProfitReduceStepPct:    profitReduceStepPct,
-		ProfitReduceMultiplier: profitReduceMultiplier,
+		GridCount:                  gridCount,
+		ATRMultiplier:              atrMultiplier,
+		Distribution:               distribution,
+		Leverage:                   leverage,
+		ProfitReduceStepPct:        profitReduceStepPct,
+		ProfitReduceMultiplier:     profitReduceMultiplier,
+		EnableTTrade:               enableTTrade,
+		TTradePositionThresholdPct: ttradePositionThresholdPct,
+		TTradeSpreadPct:            ttradeSpreadPct,
+		ProfitDrawdownThresholdPct: profitDrawdownThresholdPct,
+		EnableSmallPositionClose:   enableSmallPositionClose,
 	}
 
 	baseline := backtest.Simulate(klines, startIdx, totalInvestment, initial)
@@ -147,6 +157,18 @@ func queryInt(c *gin.Context, key string, def, min, max int) int {
 	}
 	if v > max {
 		return max
+	}
+	return v
+}
+
+func queryBool(c *gin.Context, key string, def bool) bool {
+	raw := c.Query(key)
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return def
 	}
 	return v
 }

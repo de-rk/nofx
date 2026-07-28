@@ -6,10 +6,14 @@ import (
 
 // sideState tracks one side's (long or short) accumulated grid position.
 type sideState struct {
-	Qty            float64 // base-asset size, always >= 0
-	EntryPrice     float64 // volume-weighted average fill price
-	AlreadyReduced float64 // highest profit-reduce step already applied, resets to 0 when profit <= 0
-	ReduceCount    int
+	Qty                float64 // base-asset size, always >= 0
+	EntryPrice         float64 // volume-weighted average fill price
+	AlreadyReduced     float64 // highest profit-reduce step already applied, resets to 0 when profit <= 0
+	PeakProfitPct      float64 // highest profit% observed since the position was last flat (drives drawdown-close)
+	ReduceCount        int
+	TTradeReduceCount  int
+	DrawdownCloseCount int
+	SmallCloseCount    int
 }
 
 func (s *sideState) addFill(qty, price float64) {
@@ -52,14 +56,14 @@ func applyProfitReduce(s *sideState, mark float64, isLong bool, leverage int, st
 		return 0, false
 	}
 	pnl := s.unrealizedPnL(mark, isLong)
-	profitPct := pnl / margin * 100
+	pct := profitPct(s, mark, isLong, leverage)
 
-	if profitPct <= 0 {
+	if pct <= 0 {
 		s.AlreadyReduced = 0
 		return 0, false
 	}
 
-	targetStep := stepFloor(profitPct, stepPct)
+	targetStep := stepFloor(pct, stepPct)
 	if targetStep <= s.AlreadyReduced {
 		return 0, false
 	}
@@ -92,6 +96,129 @@ func stepFloor(profitPct, step float64) float64 {
 	return float64(steps) * step
 }
 
+// profitPct computes the same profit percentage formula used by both
+// trader.checkProfitReduce (pnl/margin*100) and trader.checkPositionDrawdown
+// ((mark-entry)/entry*leverage*100) — they're algebraically identical:
+// pnl/margin = (mark-entry)*qty / (qty*entry/leverage) = (mark-entry)/entry*leverage.
+func profitPct(s *sideState, mark float64, isLong bool, leverage int) float64 {
+	margin := s.margin(leverage)
+	if margin <= 0 {
+		return 0
+	}
+	return s.unrealizedPnL(mark, isLong) / margin * 100
+}
+
+// closeSide fully closes a side's position at mark price, returning the
+// realized PnL, and resets all per-side tracking (stepped-reduce progress,
+// peak profit) so a fresh position starts from a clean slate — matching
+// live behavior where a full close (profit_drawdown_close,
+// profit_reduce_close) clears the corresponding tracker/cache entry.
+func closeSide(s *sideState, mark float64, isLong bool) float64 {
+	if s.Qty == 0 {
+		return 0
+	}
+	pnl := s.unrealizedPnL(mark, isLong)
+	s.Qty = 0
+	s.EntryPrice = 0
+	s.AlreadyReduced = 0
+	s.PeakProfitPct = 0
+	return pnl
+}
+
+// applyRiskChecks runs, in priority order, the three profit-taking/closing
+// mechanisms that can fire on a side each bar: peak-drawdown full close
+// (trader.checkPositionDrawdown), small-notional full close (the early-exit
+// branch in trader.checkProfitReduce), and — only if neither of those
+// fired — the stepped partial reduce (applyProfitReduce). At most one of
+// them acts per side per bar, mirroring how a full close makes the
+// finer-grained mechanisms moot for that side this cycle.
+func applyRiskChecks(s *sideState, mark float64, isLong bool, leverage int, stepPct, multiplier, drawdownThresholdPct float64, enableSmallClose bool) (realizedPnL float64) {
+	if s.Qty == 0 {
+		return 0
+	}
+	pct := profitPct(s, mark, isLong, leverage)
+	if pct > s.PeakProfitPct {
+		s.PeakProfitPct = pct
+	}
+
+	// 1. Peak-drawdown full close: only once profit exceeded 5% and has
+	// since pulled back drawdownThresholdPct percentage points off its own
+	// peak. drawdownThresholdPct<=0 disables the check (matches the live
+	// GridConfig.ProfitDrawdownThreshold==0 "disabled" convention).
+	if drawdownThresholdPct > 0 && pct > 5.0 && s.PeakProfitPct > 0 && pct < s.PeakProfitPct {
+		ddPct := (s.PeakProfitPct - pct) / s.PeakProfitPct * 100
+		if ddPct >= drawdownThresholdPct {
+			s.DrawdownCloseCount++
+			return closeSide(s, mark, isLong)
+		}
+	}
+
+	// 2. Small-notional full close: profit exceeds 2x the reduce step and
+	// the remaining position's notional value has shrunk under $100 — not
+	// worth trickling down further, just close it.
+	if enableSmallClose {
+		step := stepPct
+		if step <= 0 {
+			step = 10.0
+		}
+		notional := s.Qty * mark
+		if pct > step*2 && notional < 100 {
+			s.SmallCloseCount++
+			return closeSide(s, mark, isLong)
+		}
+	}
+
+	// 3. Stepped partial reduce (unchanged from before this feature).
+	realized, _ := applyProfitReduce(s, mark, isLong, leverage, stepPct, multiplier)
+	return realized
+}
+
+// ttradeActivationThreshold applies the live default (30%) when the
+// configured threshold is <= 0, matching trader.buildTTradeContext.
+func ttradeActivationThreshold(configured float64) float64 {
+	if configured <= 0 {
+		return 30.0
+	}
+	return configured
+}
+
+// ttradeSpread applies the live floor (0.2%) on the configured spread,
+// matching trader.placeTTradeReduceOrder.
+func ttradeSpread(configured float64) float64 {
+	if configured < 0.2 {
+		return 0.2
+	}
+	return configured
+}
+
+// updateTTradeTags ports trader.ttradeTagOrders' tag/untag decision (not its
+// timeout handling, which doesn't apply to instantaneous bar-by-bar
+// simulation): every still-pending (unfilled) level on an active side gets
+// tagged if it qualifies (buy below current price, sell above); every
+// tagged-but-still-pending level on a side that's no longer active gets
+// untagged, so a later fill is treated as an ordinary grid fill again.
+func updateTTradeTags(levels []simLevel, currentPrice float64, longActive, shortActive bool) {
+	for i := range levels {
+		lv := &levels[i]
+		if lv.Filled {
+			continue
+		}
+		if lv.Side == "buy" {
+			if longActive && lv.Price <= currentPrice {
+				lv.TTradeTagged = true
+			} else if !longActive {
+				lv.TTradeTagged = false
+			}
+		} else {
+			if shortActive && lv.Price >= currentPrice {
+				lv.TTradeTagged = true
+			} else if !shortActive {
+				lv.TTradeTagged = false
+			}
+		}
+	}
+}
+
 // crossMarginMaintenanceRate approximates a cross-margin account's blended
 // maintenance margin rate as a flat percentage of total notional (long +
 // short), rather than modeling an exchange's tiered maintenance-margin
@@ -102,6 +229,17 @@ func stepFloor(profitPct, step float64) float64 {
 // account well before its equity reaches zero. 0.5% matches OKX's typical
 // maintenance margin rate for major pairs at low-to-mid leverage.
 const crossMarginMaintenanceRate = 0.005
+
+// pendingTTradeReduce is a T-trade reduce order awaiting fill, tied back to
+// the grid level whose tagged fill spawned it so that level can be freed
+// (Filled=false) once the reduce itself fills — approximating
+// trader.ttradeRepairOrders freeing the level and ttradeSupplementOrder
+// immediately re-tagging a fresh prep, by letting the same price level
+// become fillable again rather than opening a new level elsewhere.
+type pendingTTradeReduce struct {
+	ttradeReduceOrder
+	LevelIndex int
+}
 
 // Simulate runs one backtest pass over klines (ascending time order) for the
 // given parameter set, starting at klines[startIdx]. Bars before startIdx are
@@ -121,6 +259,17 @@ const crossMarginMaintenanceRate = 0.005
 // This replaces a plain equity<=0 check, which was far more permissive than
 // any real exchange's liquidation threshold and would let a backtest report
 // a "surviving" account that would have actually been liquidated.
+//
+// Per-bar order of operations (see inline steps below): T-trade
+// activation/tagging is evaluated first using the position as of the end of
+// the previous bar (matching live buildTTradeContext/ttradeTagOrders running
+// on the position snapshot before that cycle's fills); then normal level
+// fills (which also spawn a T-trade reduce order if the filled level was
+// tagged); then T-trade reduce-order fills (which realize PnL against the
+// side's current VWAP entry price — an approximation, since this simulator
+// doesn't do per-lot FIFO accounting — and free the originating level); then
+// the peak-drawdown / small-notional / stepped-reduce checks, in that
+// priority order (applyRiskChecks); then the liquidation + drawdown check.
 func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p GridParams) SimResult {
 	if startIdx >= len(klines) {
 		return SimResult{}
@@ -140,10 +289,13 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 	}
 
 	var long, short sideState
-	cashReleased := 0.0 // realized PnL from profit-reduce, added back to equity
+	var pendingReduces []pendingTTradeReduce
+	cashReleased := 0.0 // realized PnL from all profit-taking/close/reduce mechanisms, added back to equity
 	peakEquity := totalInvestment
 	maxDrawdownPct := 0.0
 	filledCount := 0
+	ttradeThreshold := ttradeActivationThreshold(p.TTradePositionThresholdPct)
+	ttradeSpreadPct := ttradeSpread(p.TTradeSpreadPct)
 
 	equityAt := func(mark float64) float64 {
 		return totalInvestment + cashReleased + long.unrealizedPnL(mark, true) + short.unrealizedPnL(mark, false)
@@ -152,7 +304,16 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 	for i := startIdx; i < len(klines); i++ {
 		bar := klines[i]
 
-		// 1. Fill detection.
+		// 1. T-trade activation + tagging, evaluated on the position as it
+		// stood at the end of the previous bar (before this bar's fills).
+		if p.EnableTTrade {
+			longActive := long.margin(p.Leverage)/totalInvestment*100 >= ttradeThreshold
+			shortActive := short.margin(p.Leverage)/totalInvestment*100 >= ttradeThreshold
+			updateTTradeTags(levels, bar.Close, longActive, shortActive)
+		}
+
+		// 2. Normal level fill detection. A tagged level's fill additionally
+		// spawns a reduce-only order at fillPrice ± spread.
 		for li := range levels {
 			lv := &levels[li]
 			if lv.Filled {
@@ -166,18 +327,63 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 				} else {
 					short.addFill(lv.Qty, lv.Price)
 				}
+				if p.EnableTTrade && lv.TTradeTagged {
+					isLong := lv.Side == "buy"
+					reducePrice := lv.Price * (1 + ttradeSpreadPct/100)
+					if !isLong {
+						reducePrice = lv.Price * (1 - ttradeSpreadPct/100)
+					}
+					pendingReduces = append(pendingReduces, pendingTTradeReduce{
+						ttradeReduceOrder: ttradeReduceOrder{Price: reducePrice, Qty: lv.Qty, IsLong: isLong},
+						LevelIndex:        li,
+					})
+				}
 			}
 		}
 
-		// 2. Profit-reduce check (once per bar, mirrors the live WS-driven cadence).
-		if realized, fired := applyProfitReduce(&long, bar.Close, true, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier); fired {
-			cashReleased += realized
-		}
-		if realized, fired := applyProfitReduce(&short, bar.Close, false, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier); fired {
-			cashReleased += realized
+		// 3. T-trade reduce-order fill detection. Realizes PnL against the
+		// side's current VWAP entry price (see doc comment above) and frees
+		// the originating level so it can be re-tagged/re-filled.
+		if len(pendingReduces) > 0 {
+			remaining := pendingReduces[:0]
+			for _, r := range pendingReduces {
+				if bar.Low <= r.Price && r.Price <= bar.High {
+					side := &short
+					if r.IsLong {
+						side = &long
+					}
+					qty := r.Qty
+					if qty > side.Qty {
+						qty = side.Qty
+					}
+					if qty > 0 {
+						var realized float64
+						if r.IsLong {
+							realized = (r.Price - side.EntryPrice) * qty
+						} else {
+							realized = (side.EntryPrice - r.Price) * qty
+						}
+						side.Qty -= qty
+						cashReleased += realized
+						side.TTradeReduceCount++
+					}
+					if r.LevelIndex < len(levels) {
+						levels[r.LevelIndex].Filled = false
+						levels[r.LevelIndex].TTradeTagged = false
+					}
+					continue
+				}
+				remaining = append(remaining, r)
+			}
+			pendingReduces = remaining
 		}
 
-		// 3. Cross-margin liquidation check + equity/drawdown tracking.
+		// 4. Peak-drawdown close / small-notional close / stepped profit-reduce,
+		// in priority order (see applyRiskChecks).
+		cashReleased += applyRiskChecks(&long, bar.Close, true, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier, p.ProfitDrawdownThresholdPct, p.EnableSmallPositionClose)
+		cashReleased += applyRiskChecks(&short, bar.Close, false, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier, p.ProfitDrawdownThresholdPct, p.EnableSmallPositionClose)
+
+		// 5. Cross-margin liquidation check + equity/drawdown tracking.
 		// Notional is marked at the current bar's close (not entry price) —
 		// maintenance margin scales with current position value, same as a
 		// real exchange.
@@ -186,14 +392,17 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		maintenanceMargin := totalNotional * crossMarginMaintenanceRate
 		if equity <= maintenanceMargin {
 			return SimResult{
-				FinalEquity:    0,
-				ReturnPct:      -100,
-				MaxDrawdownPct: 100,
-				FilledLevels:   filledCount,
-				LongReduces:    long.ReduceCount,
-				ShortReduces:   short.ReduceCount,
-				BlewUp:         true,
-				Score:          -1e9,
+				FinalEquity:         0,
+				ReturnPct:           -100,
+				MaxDrawdownPct:      100,
+				FilledLevels:        filledCount,
+				LongReduces:         long.ReduceCount,
+				ShortReduces:        short.ReduceCount,
+				TTradeReduces:       long.TTradeReduceCount + short.TTradeReduceCount,
+				DrawdownCloses:      long.DrawdownCloseCount + short.DrawdownCloseCount,
+				SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
+				BlewUp:              true,
+				Score:               -1e9,
 			}
 		}
 		if equity > peakEquity {
@@ -210,14 +419,17 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 	returnPct := (finalEquity - totalInvestment) / totalInvestment * 100
 
 	return SimResult{
-		FinalEquity:    finalEquity,
-		ReturnPct:      returnPct,
-		MaxDrawdownPct: maxDrawdownPct,
-		FilledLevels:   filledCount,
-		LongReduces:    long.ReduceCount,
-		ShortReduces:   short.ReduceCount,
-		BlewUp:         false,
-		Score:          Score(returnPct, maxDrawdownPct),
+		FinalEquity:         finalEquity,
+		ReturnPct:           returnPct,
+		MaxDrawdownPct:      maxDrawdownPct,
+		FilledLevels:        filledCount,
+		LongReduces:         long.ReduceCount,
+		ShortReduces:        short.ReduceCount,
+		TTradeReduces:       long.TTradeReduceCount + short.TTradeReduceCount,
+		DrawdownCloses:      long.DrawdownCloseCount + short.DrawdownCloseCount,
+		SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
+		BlewUp:              false,
+		Score:               Score(returnPct, maxDrawdownPct),
 	}
 }
 

@@ -4,6 +4,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { FlaskConical, Loader2, Play, Square, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { notify } from '../lib/notify'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
+import type { Strategy } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -14,6 +15,11 @@ interface GridParams {
   leverage: number
   profit_reduce_step_pct: number
   profit_reduce_multiplier: number
+  enable_trapped_reduce: boolean
+  t_trade_position_threshold_pct: number
+  t_trade_spread_pct: number
+  profit_drawdown_threshold: number
+  enable_small_position_close: boolean
 }
 
 interface SimResult {
@@ -23,6 +29,9 @@ interface SimResult {
   filled_levels: number
   long_reduces: number
   short_reduces: number
+  t_trade_reduces: number
+  drawdown_closes: number
+  small_position_closes: number
   blew_up: boolean
   score: number
 }
@@ -31,6 +40,9 @@ export function GridBacktestPage() {
   const { token } = useAuth()
   const { language } = useLanguage()
 
+  const [strategies, setStrategies] = useState<Strategy[]>([])
+  const [selectedStrategyId, setSelectedStrategyId] = useState('')
+
   const [symbol, setSymbol] = useState('HYPEUSDT')
   const [timeframe, setTimeframe] = useState('15m')
   const [days, setDays] = useState(60)
@@ -38,14 +50,19 @@ export function GridBacktestPage() {
   const [leverage, setLeverage] = useState(5)
   const [iterations, setIterations] = useState(2000)
 
-  // Baseline grid params — prefilled from the active strategy's grid_config
-  // when available (see useEffect below), otherwise a generic guess.
+  // Baseline grid params — prefilled from the selected strategy's
+  // grid_config (see applyStrategyConfig below), otherwise a generic guess.
   const [gridCount, setGridCount] = useState(20)
   const [atrMultiplier, setAtrMultiplier] = useState(3.0)
   const [distribution, setDistribution] = useState('gaussian')
   const [profitReduceStepPct, setProfitReduceStepPct] = useState(6)
   const [profitReduceMultiplier, setProfitReduceMultiplier] = useState(0.1)
-  const [loadedFromActiveStrategy, setLoadedFromActiveStrategy] = useState(false)
+  const [enableTTrade, setEnableTTrade] = useState(false)
+  const [ttradePositionThresholdPct, setTtradePositionThresholdPct] = useState(30)
+  const [ttradeSpreadPct, setTtradeSpreadPct] = useState(0.2)
+  const [profitDrawdownThresholdPct, setProfitDrawdownThresholdPct] = useState(0)
+  const [enableSmallPositionClose, setEnableSmallPositionClose] = useState(false)
+  const [loadedFromStrategy, setLoadedFromStrategy] = useState(false)
 
   const [isRunning, setIsRunning] = useState(false)
   const [baseline, setBaseline] = useState<{ params: GridParams; result: SimResult } | null>(null)
@@ -61,6 +78,9 @@ export function GridBacktestPage() {
         zh: '离线回放历史K线，用模拟退火搜索较优的网格参数组合。仅供参考，不会写回任何策略配置。',
         en: 'Offline replay against historical klines; simulated annealing searches for a better-scoring parameter set. Suggestion only — nothing is written back to any strategy config.',
       },
+      selectStrategy: { zh: '选择策略（用于加载基准参数）', en: 'Select strategy (loads baseline params)' },
+      noStrategies: { zh: '暂无策略', en: 'No strategies' },
+      customBaseline: { zh: '（自定义基准参数）', en: '(custom baseline params)' },
       symbol: { zh: '交易对', en: 'Symbol' },
       timeframe: { zh: 'K线周期', en: 'Timeframe' },
       days: { zh: '回测天数', en: 'Backtest days' },
@@ -78,52 +98,74 @@ export function GridBacktestPage() {
       distribution: { zh: '分布', en: 'Distribution' },
       profitReduceStep: { zh: '止盈减仓步进 %', en: 'Profit-reduce step %' },
       profitReduceMultiplier: { zh: '止盈减仓倍率', en: 'Profit-reduce multiplier' },
+      enableTTrade: { zh: '启用 T 字被套减仓', en: 'Enable T-trade (trapped reduce)' },
+      ttradePositionThreshold: { zh: 'T字触发仓位 (%)', en: 'T-trade trigger position (%)' },
+      ttradeSpread: { zh: 'T字减仓价差 (%)', en: 'T-trade reduce spread (%)' },
+      profitDrawdownThreshold: { zh: '利润回撤阈值 (%)', en: 'Profit drawdown threshold (%)' },
+      profitDrawdownHint: { zh: '0 = 禁用', en: '0 = disabled' },
+      enableSmallPositionClose: { zh: '小仓位自动平仓', en: 'Auto-close small positions' },
       returnPct: { zh: '收益率', en: 'Return' },
       maxDrawdown: { zh: '最大回撤', en: 'Max drawdown' },
       filledLevels: { zh: '成交层数', en: 'Filled levels' },
       reduces: { zh: '减仓次数(多/空)', en: 'Reduces (long/short)' },
+      ttradeReduces: { zh: 'T字减仓次数', en: 'T-trade reduces' },
+      drawdownCloses: { zh: '回撤全平次数', en: 'Drawdown closes' },
+      smallCloses: { zh: '小仓位平仓次数', en: 'Small-position closes' },
       score: { zh: '评分', en: 'Score' },
       blewUp: { zh: '⚠️ 该组合触发全仓强平（按简化维持保证金率估算），风险极高', en: '⚠️ This combination triggered cross-margin liquidation (approximated maintenance margin rate) — very high risk' },
       clickToRun: { zh: '设置参数后点击"开始回测"', en: 'Set parameters and click "Run backtest"' },
-      loadedFromActive: { zh: '已从当前激活策略加载基准参数', en: 'Baseline params loaded from active strategy' },
+      loadedFromStrategy: { zh: '已从所选策略加载基准参数', en: 'Baseline params loaded from selected strategy' },
       fillModelNote: {
-        zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交、做市排队和手续费。爆仓判断按全仓模式，用固定维持保证金率（0.5%）估算，不是交易所精确的分层保证金率表。结果仅供参考。',
-        en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills, maker queue, or fees modeled. Liquidation is approximated for cross-margin using a flat 0.5% maintenance margin rate, not an exchange\'s exact tiered schedule. Results are indicative only.',
+        zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交、做市排队和手续费。爆仓判断按全仓模式，用固定维持保证金率（0.5%）估算，不是交易所精确的分层保证金率表。T字被套减仓、利润回撤全平、小仓位自动平仓均已按对应实盘逻辑复刻，但仍是简化模型。结果仅供参考。',
+        en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills, maker queue, or fees modeled. Liquidation is approximated for cross-margin using a flat 0.5% maintenance margin rate, not an exchange\'s exact tiered schedule. T-trade, profit-drawdown close, and small-position close are ported from the corresponding live logic, but remain simplified models. Results are indicative only.',
       },
     }
     return translations[key]?.[language] || key
   }
 
-  // Prefill baseline params from the currently active strategy's grid_config,
-  // if one exists and is a grid strategy. Falls back to the generic guess
-  // (already set as initial state) if there's no active strategy, it's not
-  // a grid strategy, or the request fails — this is a convenience prefill,
-  // not a hard requirement.
+  // Fetch the user's strategy list once. Reused by PromptTestPage's pattern
+  // (GET /api/strategies), not the single active strategy.
   useEffect(() => {
     if (!token) return
     ;(async () => {
       try {
-        const resp = await fetch(`${API_BASE}/api/strategies/active`, {
+        const resp = await fetch(`${API_BASE}/api/strategies`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!resp.ok) return
         const data = await resp.json()
-        const gc = data?.config?.grid_config
-        if (!gc) return
-        if (gc.symbol) setSymbol(gc.symbol)
-        if (typeof gc.leverage === 'number') setLeverage(gc.leverage)
-        if (typeof gc.grid_count === 'number') setGridCount(gc.grid_count)
-        if (typeof gc.atr_multiplier === 'number') setAtrMultiplier(gc.atr_multiplier)
-        if (gc.distribution) setDistribution(gc.distribution)
-        if (typeof gc.profit_reduce_step_pct === 'number') setProfitReduceStepPct(gc.profit_reduce_step_pct)
-        if (typeof gc.profit_reduce_multiplier === 'number') setProfitReduceMultiplier(gc.profit_reduce_multiplier)
-        if (typeof gc.total_investment === 'number' && gc.total_investment > 0) setInvestment(gc.total_investment)
-        setLoadedFromActiveStrategy(true)
+        setStrategies(data.strategies || [])
       } catch {
-        // no active strategy / not a grid strategy / request failed — keep generic defaults
+        // no strategies / request failed — the form still works with manual params
       }
     })()
   }, [token])
+
+  // Prefill baseline params from the selected strategy's grid_config, if it
+  // has one. Selecting "" (no strategy) leaves whatever is currently in the
+  // form untouched — this is a convenience prefill, not a hard requirement.
+  const applyStrategyConfig = (strategyId: string) => {
+    setSelectedStrategyId(strategyId)
+    setLoadedFromStrategy(false)
+    if (!strategyId) return
+    const strategy = strategies.find((s) => s.id === strategyId)
+    const gc = strategy?.config?.grid_config
+    if (!gc) return
+    if (gc.symbol) setSymbol(gc.symbol)
+    if (typeof gc.leverage === 'number') setLeverage(gc.leverage)
+    if (typeof gc.grid_count === 'number') setGridCount(gc.grid_count)
+    if (typeof gc.atr_multiplier === 'number') setAtrMultiplier(gc.atr_multiplier)
+    if (gc.distribution) setDistribution(gc.distribution)
+    if (typeof gc.profit_reduce_step_pct === 'number') setProfitReduceStepPct(gc.profit_reduce_step_pct)
+    if (typeof gc.profit_reduce_multiplier === 'number') setProfitReduceMultiplier(gc.profit_reduce_multiplier)
+    if (typeof gc.enable_trapped_reduce === 'boolean') setEnableTTrade(gc.enable_trapped_reduce)
+    if (typeof gc.t_trade_position_threshold_pct === 'number') setTtradePositionThresholdPct(gc.t_trade_position_threshold_pct)
+    if (typeof gc.t_trade_spread_pct === 'number') setTtradeSpreadPct(gc.t_trade_spread_pct)
+    if (typeof gc.profit_drawdown_threshold === 'number') setProfitDrawdownThresholdPct(gc.profit_drawdown_threshold)
+    if (typeof gc.enable_small_position_close === 'boolean') setEnableSmallPositionClose(gc.enable_small_position_close)
+    if (typeof gc.total_investment === 'number' && gc.total_investment > 0) setInvestment(gc.total_investment)
+    setLoadedFromStrategy(true)
+  }
 
   const stop = () => {
     abortRef.current?.abort()
@@ -153,6 +195,11 @@ export function GridBacktestPage() {
       distribution,
       profit_reduce_step_pct: String(profitReduceStepPct),
       profit_reduce_multiplier: String(profitReduceMultiplier),
+      enable_trapped_reduce: String(enableTTrade),
+      t_trade_position_threshold_pct: String(ttradePositionThresholdPct),
+      t_trade_spread_pct: String(ttradeSpreadPct),
+      profit_drawdown_threshold: String(profitDrawdownThresholdPct),
+      enable_small_position_close: String(enableSmallPositionClose),
     })
 
     try {
@@ -217,6 +264,18 @@ export function GridBacktestPage() {
       <div><span className="text-nofx-text-secondary">{t('leverage')}: </span>{p.leverage}x</div>
       <div><span className="text-nofx-text-secondary">{t('profitReduceStep')}: </span>{p.profit_reduce_step_pct.toFixed(1)}</div>
       <div><span className="text-nofx-text-secondary">{t('profitReduceMultiplier')}: </span>{p.profit_reduce_multiplier.toFixed(2)}</div>
+      {p.enable_trapped_reduce && (
+        <>
+          <div><span className="text-nofx-text-secondary">{t('ttradePositionThreshold')}: </span>{p.t_trade_position_threshold_pct.toFixed(1)}</div>
+          <div><span className="text-nofx-text-secondary">{t('ttradeSpread')}: </span>{p.t_trade_spread_pct.toFixed(2)}</div>
+        </>
+      )}
+      {p.profit_drawdown_threshold > 0 && (
+        <div><span className="text-nofx-text-secondary">{t('profitDrawdownThreshold')}: </span>{p.profit_drawdown_threshold.toFixed(1)}</div>
+      )}
+      {p.enable_small_position_close && (
+        <div className="text-nofx-text-secondary">{t('enableSmallPositionClose')}: ✓</div>
+      )}
     </div>
   )
 
@@ -229,6 +288,9 @@ export function GridBacktestPage() {
       <div><span className="text-nofx-text-secondary">{t('maxDrawdown')}: </span><span className="text-red-400">{r.max_drawdown_pct.toFixed(2)}%</span></div>
       <div><span className="text-nofx-text-secondary">{t('filledLevels')}: </span>{r.filled_levels}</div>
       <div><span className="text-nofx-text-secondary">{t('reduces')}: </span>{r.long_reduces} / {r.short_reduces}</div>
+      {r.t_trade_reduces > 0 && <div><span className="text-nofx-text-secondary">{t('ttradeReduces')}: </span>{r.t_trade_reduces}</div>}
+      {r.drawdown_closes > 0 && <div><span className="text-nofx-text-secondary">{t('drawdownCloses')}: </span>{r.drawdown_closes}</div>}
+      {r.small_position_closes > 0 && <div><span className="text-nofx-text-secondary">{t('smallCloses')}: </span>{r.small_position_closes}</div>}
       <div><span className="text-nofx-text-secondary">{t('score')}: </span>{r.score.toFixed(2)}</div>
       {r.blew_up && (
         <div className="col-span-2 sm:col-span-3 flex items-center gap-2 text-amber-400">
@@ -250,6 +312,21 @@ export function GridBacktestPage() {
         </div>
 
         <div className="bg-nofx-bg-lighter/50 backdrop-blur-sm rounded-lg border border-nofx-gold/20 p-6 mb-6">
+          <div className="mb-4">
+            <label className="block text-xs text-nofx-text-secondary mb-1">{t('selectStrategy')}</label>
+            <select
+              value={selectedStrategyId}
+              onChange={(e) => applyStrategyConfig(e.target.value)}
+              disabled={isRunning}
+              className="w-full max-w-md px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+            >
+              <option value="">{strategies.length === 0 ? t('noStrategies') : t('customBaseline')}</option>
+              {strategies.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
             <div>
               <label className="block text-xs text-nofx-text-secondary mb-1">{t('symbol')}</label>
@@ -323,10 +400,10 @@ export function GridBacktestPage() {
             </div>
           </div>
 
-          {loadedFromActiveStrategy && (
+          {loadedFromStrategy && (
             <div className="flex items-center gap-2 text-xs text-green-400 mb-4">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              {t('loadedFromActive')}
+              {t('loadedFromStrategy')}
             </div>
           )}
 
@@ -395,7 +472,75 @@ export function GridBacktestPage() {
                 className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
               />
             </div>
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('profitDrawdownThreshold')}</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={profitDrawdownThresholdPct}
+                onChange={(e) => setProfitDrawdownThresholdPct(Number(e.target.value))}
+                disabled={isRunning}
+                placeholder={t('profitDrawdownHint')}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              />
+            </div>
           </div>
+
+          <div className="flex flex-wrap items-center gap-6 mb-4">
+            <label className="flex items-center gap-2 text-sm text-nofx-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableTTrade}
+                onChange={(e) => setEnableTTrade(e.target.checked)}
+                disabled={isRunning}
+                className="w-4 h-4 accent-nofx-gold"
+              />
+              {t('enableTTrade')}
+            </label>
+            <label className="flex items-center gap-2 text-sm text-nofx-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableSmallPositionClose}
+                onChange={(e) => setEnableSmallPositionClose(e.target.checked)}
+                disabled={isRunning}
+                className="w-4 h-4 accent-nofx-gold"
+              />
+              {t('enableSmallPositionClose')}
+            </label>
+          </div>
+
+          {enableTTrade && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label className="block text-xs text-nofx-text-secondary mb-1">{t('ttradePositionThreshold')}</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={ttradePositionThresholdPct}
+                  onChange={(e) => setTtradePositionThresholdPct(Number(e.target.value))}
+                  disabled={isRunning}
+                  className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-nofx-text-secondary mb-1">{t('ttradeSpread')}</label>
+                <input
+                  type="number"
+                  min={0.01}
+                  max={10}
+                  step={0.05}
+                  value={ttradeSpreadPct}
+                  onChange={(e) => setTtradeSpreadPct(Number(e.target.value))}
+                  disabled={isRunning}
+                  className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-3">
             {!isRunning ? (
