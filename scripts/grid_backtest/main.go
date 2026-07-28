@@ -1,12 +1,7 @@
-// grid_backtest offline-tests grid-strategy parameter combinations against
-// historical K-lines and searches for a high-scoring combination via
-// simulated annealing. It is fully standalone: no DB, no exchange calls, no
-// AI calls, and it never touches the live trading path in trader/. Output is
-// a suggested parameter set for the operator to review and apply by hand to
-// a real strategy config — this tool does not write anything back.
-//
-// Fill model and scope are documented in simulate.go; read that comment
-// before trusting the numbers this tool prints.
+// grid_backtest is the CLI entry point for nofx/backtest — see that
+// package's doc comment for scope and limitations. This file is a thin
+// wrapper; all the actual logic lives in nofx/backtest so the web API
+// handler (api/server.go) can reuse it without shelling out to this binary.
 package main
 
 import (
@@ -16,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"nofx/backtest"
 	"nofx/market"
 )
 
@@ -62,8 +58,8 @@ func main() {
 
 	startIdx := warmupBars
 
-	initial := GridParams{
-		GridCount:             20,
+	initial := backtest.GridParams{
+		GridCount:              20,
 		ATRMultiplier:          3.0,
 		Distribution:           "gaussian",
 		Leverage:               leverage,
@@ -71,14 +67,14 @@ func main() {
 		ProfitReduceMultiplier: 0.1,
 	}
 
-	baseline := Simulate(klines, startIdx, totalInvestment, initial)
+	baseline := backtest.Simulate(klines, startIdx, totalInvestment, initial)
 	printResult("Baseline (initial guess)", initial, baseline)
 
-	eval := func(p GridParams) SimResult {
-		return Simulate(klines, startIdx, totalInvestment, p)
+	eval := func(p backtest.GridParams) backtest.SimResult {
+		return backtest.Simulate(klines, startIdx, totalInvestment, p)
 	}
 
-	cfg := AnnealConfig{
+	cfg := backtest.AnnealConfig{
 		Iterations:  iterations,
 		InitialTemp: 10.0,
 		CoolingRate: 1 - 5.0/float64(iterations), // reach ~1% of InitialTemp by the end
@@ -86,7 +82,7 @@ func main() {
 	}
 
 	fmt.Printf("🔥 Running simulated annealing (%d iterations)...\n", cfg.Iterations)
-	result := Anneal(initial, eval, cfg)
+	result := backtest.Anneal(initial, eval, cfg)
 	fmt.Println()
 	printResult("Best found", result.Best, result.BestResult)
 
@@ -98,7 +94,7 @@ func main() {
 	os.Exit(0)
 }
 
-func printResult(label string, p GridParams, r SimResult) {
+func printResult(label string, p backtest.GridParams, r backtest.SimResult) {
 	fmt.Printf("--- %s ---\n", label)
 	fmt.Printf("  grid_count=%d atr_multiplier=%.2f distribution=%s leverage=%d profit_reduce_step_pct=%.1f profit_reduce_multiplier=%.2f\n",
 		p.GridCount, p.ATRMultiplier, p.Distribution, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier)

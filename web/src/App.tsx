@@ -12,6 +12,7 @@ import { LandingPage } from './pages/LandingPage'
 import { StrategyStudioPage } from './pages/StrategyStudioPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { PromptTestPage } from './pages/PromptTestPage'
+import { GridBacktestPage } from './pages/GridBacktestPage'
 import { LoginRequiredOverlay } from './components/LoginRequiredOverlay'
 import HeaderBar from './components/HeaderBar'
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
@@ -38,6 +39,7 @@ type Page =
   | 'strategy'
   | 'strategy-market'
   | 'prompt-test'
+  | 'grid-backtest'
   | 'login'
   | 'register'
 
@@ -63,6 +65,7 @@ function App() {
     if (path === '/strategy' || hash === 'strategy') return 'strategy'
     if (path === '/strategy-market' || hash === 'strategy-market') return 'strategy-market'
     if (path === '/prompt-test' || hash === 'prompt-test') return 'prompt-test'
+    if (path === '/grid-backtest' || hash === 'grid-backtest') return 'grid-backtest'
     if (path === '/dashboard' || hash === 'trader' || hash === 'details')
       return 'trader'
     return 'trader' // 默认为 dashboard
@@ -85,6 +88,7 @@ function App() {
       'trader': '/dashboard',
       'strategy': '/strategy',
       'prompt-test': '/prompt-test',
+      'grid-backtest': '/grid-backtest',
       'login': '/login',
       'register': '/register',
     }
@@ -144,6 +148,8 @@ function App() {
         setCurrentPage('strategy-market')
       } else if (path === '/prompt-test' || hash === 'prompt-test') {
         setCurrentPage('prompt-test')
+      } else if (path === '/grid-backtest' || hash === 'grid-backtest') {
+        setCurrentPage('grid-backtest')
       } else if (
         path === '/dashboard' ||
         hash === 'trader' ||
@@ -432,6 +438,8 @@ function App() {
               <StrategyStudioPage />
             ) : currentPage === 'prompt-test' ? (
               <PromptTestPage />
+            ) : currentPage === 'grid-backtest' ? (
+              <GridBacktestPage />
             ) : (
               <TraderDashboardPage
                 selectedTrader={selectedTrader}

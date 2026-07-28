@@ -12,6 +12,7 @@ type Page =
   | 'strategy'
   | 'strategy-market'
   | 'prompt-test'
+  | 'grid-backtest'
   | 'login'
   | 'register'
 
@@ -100,6 +101,7 @@ export default function HeaderBar({
                 { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'prompt-test', path: '/prompt-test', label: language === 'zh' ? 'Prompt测试' : 'Prompt Test', requiresAuth: true },
+                { page: 'grid-backtest', path: '/grid-backtest', label: language === 'zh' ? '网格回测' : 'Backtest', requiresAuth: true },
               ]
 
               const handleNavClick = (tab: typeof navTabs[0]) => {

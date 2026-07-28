@@ -171,11 +171,19 @@
 | `experience/experience.go` | AI 经验积累（历史决策反馈） |
 | `llm/qwen_agent.go` | 千问 Agent 独立封装 |
 
-## scripts/ — 独立运维/分析工具（不接触实盘交易路径）
+## backtest/ — 网格策略离线回测 + 模拟退火参数搜索（不接触实盘交易路径）
 
-| 目录 | 说明 |
+| 文件 | 说明 |
 |------|------|
-| `scripts/grid_backtest/` | 网格策略离线回测 + 模拟退火参数搜索。纯离线：拉历史K线（`market.GetKlinesRange`）、复刻网格边界/权重/止盈减仓算法（`grid.go`/`simulate.go`，逐行对照 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`/`checkProfitReduce`），用退火搜索 `grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier` 组合，按「收益 - 1.5×最大回撤」打分（`Score()`）。成交模型是简化版：K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队/手续费（见 `simulate.go` 顶部注释）。只打印建议参数，不写回任何配置或数据库。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000` |
+| `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化）、`SimResult`（单次回测结果） |
+| `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD` |
+| `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队/手续费）+ 复刻 `checkProfitReduce()` 的止盈阶梯减仓逐 bar 检查，输出收益率/最大回撤/成交层数/减仓次数；`Score()` 按「收益 - 1.5×最大回撤」打分 |
+| `backtest/anneal.go` | `Anneal()` 通用模拟退火循环，`AnnealConfig.OnProgress` 回调用于流式上报迭代进度（供 SSE handler 使用），不知道传输层细节 |
+| `scripts/grid_backtest/main.go` | CLI 入口，薄封装调用 `backtest` 包。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000` |
+| `api/backtest.go` | `handleGridBacktestRun` — SSE 接口，流式推送 `baseline`/`progress`/`done`/`error` 四种事件，路由 `GET /api/backtest/grid/run`（`api/server.go`，需登录） |
+| `web/src/pages/GridBacktestPage.tsx` | 前端页面：参数表单 + SSE 流式读取（`fetch` + `ReadableStream`，同 `App.tsx` 订单事件流的读取方式）+ 基准/最优结果对比卡片。导航栏入口：`HeaderBar.tsx` 桌面版 `navTabs`（`/grid-backtest`，与 `prompt-test` 一样未接入移动端菜单） |
+
+只打印/展示建议参数，不写回任何策略配置或数据库。
 
 ---
 

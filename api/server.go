@@ -173,6 +173,9 @@ func (s *Server) setupRoutes() {
 			protected.GET("/strategies/default-config", s.handleGetDefaultStrategyConfig)
 			protected.POST("/strategies/preview-prompt", s.handlePreviewPrompt)
 			protected.POST("/strategies/test-run", s.handleStrategyTestRun)
+
+			// Grid strategy offline backtest + simulated-annealing parameter search
+			protected.GET("/backtest/grid/run", s.handleGridBacktestRun)
 			protected.GET("/strategies/:id", s.handleGetStrategy)
 			protected.POST("/strategies", s.handleCreateStrategy)
 			protected.PUT("/strategies/:id", s.handleUpdateStrategy)

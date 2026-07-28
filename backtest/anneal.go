@@ -1,4 +1,4 @@
-package main
+package backtest
 
 import (
 	"math"
@@ -8,10 +8,10 @@ import (
 // paramBounds constrains the search space so perturbations never produce
 // nonsensical configs (e.g. grid_count=1, leverage=0).
 type paramBounds struct {
-	GridCountMin, GridCountMax             int
-	ATRMultiplierMin, ATRMultiplierMax     float64
-	LeverageMin, LeverageMax               int
-	ProfitReduceStepMin, ProfitReduceStepMax           float64
+	GridCountMin, GridCountMax                           int
+	ATRMultiplierMin, ATRMultiplierMax                   float64
+	LeverageMin, LeverageMax                             int
+	ProfitReduceStepMin, ProfitReduceStepMax             float64
 	ProfitReduceMultiplierMin, ProfitReduceMultiplierMax float64
 }
 
@@ -85,10 +85,16 @@ func neighbor(rng *rand.Rand, cur GridParams, b paramBounds) GridParams {
 
 // AnnealConfig controls the search schedule.
 type AnnealConfig struct {
-	Iterations   int
-	InitialTemp  float64
-	CoolingRate  float64 // temp *= CoolingRate each iteration, e.g. 0.995
-	Seed         int64
+	Iterations  int
+	InitialTemp float64
+	CoolingRate float64 // temp *= CoolingRate each iteration, e.g. 0.995
+	Seed        int64
+	// OnProgress, if set, is called after every iteration with the
+	// 1-based iteration number and the best score found so far. Callers
+	// (e.g. an SSE HTTP handler) use this to stream progress without the
+	// annealing loop knowing anything about transport. Must return quickly —
+	// it runs on the hot path between iterations.
+	OnProgress func(iteration int, bestScore float64)
 }
 
 // AnnealResult is the best parameter set found and its evaluated outcome.
@@ -139,6 +145,10 @@ func Anneal(start GridParams, eval Evaluate, cfg AnnealConfig) AnnealResult {
 
 		history = append(history, bestResult.Score)
 		temp *= cfg.CoolingRate
+
+		if cfg.OnProgress != nil {
+			cfg.OnProgress(i+1, bestResult.Score)
+		}
 	}
 
 	return AnnealResult{Best: best, BestResult: bestResult, History: history}
