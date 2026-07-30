@@ -2310,6 +2310,16 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 	}
 	var pendingReduces []pendingReduce
 
+	// Collect cancelled T-trade preps to log after releasing the lock — without a
+	// terminal ttrade_cancel event, a tagged-but-never-filled prep has no way to
+	// leave the frontend's T-trade panel (it groups by order_id and only advances
+	// past "标记" on a later action), so it lingers forever as a dead entry.
+	type cancelledPrep struct {
+		orderID, side string
+		price, qty    float64
+	}
+	var cancelledPreps []cancelledPrep
+
 	at.gridState.mu.Lock()
 
 	expectedPositionSize := 0.0
@@ -2405,8 +2415,9 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 				}
 			}
 		} else {
-			if _, ok := at.gridState.TTradePrepOrders[level.OrderID]; ok {
+			if prep, ok := at.gridState.TTradePrepOrders[level.OrderID]; ok {
 				logger.Infof("[Grid] ⚠️ T-trade prep order cancelled (orderID=%s) — removing from prep map", level.OrderID)
+				cancelledPreps = append(cancelledPreps, cancelledPrep{orderID: level.OrderID, side: prep.Side, price: prep.Price, qty: prep.Qty})
 				delete(at.gridState.TTradePrepOrders, level.OrderID)
 			}
 			level.State = "empty"
@@ -2509,6 +2520,14 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 	// Dispatch T-trade auto-reduces collected during the lock (must be outside lock)
 	for _, pr := range pendingReduces {
 		go at.placeTTradeReduceOrder(pr.side, pr.fillPrice, pr.qty, pr.prepOrderID)
+	}
+
+	// Log terminal ttrade_cancel for preps cancelled/expired before filling, so the
+	// T-trade panel (grouped by order_id) can drop them instead of showing a
+	// dead "标记" entry forever.
+	for _, cp := range cancelledPreps {
+		at.logGridTrade("ttrade", "ttrade_cancel", cp.side, gridConfig.Symbol,
+			"prep order cancelled/expired before fill", cp.orderID, cp.qty, cp.price, 0, 0, 0, 0, true, "")
 	}
 
 	pendingCount := 0

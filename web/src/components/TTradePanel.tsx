@@ -10,6 +10,7 @@ interface TTradeGroup {
   fillLog?: GridTradeLog
   reducePlacedLog?: GridTradeLog
   reduceLog?: GridTradeLog
+  cancelLog?: GridTradeLog
 }
 
 function groupTTradeEvents(logs: GridTradeLog[]): TTradeGroup[] {
@@ -31,6 +32,11 @@ function groupTTradeEvents(logs: GridTradeLog[]): TTradeGroup[] {
     const fillLog = events.find(e => e.action === 'ttrade_fill')
     const reducePlacedLog = events.find(e => e.action === 'ttrade_reduce_placed')
     const reduceLog = events.find(e => e.action === 'ttrade_reduce')
+    const cancelLog = events.find(e => e.action === 'ttrade_cancel')
+
+    // A prep that was cancelled/expired before ever filling has no further
+    // lifecycle to show — drop it instead of leaving a dead "标记" entry.
+    if (cancelLog && !fillLog) continue
 
     result.push({
       prepOrderId,
@@ -41,6 +47,7 @@ function groupTTradeEvents(logs: GridTradeLog[]): TTradeGroup[] {
       fillLog,
       reducePlacedLog,
       reduceLog,
+      cancelLog,
     })
   }
 
@@ -56,6 +63,7 @@ const ACTION_ICONS: Record<string, string> = {
   ttrade_fill: '✅',
   ttrade_reduce_placed: '📌',
   ttrade_reduce: '🔁',
+  ttrade_cancel: '❌',
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -63,6 +71,7 @@ const ACTION_LABELS: Record<string, string> = {
   ttrade_fill: '成交',
   ttrade_reduce_placed: '减仓挂单',
   ttrade_reduce: '减仓成交',
+  ttrade_cancel: '取消',
 }
 
 function formatTime(iso: string) {
