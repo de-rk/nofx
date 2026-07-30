@@ -1902,7 +1902,13 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 	if d.LevelIndex >= 0 && d.LevelIndex < len(at.gridState.Levels) {
 		at.gridState.Levels[d.LevelIndex].State = "pending"
 		at.gridState.Levels[d.LevelIndex].OrderID = result.OrderID
-		at.gridState.Levels[d.LevelIndex].OrderQuantity = d.Quantity
+		// Record the actual placed (validated/capped) quantity, not d.Quantity
+		// (the AI's original request) — if the cap above reduced quantity, this
+		// level's tracked OrderQuantity must match what's really resting on the
+		// exchange. A stale/inflated OrderQuantity here corrupts every downstream
+		// consumer that trusts it as fill-quantity ground truth (position-size
+		// bookkeeping on fill, and T-trade's late-detect reduce-quantity fallback).
+		at.gridState.Levels[d.LevelIndex].OrderQuantity = quantity
 		at.gridState.Levels[d.LevelIndex].OrderPlacedAt = time.Now()
 		at.gridState.OrderBook[result.OrderID] = d.LevelIndex
 	}
@@ -1910,8 +1916,8 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 	// Normal buy orders are NOT tagged here to avoid false positives.
 	at.gridState.mu.Unlock()
 
-	logger.Infof("[Grid] Placed %s limit order at $%.2f, qty=%.4f, level=%d, orderID=%s",
-		side, d.Price, d.Quantity, d.LevelIndex, result.OrderID)
+	logger.Infof("[Grid] Placed %s limit order at $%.2f, qty=%.4f (requested %.4f), level=%d, orderID=%s",
+		side, d.Price, quantity, d.Quantity, d.LevelIndex, result.OrderID)
 
 	return nil
 }
@@ -2270,6 +2276,7 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 	// Pre-fetch order status for disappeared pending orders (outside lock — network calls)
 	type orderFillInfo struct {
 		avgPrice    float64
+		executedQty float64 // real filled quantity from the exchange; 0 if unavailable
 		isFilled    bool
 		statusKnown bool // false if GetOrderStatus failed — treat as unknown, not cancelled
 	}
@@ -2287,7 +2294,8 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 		if err == nil {
 			s, _ := status["status"].(string)
 			avg, _ := status["avgPrice"].(float64)
-			fillInfoByOrderID[level.OrderID] = orderFillInfo{avgPrice: avg, isFilled: s == "FILLED", statusKnown: true}
+			execQty, _ := status["executedQty"].(float64)
+			fillInfoByOrderID[level.OrderID] = orderFillInfo{avgPrice: avg, executedQty: execQty, isFilled: s == "FILLED", statusKnown: true}
 		} else {
 			fillInfoByOrderID[level.OrderID] = orderFillInfo{statusKnown: false}
 		}
@@ -2333,26 +2341,38 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 			if entryPrice <= 0 {
 				entryPrice = level.Price
 			}
+			// Prefer the exchange's reported executedQty (ground truth, also correct
+			// for partial fills) over level.OrderQuantity (what was requested/placed,
+			// which is only a reliable proxy for a full fill and was historically a
+			// source of bugs when it drifted from what actually got placed/filled).
+			fillQty := info.executedQty
+			if fillQty <= 0 {
+				fillQty = level.OrderQuantity
+			}
 			level.State = "filled"
 			level.PositionEntry = entryPrice
-			level.PositionSize = level.OrderQuantity
+			level.PositionSize = fillQty
 			at.gridState.TotalTrades++
 			logger.Infof("[Grid] Level %d order filled at $%.2f (level=$%.2f)", i, entryPrice, level.Price)
 
 			if prep, ok := at.gridState.TTradePrepOrders[level.OrderID]; ok && !prep.ReduceQueued {
 				prep.ReduceQueued = true
 				delete(at.gridState.TTradePrepOrders, level.OrderID)
+				reduceQty := fillQty
+				if reduceQty <= 0 {
+					reduceQty = prep.Qty
+				}
 				pendingReduces = append(pendingReduces, pendingReduce{
-					side: prep.Side, fillPrice: entryPrice, qty: prep.Qty, prepOrderID: level.OrderID,
+					side: prep.Side, fillPrice: entryPrice, qty: reduceQty, prepOrderID: level.OrderID,
 				})
 				logger.Infof("[Grid] ✅ T-trade prep order filled (%.4f @ $%.2f side=%s) — will place reduce after unlock",
-					prep.Qty, entryPrice, prep.Side)
+					reduceQty, entryPrice, prep.Side)
 			} else if !ok && gridConfig.EnableTrappedReduce {
 				// Order filled but was never tagged — too fast for ttradeTagOrders to catch.
 				// Use the pre-fill estimated position size so we don't incorrectly dispatch
 				// reduces for fills that occurred while the threshold wasn't yet met.
 				orderSide := strings.ToLower(level.Side)
-				qty := level.OrderQuantity
+				qty := fillQty
 				tThreshold := gridConfig.TTradePositionThresholdPct
 				if tThreshold <= 0 {
 					tThreshold = 30.0

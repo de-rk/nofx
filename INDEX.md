@@ -285,6 +285,13 @@ HTTP 请求
 | **止盈减仓单（profit_reduce）无任何保护，`resetGrid`/`cancelAllGridOrders` 会把它连同普通网格挂单一起撤销，且撤销后没有补偿机制** — T-trade 减仓单一直有 `activeTTradeReduceOrderIDs()` 保护，但 `checkProfitReduce()` 挂出的止盈减仓单从未被追踪，`cancelAllGridOrders` 视其为普通挂单一并撤销；`checkProfitReduce` 只在浮盈达到**新**的百分比阶梯时才会重新计算下单，同一阶梯不会重试，撤销后这笔减仓意图直接丢失，不会自动补挂 | 缺少与 T-trade 平行的追踪+保护机制 | `trader/auto_trader_grid.go` — `GridState` 新增 `ProfitReduceOrderIDs map[string]bool`；`checkProfitReduce()` 下单成功后写入该表；`syncExchangeState()` 每轮用当前交易所挂单列表清理已成交/已撤销的过期条目，避免无限增长；新增 `activeProfitReduceOrderIDs()`（纯内存，无 DB 兜底——止盈减仓触发频繁且 `syncExchangeState` 每轮都清理，不需要像 T-trade 那样跨重启持久化）；`cancelAllGridOrders()` 与 `cancelGridOrder()`（AI 的 `cancel_order` 执行路径）均改为同时读取 T-trade 与止盈减仓两套保护集合 |
 | **T-trade 减仓单重挂价格会随 `t_trade_spread_pct` 配置变动而漂移，无法从价格判断是否为"复活"的同一笔单** — `placeTTradeReduceOrder` 原来永远读取*当前* `gridConfig.TTradeSpreadPct` 重新计算价格，若这期间用户改过该配置，重挂出来的价格会和原单不同 | 重新计算价格用了实时配置而非下单时记录的 spread | `trader/auto_trader_grid.go` `placeTTradeReduceOrder()` — 新增可选 variadic 参数 `overrideSpreadPct`（不影响原有 4 处调用点）；`ttradeRepairOrders()` 重挂剩余数量时显式传入 `entry.SpreadPct`（下单时记录的原始 spread），确保重挂价格与原单 `entry.ReducePrice` 完全一致，便于从价格直接识别是否为同一笔单的复活 |
 
+### 2026-07-30
+
+| Bug | 根因 | 修复位置 |
+|-----|------|----------|
+| **网格挂单被资金/仓位上限裁剪后，层级记录的 `OrderQuantity` 仍是 AI 请求的原始未裁剪数量** — `placeGridLimitOrder` 计算出实际下单的 `quantity`（经保证金/仓位价值上限裁剪）后，却把 `Levels[d.LevelIndex].OrderQuantity` 赋值成 `d.Quantity`（AI 决策里的原始请求量，未裁剪）。只要触发过裁剪，该层级记录的"挂单数量"就和交易所上真实挂着的数量对不上，所有把 `OrderQuantity` 当作成交量真值的下游逻辑都会被污染 | 记录用的变量选错了：用了裁剪前的请求值而非裁剪后的实际下单值 | `trader/auto_trader_grid.go` `placeGridLimitOrder()` — `Levels[d.LevelIndex].OrderQuantity` 改为赋值 `quantity`（裁剪后、真正发给交易所的数量），日志同时打印实际下单量与原始请求量 |
+| **T-trade 减仓单数量算错，实际减仓量远超交易所真实成交量**（如某笔挂了 6.7589 的减仓单，交易所真实成交只有 3.7）— `syncExchangeState` 检测到网格层挂单成交时，`level.PositionSize` 与 T-trade "late-detect"（成交太快、未被 `ttradeTagOrders` 提前打标记）兜底路径的减仓数量都直接用 `level.OrderQuantity`，而不是 `GetOrderStatus` 返回的真实 `executedQty`。一是继承了上面 `OrderQuantity` 被裁剪污染的问题，二是即便没有裁剪问题，`OrderQuantity` 本身也只是"下单请求量"而非"真实成交量"，遇到部分成交场景必然算错 | 用请求量代替交易所返回的真实成交量 | `trader/auto_trader_grid.go` `syncExchangeState()` — `orderFillInfo` 新增 `executedQty` 字段，从 `GetOrderStatus` 的 `executedQty` populate；成交检测逻辑改为 `fillQty := info.executedQty`（仅当 `<=0` 即交易所未返回时才回退到 `level.OrderQuantity`），并将 `fillQty` 同时用于 `level.PositionSize`、已打标记 T-trade 减仓路径的 `reduceQty`、late-detect 兜底路径的减仓量三处 |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
