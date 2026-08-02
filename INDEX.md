@@ -45,12 +45,9 @@
 |------|------|
 | `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理 |
 | `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查） |
-| `grid_regime.go` | 网格市场状态检测（震荡/趋势/突破） |
 | `interface.go` | `GridTrader` 接口定义 |
 | `helpers.go` | 通用工具函数（数量计算、价格格式化等） |
-| `tp_manager.go` | 止盈管理器：浮盈减仓触发与执行 |
-| `tp_helper.go` | 止盈计算辅助函数 |
-| `ttrade_enhanced.go` | T-trade 增强：`TTradeState` 结构、阈值上下文构建 |
+| `tp_manager.go` | 止盈管理器：`TPManager` 后台监控循环（每个 trader 实例共用，网格/非网格均会启动），但分批止盈的外部写入入口（`SetTPLevels`）已删除——目前无任何调用方会真正喂数据进去，循环本身是活的、`activeLevels` 永远为空 |
 | `position_rebuild.go` | 重启后持仓状态恢复 |
 | `position_snapshot.go` | 持仓快照，用于盈亏计算 |
 
@@ -297,6 +294,22 @@ HTTP 请求
 | 变更 | 说明 | 修改位置 |
 |-----|------|----------|
 | **T-trade 面板里大量"标记了但没有下一步"的僵尸记录，取消后不会消失** — `syncExchangeState` 检测到 T-trade 标记单被撤销/过期时只打了 `logger.Infof` 控制台日志，从未写入 `ttrade_cancel` 这个 DB 事件（尽管 `activeTTradePrepOrderIDs` 的重启恢复逻辑本就假设这个 action 存在并据此判断是否"已终结"）；前端 `TTradePanel.tsx` 按 `order_id` 分组展示生命周期，一笔只有 `ttrade_tag` 却永远等不到下一条事件的分组会永久停留在"标记"状态、堆在列表里 | 该终结事件从未被写入，是设计遗漏而非前端 bug | `trader/auto_trader_grid.go` `syncExchangeState()` — cancelled/expired 分支收集被取消的 prep（含 side/price/qty），解锁后统一 `logGridTrade("ttrade", "ttrade_cancel", ...)` 落盘（沿用 `pendingReduces` 那种"锁内收集、解锁后处理"的写法）；`web/src/components/TTradePanel.tsx` `groupTTradeEvents()` 中，凡是有 `ttrade_cancel` 且从未 `ttrade_fill` 的分组直接从展示列表中丢弃，不再残留 |
+
+### 2026-08-02 — 清理确认无调用方的死代码
+
+一次实盘 vs 回测的差距分析顺带发现：`trader/` 里有几处"看起来是重要风控机制"的函数，实际从未被生产路径调用——要么从未接线，要么接了但函数体是空的。逐个用全仓库 grep 交叉验证调用方（含 `web/src`、`kernel/`、`api/`、`store/`、测试文件）后确认以下均为死代码并删除：
+
+| 删除内容 | 根因/说明 |
+|---------|-----------|
+| `trader/auto_trader_grid.go` 的 `checkBreakout`/`checkBoxBreakout`/`handleBreakout`/`executeBreakoutAction`/`closeAllPositions`/`checkFalseBreakoutRecovery` 及其专属类型 `BreakoutType`/`BreakoutNone`/`BreakoutUpper`/`BreakoutLower` | 突破检测从未被 `RunGridCycle` 调用；`RunGridCycle` 里有一段独立的 box 数据刷新代码（供风险面板显示用，已保留），跟这批死函数只是"读同一份数据"，没有调用关系 |
+| `trader/auto_trader_grid.go` 的 `checkMaxDrawdown`/`checkDailyLossLimit`/`updateDailyPnL` | 零调用方；对应的 `MaxDrawdownPct`/`DailyLossLimitPct` 配置字段本身也从未被前端编辑器或 AI prompt 读取，本次未动这些字段（不阻塞、改动它们要牵涉 DB schema） |
+| `trader/auto_trader_grid.go` 的 `checkAndExecuteStopLoss` | 函数体是空的（注释明写"disabled"），删除空壳调用点 |
+| `trader/grid_regime.go`（整个文件删除）：`classifyRegimeLevel`/`getDynamicLeverage`/`getDynamicPositionLimit`/`detectBoxBreakout`/`confirmBreakout`/`getBreakoutAction`/`BreakoutState`/`BreakoutAction` | 前三者仅测试引用或完全零引用；后几个是上面删除 `checkBoxBreakout` 后连带变成孤儿的支撑代码。`GridState.CurrentRegimeLevel` 字段从未被赋值（永远读到默认值 "standard"），保留不动（`GetGridRiskInfo` 仍读取它，改动需要额外碰 API 契约，不在本次范围） |
+| `trader/grid_regime_test.go` 里对应的 4 个测试 | `TestClassifyRegimeLevel`/`TestDetectBoxBreakout`/`TestBreakoutConfirmation`/`TestGetBreakoutAction`——随源码一起删除，保留同文件里无关的 `TestGetBuySellRatio` |
+| `trader/ttrade_enhanced.go`（整个文件删除）：`TTradeState`、`CalculateDynamicSpread`、`ValidateTTradeSignal`、`CalculatePrepPrice`、`CalculateReducePrice` | 完全自包含、零外部引用、无测试文件——是一套被真正上线的 T-trade 实现（`TTradePrepEntry`/`TTradeReduceEntry`，在 `auto_trader_grid.go` 里）取代之后留下的旧设计 |
+| `trader/tp_manager.go` 的 `SetTPLevels`/`ClearTPLevels`，`trader/tp_helper.go`（整个文件删除）的 `LoadTPLevelsFromConfig` | 分批止盈功能的"配置→写入"链路整条都是死的（零调用方），但 `TPManager` 本体（`Start`/`Stop`/`monitorLoop`/`checkAndExecute`/`activeLevels`）是所有 trader（不分网格/非网格）共用的活基础设施，予以保留——只是目前 `activeLevels` 永远拿不到数据 |
+
+删除后逐一在全仓库 grep 验证零残留引用，`gofmt -l` 确认格式正常。
 
 ### 已知设计限制（待优化）
 

@@ -9,13 +9,13 @@ import (
 
 // TPManager manages partial take profit execution
 type TPManager struct {
-	trader        Trader
-	store         *store.Store
-	traderID      string
-	activeLevels  map[string][]store.TPLevel // symbol -> tp levels
-	mu            sync.RWMutex
-	stopCh        chan struct{}
-	wg            sync.WaitGroup
+	trader       Trader
+	store        *store.Store
+	traderID     string
+	activeLevels map[string][]store.TPLevel // symbol -> tp levels
+	mu           sync.RWMutex
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
 }
 
 // NewTPManager creates a new take profit manager
@@ -27,24 +27,6 @@ func NewTPManager(trader Trader, st *store.Store, traderID string) *TPManager {
 		activeLevels: make(map[string][]store.TPLevel),
 		stopCh:       make(chan struct{}),
 	}
-}
-
-// SetTPLevels sets take profit levels for a position
-func (m *TPManager) SetTPLevels(symbol string, levels []store.TPLevel) {
-	if len(levels) == 0 {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.activeLevels[symbol] = levels
-	logger.Infof("[TPManager] Set %d TP levels for %s", len(levels), symbol)
-}
-
-// ClearTPLevels clears take profit levels for a symbol
-func (m *TPManager) ClearTPLevels(symbol string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.activeLevels, symbol)
 }
 
 // Start starts monitoring positions for take profit triggers
