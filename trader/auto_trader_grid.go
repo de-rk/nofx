@@ -1381,15 +1381,6 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 
 	logger.Infof("[Grid] Periodic investment refresh: %.2f -> %.2f USDT (interval=%dd)", old, inv, days)
 
-	// Skip grid reset if T-trade is in progress
-	at.gridState.mu.RLock()
-	hasPendingTTrade := len(at.gridState.TTradePrepOrders) > 0 || len(at.gridState.TTradeReduceOrders) > 0
-	at.gridState.mu.RUnlock()
-	if hasPendingTTrade {
-		logger.Infof("[Grid] Investment refresh: skipping grid reset — T-trade order in progress")
-		return
-	}
-
 	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
 	if err != nil {
 		logger.Warnf("[Grid] Investment refresh: failed to get price for grid reset: %v", err)
@@ -2304,9 +2295,20 @@ func (at *AutoTrader) resetGrid(currentPrice float64) {
 	defer at.gridState.mu.Unlock()
 
 	filledPositions := make(map[int]kernel.GridLevelInfo)
+	// Any level still "pending" at this point is, by construction, a
+	// protected T-trade prep order — cancelAllGridOrders (called above)
+	// already reset every *non*-protected pending level to "empty", and
+	// profit-reduce orders are never tied to a Levels entry at all. Without
+	// preserving these across the rebuild below, the still-resting exchange
+	// order would become invisible to Levels/OrderBook even though it's
+	// still tracked in TTradePrepOrders and can still fill — corrupting
+	// downstream position-size reconciliation and cancel-by-orderID lookups.
+	pendingTTradeLevels := make(map[int]kernel.GridLevelInfo)
 	for i, level := range at.gridState.Levels {
 		if level.State == "filled" {
 			filledPositions[i] = level
+		} else if level.State == "pending" {
+			pendingTTradeLevels[i] = level
 		}
 	}
 
@@ -2346,19 +2348,35 @@ func (at *AutoTrader) resetGrid(currentPrice float64) {
 			logger.Infof("[Grid] Restored filled position at level %d (entry $%.2f)", closestIdx, filledLevel.PositionEntry)
 		}
 	}
+
+	// Restore still-pending T-trade prep orders the same way, matched by
+	// the order's placement price (there's no fill price yet). Keep
+	// OrderBook in sync so cancel-by-orderID lookups (e.g. the AI's
+	// cancel_order path) resolve to the level's new index, not a stale one.
+	for _, pendingLevel := range pendingTTradeLevels {
+		closestIdx := -1
+		closestDist := math.MaxFloat64
+		for i, newLevel := range at.gridState.Levels {
+			if dist := math.Abs(newLevel.Price - pendingLevel.Price); dist < closestDist {
+				closestDist = dist
+				closestIdx = i
+			}
+		}
+		if closestIdx >= 0 {
+			at.gridState.Levels[closestIdx].State = "pending"
+			at.gridState.Levels[closestIdx].Side = pendingLevel.Side
+			at.gridState.Levels[closestIdx].OrderID = pendingLevel.OrderID
+			at.gridState.Levels[closestIdx].OrderQuantity = pendingLevel.OrderQuantity
+			at.gridState.Levels[closestIdx].OrderPlacedAt = pendingLevel.OrderPlacedAt
+			at.gridState.OrderBook[pendingLevel.OrderID] = closestIdx
+			logger.Infof("[Grid] Restored pending T-trade prep order %s at level %d (price $%.2f)",
+				pendingLevel.OrderID, closestIdx, pendingLevel.Price)
+		}
+	}
 }
 
 // autoAdjustGrid automatically adjusts grid when heavily skewed
 func (at *AutoTrader) autoAdjustGrid() {
-	// Don't adjust grid if T-trade is in progress
-	at.gridState.mu.RLock()
-	hasPendingTTrade := len(at.gridState.TTradePrepOrders) > 0 || len(at.gridState.TTradeReduceOrders) > 0
-	at.gridState.mu.RUnlock()
-	if hasPendingTTrade {
-		logger.Infof("[Grid] Skipping auto-adjust: T-trade order is pending")
-		return
-	}
-
 	skewed, buyFilled, sellFilled := at.checkGridSkew()
 	if !skewed {
 		return

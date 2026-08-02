@@ -322,6 +322,22 @@ HTTP 请求
 
 两个新字段均为"固定传入值，不参与退火搜索"，与已有的 T字/回撤/小仓位平仓字段同一类别；`FeePct=0` 与 `MaxPositionSizePct<=0` 时行为与改动前完全一致（默认 100% cap 在实际网格分配下几乎不可能触发）。同时把 `web/src/types.ts` 的 `GridStrategyConfig` 补上了此前未暴露给前端的 `max_position_size_pct` 字段，供回测页面预填基准参数用；CLI（`-fee-pct`/`-max-position-size-pct`）、API query 参数（`fee_pct`/`max_position_size_pct`）、前端表单同步更新。
 
+### 2026-08-02（三）— 网格重置不再等待 T-trade 标记单成交
+
+`autoAdjustGrid()`（网格倾斜自动调整）与 `checkInvestmentRefresh()`（定期资金刷新）原先都有一段"只要 `TTradePrepOrders`/`TTradeReduceOrders` 里还有条目就整个跳过本次重置"的粗粒度保护。逐一排查后发现这层保护过度保守：
+
+- **止盈减仓单、T-trade 减仓单**（已成交转入 `TTradeReduceOrders` 的）从未绑定到任何 `Levels` 条目，`resetGrid` 的重建逻辑根本不会碰它们，`cancelAllGridOrders` 的逐单保护已经足够，完全不需要因为它们的存在而挡住整个重置。
+- **T-trade 标记单**（`TTradePrepOrders`，还没成交、层状态是 `"pending"`）才是真正有风险的一种——`resetGrid` 原来只会把 `state=="filled"` 的层按最近价迁移到新网格，`"pending"` 的层会被直接推倒重建。即便这笔标记单被 `cancelAllGridOrders` 保护、没有被撤单，重建后 `Levels`/`OrderBook` 里也会彻底找不到它，导致它后续真的成交时，仓位对账（`syncExchangeState` 的 expected vs actual 仓位比较）和按订单ID撤单（AI 的 `cancel_order`）都会失真。
+
+修复思路是直接把这个"账本会丢"的根因堵上，而不是继续靠外层等待硬扛：
+
+| 变更 | 修改位置 |
+|-----|----------|
+| `resetGrid()` 现在会在重建前，把仍处于 `"pending"` 状态的层（此时必然是被保护的 T-trade 标记单——`cancelAllGridOrders` 已经把所有*非*保护的挂单层清成 `"empty"`）单独收集，重建后按下单价格（不是成交价，因为还没成交）就近迁移到新层，恢复 `State`/`Side`/`OrderID`/`OrderQuantity`/`OrderPlacedAt`，并同步更新 `OrderBook[orderID]` 为新的层下标（此前 `OrderBook` 是 `cancelAllGridOrders` 用旧层下标建的，重建后如果不同步就会指向错误的层） | `trader/auto_trader_grid.go` `resetGrid()` |
+| 移除 `autoAdjustGrid()` 与 `checkInvestmentRefresh()` 里"T-trade 有挂单就整个跳过重置"的外层保护——`resetGrid` 自身已经能正确处理，不再需要多等 | `trader/auto_trader_grid.go` `autoAdjustGrid()`、`checkInvestmentRefresh()` |
+
+减仓单（T-trade 与止盈）本身的保护（不被撤单）不受影响，改动的只是"要不要因为有标记单/减仓单挂着就连整个重置都不做"这一层。
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
