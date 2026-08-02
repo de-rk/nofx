@@ -12,12 +12,13 @@ package backtest
 // backtest run can reflect a real strategy's full risk configuration.
 // GridCount/ATRMultiplier/Distribution/Leverage/ProfitReduceStepPct/
 // ProfitReduceMultiplier are perturbed by Anneal (see anneal.go's
-// neighbor()); the T-trade/profit-drawdown/small-position-close fields
-// below are held fixed at whatever value the caller supplies (typically
-// copied from a selected strategy's grid_config) for the whole search —
-// they describe risk mechanisms to simulate faithfully, not dimensions to
-// optimize over. Fields not listed here (symbol, total investment,
-// investment refresh, etc.) are likewise held fixed for a given run.
+// neighbor()); the T-trade/profit-drawdown/small-position-close/fee/
+// position-cap fields below are held fixed at whatever value the caller
+// supplies (typically copied from a selected strategy's grid_config) for
+// the whole search — they describe risk mechanisms/costs to simulate
+// faithfully, not dimensions to optimize over. Fields not listed here
+// (symbol, total investment, investment refresh, etc.) are likewise held
+// fixed for a given run.
 type GridParams struct {
 	GridCount              int     `json:"grid_count"`
 	ATRMultiplier          float64 `json:"atr_multiplier"`
@@ -50,6 +51,22 @@ type GridParams struct {
 	// and the position's notional value drops under $100, the side is
 	// closed entirely instead of stepping down gradually.
 	EnableSmallPositionClose bool `json:"enable_small_position_close"`
+
+	// FeePct is a flat maker/taker fee %% applied to every simulated fill's
+	// notional (grid entry fills, T-trade reduce fills, profit-reduce steps,
+	// and full closes) — a simplified approximation. The live system doesn't
+	// compute fees from a formula, it reads exchange-reported commission per
+	// fill; this flat-rate model is a deliberate simplification, not a
+	// fidelity target. 0 disables fee simulation.
+	FeePct float64 `json:"fee_pct"`
+
+	// MaxPositionSizePct caps each side's total position notional at
+	// TotalInvestment × Leverage × MaxPositionSizePct / 100, mirroring
+	// trader.checkTotalPositionLimit. A fill that would push a side over
+	// this cap is rejected (the level stays pending and is re-evaluated on
+	// later bars) rather than clamped down to what fits. <=0 falls back to
+	// 100 (no additional cap), matching the live code's fallback convention.
+	MaxPositionSizePct float64 `json:"max_position_size_pct"`
 }
 
 func (p GridParams) Clone() GridParams { return p }
@@ -84,6 +101,8 @@ type SimResult struct {
 	TTradeReduces       int     `json:"t_trade_reduces"`
 	DrawdownCloses      int     `json:"drawdown_closes"`
 	SmallPositionCloses int     `json:"small_position_closes"`
-	BlewUp              bool    `json:"blew_up"` // equity dropped to <= maintenance margin during the run (proxy for cross-margin liquidation)
+	TotalFeesPaid       float64 `json:"total_fees_paid"`
+	CapRejectedFills    int     `json:"cap_rejected_fills"` // fills skipped because they'd exceed MaxPositionSizePct
+	BlewUp              bool    `json:"blew_up"`            // equity dropped to <= maintenance margin during the run (proxy for cross-margin liquidation)
 	Score               float64 `json:"score"`
 }

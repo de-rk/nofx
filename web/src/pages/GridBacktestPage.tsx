@@ -20,6 +20,8 @@ interface GridParams {
   t_trade_spread_pct: number
   profit_drawdown_threshold: number
   enable_small_position_close: boolean
+  fee_pct: number
+  max_position_size_pct: number
 }
 
 interface SimResult {
@@ -32,6 +34,8 @@ interface SimResult {
   t_trade_reduces: number
   drawdown_closes: number
   small_position_closes: number
+  total_fees_paid: number
+  cap_rejected_fills: number
   blew_up: boolean
   score: number
 }
@@ -62,6 +66,8 @@ export function GridBacktestPage() {
   const [ttradeSpreadPct, setTtradeSpreadPct] = useState(0.2)
   const [profitDrawdownThresholdPct, setProfitDrawdownThresholdPct] = useState(0)
   const [enableSmallPositionClose, setEnableSmallPositionClose] = useState(false)
+  const [feePct, setFeePct] = useState(0.02)
+  const [maxPositionSizePct, setMaxPositionSizePct] = useState(35)
   const [loadedFromStrategy, setLoadedFromStrategy] = useState(false)
 
   const [isRunning, setIsRunning] = useState(false)
@@ -104,6 +110,8 @@ export function GridBacktestPage() {
       profitDrawdownThreshold: { zh: '利润回撤阈值 (%)', en: 'Profit drawdown threshold (%)' },
       profitDrawdownHint: { zh: '0 = 禁用', en: '0 = disabled' },
       enableSmallPositionClose: { zh: '小仓位自动平仓', en: 'Auto-close small positions' },
+      feePct: { zh: '手续费率 % (0=禁用)', en: 'Fee rate % (0 disables)' },
+      maxPositionSizePct: { zh: '单侧仓位上限 %', en: 'Max position size per side (%)' },
       returnPct: { zh: '收益率', en: 'Return' },
       maxDrawdown: { zh: '最大回撤', en: 'Max drawdown' },
       filledLevels: { zh: '成交层数', en: 'Filled levels' },
@@ -111,13 +119,15 @@ export function GridBacktestPage() {
       ttradeReduces: { zh: 'T字减仓次数', en: 'T-trade reduces' },
       drawdownCloses: { zh: '回撤全平次数', en: 'Drawdown closes' },
       smallCloses: { zh: '小仓位平仓次数', en: 'Small-position closes' },
+      totalFeesPaid: { zh: '累计手续费', en: 'Total fees paid' },
+      capRejectedFills: { zh: '因仓位上限被拒的挂单次数', en: 'Fills rejected by position cap' },
       score: { zh: '评分', en: 'Score' },
       blewUp: { zh: '⚠️ 该组合触发全仓强平（按简化维持保证金率估算），风险极高', en: '⚠️ This combination triggered cross-margin liquidation (approximated maintenance margin rate) — very high risk' },
       clickToRun: { zh: '设置参数后点击"开始回测"', en: 'Set parameters and click "Run backtest"' },
       loadedFromStrategy: { zh: '已从所选策略加载基准参数', en: 'Baseline params loaded from selected strategy' },
       fillModelNote: {
-        zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交、做市排队和手续费。爆仓判断按全仓模式，用固定维持保证金率（0.5%）估算，不是交易所精确的分层保证金率表。T字被套减仓、利润回撤全平、小仓位自动平仓均已按对应实盘逻辑复刻，但仍是简化模型。结果仅供参考。',
-        en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills, maker queue, or fees modeled. Liquidation is approximated for cross-margin using a flat 0.5% maintenance margin rate, not an exchange\'s exact tiered schedule. T-trade, profit-drawdown close, and small-position close are ported from the corresponding live logic, but remain simplified models. Results are indicative only.',
+        zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交和做市排队。手续费按固定费率模拟（对每笔成交的名义价值收取），单侧仓位价值上限已模拟（超出上限的挂单会被跳过，等待后续K线重新尝试）。爆仓判断按全仓模式，用固定维持保证金率（0.5%）估算，不是交易所精确的分层保证金率表。T字被套减仓、利润回撤全平、小仓位自动平仓均已按对应实盘逻辑复刻，但仍是简化模型。结果仅供参考。',
+        en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills or maker queue modeled. Trading fees are simulated as a flat rate on each fill\'s notional, and each side\'s position value can be capped (fills that would exceed the cap are skipped and re-attempted on later bars). Liquidation is approximated for cross-margin using a flat 0.5% maintenance margin rate, not an exchange\'s exact tiered schedule. T-trade, profit-drawdown close, and small-position close are ported from the corresponding live logic, but remain simplified models. Results are indicative only.',
       },
     }
     return translations[key]?.[language] || key
@@ -163,6 +173,7 @@ export function GridBacktestPage() {
     if (typeof gc.t_trade_spread_pct === 'number') setTtradeSpreadPct(gc.t_trade_spread_pct)
     if (typeof gc.profit_drawdown_threshold === 'number') setProfitDrawdownThresholdPct(gc.profit_drawdown_threshold)
     if (typeof gc.enable_small_position_close === 'boolean') setEnableSmallPositionClose(gc.enable_small_position_close)
+    if (typeof gc.max_position_size_pct === 'number' && gc.max_position_size_pct > 0) setMaxPositionSizePct(gc.max_position_size_pct)
     if (typeof gc.total_investment === 'number' && gc.total_investment > 0) setInvestment(gc.total_investment)
     setLoadedFromStrategy(true)
   }
@@ -200,6 +211,8 @@ export function GridBacktestPage() {
       t_trade_spread_pct: String(ttradeSpreadPct),
       profit_drawdown_threshold: String(profitDrawdownThresholdPct),
       enable_small_position_close: String(enableSmallPositionClose),
+      fee_pct: String(feePct),
+      max_position_size_pct: String(maxPositionSizePct),
     })
 
     try {
@@ -276,6 +289,10 @@ export function GridBacktestPage() {
       {p.enable_small_position_close && (
         <div className="text-nofx-text-secondary">{t('enableSmallPositionClose')}: ✓</div>
       )}
+      {p.fee_pct > 0 && (
+        <div><span className="text-nofx-text-secondary">{t('feePct')}: </span>{p.fee_pct.toFixed(3)}%</div>
+      )}
+      <div><span className="text-nofx-text-secondary">{t('maxPositionSizePct')}: </span>{p.max_position_size_pct.toFixed(1)}</div>
     </div>
   )
 
@@ -291,6 +308,8 @@ export function GridBacktestPage() {
       {r.t_trade_reduces > 0 && <div><span className="text-nofx-text-secondary">{t('ttradeReduces')}: </span>{r.t_trade_reduces}</div>}
       {r.drawdown_closes > 0 && <div><span className="text-nofx-text-secondary">{t('drawdownCloses')}: </span>{r.drawdown_closes}</div>}
       {r.small_position_closes > 0 && <div><span className="text-nofx-text-secondary">{t('smallCloses')}: </span>{r.small_position_closes}</div>}
+      {r.total_fees_paid > 0 && <div><span className="text-nofx-text-secondary">{t('totalFeesPaid')}: </span>{r.total_fees_paid.toFixed(2)}</div>}
+      {r.cap_rejected_fills > 0 && <div><span className="text-nofx-text-secondary">{t('capRejectedFills')}: </span>{r.cap_rejected_fills}</div>}
       <div><span className="text-nofx-text-secondary">{t('score')}: </span>{r.score.toFixed(2)}</div>
       {r.blew_up && (
         <div className="col-span-2 sm:col-span-3 flex items-center gap-2 text-amber-400">
@@ -483,6 +502,32 @@ export function GridBacktestPage() {
                 onChange={(e) => setProfitDrawdownThresholdPct(Number(e.target.value))}
                 disabled={isRunning}
                 placeholder={t('profitDrawdownHint')}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('feePct')}</label>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.001}
+                value={feePct}
+                onChange={(e) => setFeePct(Number(e.target.value))}
+                disabled={isRunning}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('maxPositionSizePct')}</label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={maxPositionSizePct}
+                onChange={(e) => setMaxPositionSizePct(Number(e.target.value))}
+                disabled={isRunning}
                 className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
               />
             </div>

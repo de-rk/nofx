@@ -334,6 +334,8 @@ export interface GridStrategyConfig {
   stop_loss_pct?: number;
   // Daily loss limit percentage
   daily_loss_limit_pct?: number;
+  // Cap each side's total position notional at total_investment * leverage * pct / 100 (default 35)
+  max_position_size_pct?: number;
   // Use maker-only orders for lower fees
   use_maker_only: boolean;
   // Auto-close small positions (value < 100 USDT) when profit exceeds step*1.2 (default true)

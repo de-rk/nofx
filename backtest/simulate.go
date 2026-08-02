@@ -46,26 +46,27 @@ func (s *sideState) margin(leverage int) float64 {
 
 // applyProfitReduce ports trader.checkProfitReduce's per-side step logic.
 // Returns the realized PnL freed by the reduce (added to cash, removed from
-// the floating position) and whether a reduce fired this bar.
-func applyProfitReduce(s *sideState, mark float64, isLong bool, leverage int, stepPct, multiplier float64) (realizedPnL float64, fired bool) {
+// the floating position, net of the simulated trading fee), the fee itself,
+// and whether a reduce fired this bar.
+func applyProfitReduce(s *sideState, mark float64, isLong bool, leverage int, stepPct, multiplier, feePct float64) (realizedPnL, feePaid float64, fired bool) {
 	if s.Qty == 0 || stepPct <= 0 {
-		return 0, false
+		return 0, 0, false
 	}
 	margin := s.margin(leverage)
 	if margin <= 0 {
-		return 0, false
+		return 0, 0, false
 	}
 	pnl := s.unrealizedPnL(mark, isLong)
 	pct := profitPct(s, mark, isLong, leverage)
 
 	if pct <= 0 {
 		s.AlreadyReduced = 0
-		return 0, false
+		return 0, 0, false
 	}
 
 	targetStep := stepFloor(pct, stepPct)
 	if targetStep <= s.AlreadyReduced {
-		return 0, false
+		return 0, 0, false
 	}
 
 	mult := multiplier
@@ -77,7 +78,7 @@ func applyProfitReduce(s *sideState, mark float64, isLong bool, leverage int, st
 		reduceQty = s.Qty
 	}
 	if reduceQty <= 0 {
-		return 0, false
+		return 0, 0, false
 	}
 
 	// Realize PnL proportional to the reduced fraction, then shrink the
@@ -85,10 +86,11 @@ func applyProfitReduce(s *sideState, mark float64, isLong bool, leverage int, st
 	// which close part of the position at the current mark price).
 	fraction := reduceQty / s.Qty
 	realized := pnl * fraction
+	fee := reduceQty * mark * feePct / 100
 	s.Qty -= reduceQty
 	s.AlreadyReduced = targetStep
 	s.ReduceCount++
-	return realized, true
+	return realized - fee, fee, true
 }
 
 func stepFloor(profitPct, step float64) float64 {
@@ -109,20 +111,22 @@ func profitPct(s *sideState, mark float64, isLong bool, leverage int) float64 {
 }
 
 // closeSide fully closes a side's position at mark price, returning the
-// realized PnL, and resets all per-side tracking (stepped-reduce progress,
-// peak profit) so a fresh position starts from a clean slate — matching
-// live behavior where a full close (profit_drawdown_close,
-// profit_reduce_close) clears the corresponding tracker/cache entry.
-func closeSide(s *sideState, mark float64, isLong bool) float64 {
+// realized PnL (net of the simulated trading fee) and the fee itself, and
+// resets all per-side tracking (stepped-reduce progress, peak profit) so a
+// fresh position starts from a clean slate — matching live behavior where a
+// full close (profit_drawdown_close, profit_reduce_close) clears the
+// corresponding tracker/cache entry.
+func closeSide(s *sideState, mark float64, isLong bool, feePct float64) (realizedPnL, feePaid float64) {
 	if s.Qty == 0 {
-		return 0
+		return 0, 0
 	}
 	pnl := s.unrealizedPnL(mark, isLong)
+	fee := s.Qty * mark * feePct / 100
 	s.Qty = 0
 	s.EntryPrice = 0
 	s.AlreadyReduced = 0
 	s.PeakProfitPct = 0
-	return pnl
+	return pnl - fee, fee
 }
 
 // applyRiskChecks runs, in priority order, the three profit-taking/closing
@@ -131,10 +135,11 @@ func closeSide(s *sideState, mark float64, isLong bool) float64 {
 // branch in trader.checkProfitReduce), and — only if neither of those
 // fired — the stepped partial reduce (applyProfitReduce). At most one of
 // them acts per side per bar, mirroring how a full close makes the
-// finer-grained mechanisms moot for that side this cycle.
-func applyRiskChecks(s *sideState, mark float64, isLong bool, leverage int, stepPct, multiplier, drawdownThresholdPct float64, enableSmallClose bool) (realizedPnL float64) {
+// finer-grained mechanisms moot for that side this cycle. Returns the
+// realized PnL (net of fees) and the fee paid, if any of the three fired.
+func applyRiskChecks(s *sideState, mark float64, isLong bool, leverage int, stepPct, multiplier, drawdownThresholdPct float64, enableSmallClose bool, feePct float64) (realizedPnL, feePaid float64) {
 	if s.Qty == 0 {
-		return 0
+		return 0, 0
 	}
 	pct := profitPct(s, mark, isLong, leverage)
 	if pct > s.PeakProfitPct {
@@ -149,7 +154,7 @@ func applyRiskChecks(s *sideState, mark float64, isLong bool, leverage int, step
 		ddPct := (s.PeakProfitPct - pct) / s.PeakProfitPct * 100
 		if ddPct >= drawdownThresholdPct {
 			s.DrawdownCloseCount++
-			return closeSide(s, mark, isLong)
+			return closeSide(s, mark, isLong, feePct)
 		}
 	}
 
@@ -164,13 +169,13 @@ func applyRiskChecks(s *sideState, mark float64, isLong bool, leverage int, step
 		notional := s.Qty * mark
 		if pct > step*2 && notional < 100 {
 			s.SmallCloseCount++
-			return closeSide(s, mark, isLong)
+			return closeSide(s, mark, isLong, feePct)
 		}
 	}
 
 	// 3. Stepped partial reduce (unchanged from before this feature).
-	realized, _ := applyProfitReduce(s, mark, isLong, leverage, stepPct, multiplier)
-	return realized
+	realized, fee, _ := applyProfitReduce(s, mark, isLong, leverage, stepPct, multiplier, feePct)
+	return realized, fee
 }
 
 // ttradeActivationThreshold applies the live default (30%) when the
@@ -249,10 +254,13 @@ type pendingTTradeReduce struct {
 // Fill model: a level's limit order is considered filled the first bar whose
 // [Low, High] range covers the level's price. This is the standard
 // simplification for grid backtesting in the absence of exchange order-book
-// data; it does not model partial fills, maker queue position, or fees.
-// Equity/drawdown are evaluated on each bar's Close, so intrabar spikes
-// through a level (not settled by Close) are not reflected in the drawdown
-// figure — a known limitation, not a bug.
+// data; it does not model partial fills or maker queue position. Trading
+// fees (GridParams.FeePct) ARE modeled — a flat rate charged on every fill's
+// notional — and each side's total position notional can be capped via
+// GridParams.MaxPositionSizePct (see step 2 below), mirroring
+// trader.checkTotalPositionLimit. Equity/drawdown are evaluated on each
+// bar's Close, so intrabar spikes through a level (not settled by Close)
+// are not reflected in the drawdown figure — a known limitation, not a bug.
 //
 // Liquidation model: cross-margin, checked once per bar against the
 // account's combined long+short notional (see crossMarginMaintenanceRate).
@@ -294,8 +302,15 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 	peakEquity := totalInvestment
 	maxDrawdownPct := 0.0
 	filledCount := 0
+	totalFees := 0.0
+	capRejectedFills := 0
 	ttradeThreshold := ttradeActivationThreshold(p.TTradePositionThresholdPct)
 	ttradeSpreadPct := ttradeSpread(p.TTradeSpreadPct)
+	maxPositionSizePct := p.MaxPositionSizePct
+	if maxPositionSizePct <= 0 {
+		maxPositionSizePct = 100
+	}
+	positionValueCap := totalInvestment * float64(p.Leverage) * maxPositionSizePct / 100
 
 	equityAt := func(mark float64) float64 {
 		return totalInvestment + cashReleased + long.unrealizedPnL(mark, true) + short.unrealizedPnL(mark, false)
@@ -313,15 +328,31 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		}
 
 		// 2. Normal level fill detection. A tagged level's fill additionally
-		// spawns a reduce-only order at fillPrice ± spread.
+		// spawns a reduce-only order at fillPrice ± spread. A fill that would
+		// push its side's notional over positionValueCap is rejected instead
+		// (the level stays pending and is re-evaluated on later bars),
+		// mirroring trader.checkTotalPositionLimit — only entry fills are
+		// gated, since T-trade/risk-check reduces only ever shrink notional.
 		for li := range levels {
 			lv := &levels[li]
 			if lv.Filled {
 				continue
 			}
 			if bar.Low <= lv.Price && lv.Price <= bar.High {
+				side := &short
+				if lv.Side == "buy" {
+					side = &long
+				}
+				if side.Qty*bar.Close+lv.Qty*lv.Price > positionValueCap {
+					capRejectedFills++
+					continue
+				}
 				lv.Filled = true
 				filledCount++
+				notional := lv.Qty * lv.Price
+				fee := notional * p.FeePct / 100
+				cashReleased -= fee
+				totalFees += fee
 				if lv.Side == "buy" {
 					long.addFill(lv.Qty, lv.Price)
 				} else {
@@ -363,8 +394,10 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 						} else {
 							realized = (side.EntryPrice - r.Price) * qty
 						}
+						fee := qty * r.Price * p.FeePct / 100
 						side.Qty -= qty
-						cashReleased += realized
+						cashReleased += realized - fee
+						totalFees += fee
 						side.TTradeReduceCount++
 					}
 					if r.LevelIndex < len(levels) {
@@ -380,8 +413,10 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 
 		// 4. Peak-drawdown close / small-notional close / stepped profit-reduce,
 		// in priority order (see applyRiskChecks).
-		cashReleased += applyRiskChecks(&long, bar.Close, true, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier, p.ProfitDrawdownThresholdPct, p.EnableSmallPositionClose)
-		cashReleased += applyRiskChecks(&short, bar.Close, false, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier, p.ProfitDrawdownThresholdPct, p.EnableSmallPositionClose)
+		longPnL, longFee := applyRiskChecks(&long, bar.Close, true, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier, p.ProfitDrawdownThresholdPct, p.EnableSmallPositionClose, p.FeePct)
+		shortPnL, shortFee := applyRiskChecks(&short, bar.Close, false, p.Leverage, p.ProfitReduceStepPct, p.ProfitReduceMultiplier, p.ProfitDrawdownThresholdPct, p.EnableSmallPositionClose, p.FeePct)
+		cashReleased += longPnL + shortPnL
+		totalFees += longFee + shortFee
 
 		// 5. Cross-margin liquidation check + equity/drawdown tracking.
 		// Notional is marked at the current bar's close (not entry price) —
@@ -401,6 +436,8 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 				TTradeReduces:       long.TTradeReduceCount + short.TTradeReduceCount,
 				DrawdownCloses:      long.DrawdownCloseCount + short.DrawdownCloseCount,
 				SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
+				TotalFeesPaid:       totalFees,
+				CapRejectedFills:    capRejectedFills,
 				BlewUp:              true,
 				Score:               -1e9,
 			}
@@ -428,6 +465,8 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		TTradeReduces:       long.TTradeReduceCount + short.TTradeReduceCount,
 		DrawdownCloses:      long.DrawdownCloseCount + short.DrawdownCloseCount,
 		SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
+		TotalFeesPaid:       totalFees,
+		CapRejectedFills:    capRejectedFills,
 		BlewUp:              false,
 		Score:               Score(returnPct, maxDrawdownPct),
 	}
