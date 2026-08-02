@@ -119,6 +119,18 @@ type GridState struct {
 	// re-fires once profit reaches a *new* step, not on the same step again).
 	ProfitReduceOrderIDs map[string]bool
 
+	// PendingReducePlacements counts reduce-only orders (T-trade or
+	// profit-reduce) currently being placed — incremented just before the
+	// exchange call, decremented just after the resulting order ID is
+	// recorded into TTradeReduceOrders/ProfitReduceOrderIDs. There's a real
+	// window between "order live on the exchange" and "order recorded
+	// locally" (a network round-trip); if cancelAllGridOrders runs in that
+	// window, it builds its protected-ID set from the not-yet-updated maps
+	// and cancels an order that's actually a protected reduce. Accessed via
+	// atomic ops, not gridState.mu (must be readable/writable without
+	// blocking on the same lock the placement goroutine needs to acquire).
+	PendingReducePlacements int32
+
 	// Periodic investment refresh
 	LastInvestmentRefreshAt time.Time
 }
@@ -1024,6 +1036,12 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			logger.Infof("[Grid] Profit-reduce: %s reducing %.4f (target=%.0f%%)", info.side, a.qty, a.targetReducePct)
 		}
 
+		// See PendingReducePlacements' doc comment on GridState — closes the
+		// window between "order live on the exchange" and "order recorded
+		// locally" during which a concurrent cancelAllGridOrders (triggered
+		// from the separate grid-cycle goroutine, since checkProfitReduce
+		// runs off the WS position-push goroutine) could miss protecting it.
+		atomic.AddInt32(&at.gridState.PendingReducePlacements, 1)
 		result, err := gridTrader.PlaceLimitOrder(&LimitOrderRequest{
 			Symbol:       symbol,
 			Side:         orderSide,
@@ -1040,6 +1058,7 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			at.gridState.ProfitReduceOrderIDs[orderID] = true
 			at.gridState.mu.Unlock()
 		}
+		atomic.AddInt32(&at.gridState.PendingReducePlacements, -1)
 		errMsg := ""
 		if err != nil {
 			errMsg = err.Error()
@@ -1678,6 +1697,18 @@ func (at *AutoTrader) activeProfitReduceOrderIDs() map[string]bool {
 func (at *AutoTrader) cancelAllGridOrders() error {
 	gridConfig := at.config.StrategyConfig.GridConfig
 
+	// Wait for any reduce-only order placement currently in flight to finish
+	// and record itself — otherwise the protected-ID set built below can miss
+	// an order that's already live on the exchange but not yet tracked
+	// locally (see PendingReducePlacements' doc comment on GridState).
+	// Bounded so a stuck/slow exchange call can't hang grid maintenance
+	// forever; if it times out, the order is simply not protected this pass
+	// (same risk as before this fix existed, not a regression).
+	deadline := time.Now().Add(5 * time.Second)
+	for atomic.LoadInt32(&at.gridState.PendingReducePlacements) > 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+
 	// Build set of T-trade + profit-reduce order IDs to protect (memory + DB
 	// fallback for post-restart on the T-trade side; profit-reduce is
 	// memory-only, see activeProfitReduceOrderIDs).
@@ -2104,6 +2135,7 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 
 	// Dispatch T-trade auto-reduces collected during the lock (must be outside lock)
 	for _, pr := range pendingReduces {
+		atomic.AddInt32(&at.gridState.PendingReducePlacements, 1)
 		go at.placeTTradeReduceOrder(pr.side, pr.fillPrice, pr.qty, pr.prepOrderID)
 	}
 
@@ -2800,6 +2832,7 @@ func (at *AutoTrader) ttradeTagOrders(openOrders []types.OpenOrder) {
 					}
 				}
 				at.gridState.mu.Unlock()
+				atomic.AddInt32(&at.gridState.PendingReducePlacements, 1)
 				go at.placeTTradeReduceOrder(e.prep.Side, fillPrice, e.prep.Qty, e.id)
 			} else {
 				logger.Infof("[Grid] T-trade prep %s timed out (status=%s) — removing", e.id, statusStr)
@@ -2885,6 +2918,7 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 						}
 					}
 					at.gridState.mu.Unlock()
+					atomic.AddInt32(&at.gridState.PendingReducePlacements, 1)
 					go at.placeTTradeReduceOrder(prep.Side, fillPrice, prep.Qty, orderID)
 				} else {
 					logger.Warnf("[Grid] ⚠️ T-trade prep %s timed out (status=%s) — removing (order kept alive)", orderID, statusStr)
@@ -2980,6 +3014,11 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 // cancelled-with-remainder reduce order, so it lands at the same price as
 // the original even if gridConfig.TTradeSpreadPct has since changed.
 func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64, qty float64, prepOrderID string, overrideSpreadPct ...float64) bool {
+	// Balances the atomic.AddInt32(..., 1) at each of this function's call
+	// sites (always dispatched via `go`) — see PendingReducePlacements' doc
+	// comment on GridState for why this matters.
+	defer atomic.AddInt32(&at.gridState.PendingReducePlacements, -1)
+
 	gridConfig := at.config.StrategyConfig.GridConfig
 	spreadPct := gridConfig.TTradeSpreadPct
 	if len(overrideSpreadPct) > 0 {

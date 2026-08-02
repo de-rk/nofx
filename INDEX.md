@@ -357,6 +357,23 @@ HTTP 请求
 
 `store/grid.go` 里 `GridConfigModel.MaxPositionSizePct`（那张从未被使用的历史遗留表）本次未动，因为它跟这个功能是否生效完全无关，属于更早就存在、范围更大的另一个死代码问题。
 
+### 2026-08-02（五）— 修复网格重置不再等待后暴露的减仓单保护竞态
+
+上一条改动（移除 `autoAdjustGrid`/`checkInvestmentRefresh` 等待 T-trade 挂单的外层保护）上线后，用户反馈实盘出现两笔"卖出平多"减仓单在网格重置时被误撤（订单号 3792321529529425920、3792378871973339136，2026-08-02 11:07:06）。排查后确认：**不是保护逻辑本身写错了，是一个此前被外层等待意外掩盖的竞态条件**，改动去掉那层等待后这个窗口被放大、更容易撞上。
+
+具体机制：`placeTTradeReduceOrder`（T-trade 减仓单）与 `checkProfitReduce`（止盈减仓单）下单时，都是先调用交易所下单接口，**接口返回成功后才**把订单号写进 `TTradeReduceOrders`/`ProfitReduceOrderIDs`——这中间有一段真实存在的时间窗口（网络往返）：订单已经在交易所上挂着了，但本地保护表还没来得及记上它。此外 T-trade 侧的下单是通过 `go at.placeTTradeReduceOrder(...)` 异步派发的，不等它跑完就继续往下走。如果 `cancelAllGridOrders()`（`resetGrid`/`autoAdjustGrid`/`checkInvestmentRefresh` 都会走到这里）恰好在这个窗口内运行，构建保护集合时用的还是"更新前"的表，就会把这笔已经真实存在、理应被保护的减仓单当成普通挂单撤掉。
+
+以前这条路径能大概率跑通，纯粹是因为外层"只要有 T-trade 挂单就整个跳过重置"的判断顺手把这个窗口盖住了；不是真的解决了竞态，是很少真正触发到。移除外层等待后，重置更频繁地在这个窗口内运行，问题才暴露出来。
+
+修复思路是把这个窗口本身堵上，而不是走回头路恢复外层等待：
+
+| 变更 | 修改位置 |
+|-----|----------|
+| `GridState` 新增 `PendingReducePlacements int32`（原子计数器）：下单前 `+1`，订单号成功写入保护表后 `-1`（T-trade 侧在 `placeTTradeReduceOrder` 里用 `defer` 保证异步 goroutine 的每条退出路径都会回落；止盈减仓侧因为是同步代码直接首尾各写一次） | `trader/auto_trader_grid.go` `GridState`、`placeTTradeReduceOrder()`、`checkProfitReduce()` |
+| `cancelAllGridOrders()` 开头新增等待：计数器归零前不构建保护集合，最多等 5 秒（超时后按改动前的行为继续，不会卡死整个网格维护） | `trader/auto_trader_grid.go` `cancelAllGridOrders()` |
+
+这样无论 `resetGrid` 由网格倾斜、资金刷新还是其他路径触发、也无论触发得多频繁，只要有减仓单正在下单过程中，`cancelAllGridOrders` 都会先等它落地记账、再决定撤哪些单——不再依赖"恰好有别的 T-trade 挂单顺手把整个重置卡住"这种偶然的保护。
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
