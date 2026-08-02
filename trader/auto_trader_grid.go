@@ -1390,49 +1390,6 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 	at.resetGrid(currentPrice)
 }
 
-// checkTotalPositionLimit checks if adding a new position would exceed total limits.
-// side: "BUY" checks long position, "SELL" checks short position independently.
-// Returns: (allowed bool, currentPositionValue float64, maxAllowed float64)
-func (at *AutoTrader) checkTotalPositionLimit(symbol string, side string, additionalValue float64) (bool, float64, float64) {
-	gridConfig := at.config.StrategyConfig.GridConfig
-
-	// Each side (long/short) independently gets up to TotalInvestment × Leverage × MaxPositionSizePct%
-	maxPositionSizePct := gridConfig.MaxPositionSizePct
-	if maxPositionSizePct <= 0 {
-		maxPositionSizePct = 100.0
-	}
-	maxSidePositionValue := gridConfig.TotalInvestment * float64(gridConfig.Leverage) * maxPositionSizePct / 100
-
-	// Sum position value for the relevant side only
-	currentPositionValue := 0.0
-	positions, err := at.trader.GetPositions()
-	if err == nil {
-		for _, pos := range positions {
-			sym, _ := pos["symbol"].(string)
-			if sym != symbol {
-				continue
-			}
-			posSide, _ := pos["side"].(string)
-			posSize, _ := pos["positionAmt"].(float64)
-			// Match side: BUY order adds to long, SELL order adds to short
-			if (side == "BUY" && posSide == "long") || (side == "SELL" && posSide == "short") {
-				markPrice, hasMark := pos["markPrice"].(float64)
-				entryPrice, _ := pos["entryPrice"].(float64)
-				price := markPrice
-				if !hasMark || price == 0 {
-					price = entryPrice
-				}
-				currentPositionValue += math.Abs(posSize) * price
-			}
-		}
-	}
-
-	totalAfterOrder := currentPositionValue + additionalValue
-	allowed := totalAfterOrder <= maxSidePositionValue
-
-	return allowed, currentPositionValue, maxSidePositionValue
-}
-
 // placeGridLimitOrder places a limit order for grid trading
 func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error {
 	// Check if trader supports GridTrader interface
@@ -1486,15 +1443,6 @@ func (at *AutoTrader) placeGridLimitOrder(d *kernel.Decision, side string) error
 				positionValue, absoluteMaxValue)
 			return fmt.Errorf("position value $%.2f exceeds safety limit $%.2f", positionValue, absoluteMaxValue)
 		}
-	}
-
-	// CRITICAL: Check total position limit before placing order
-	orderValue := quantity * d.Price
-	allowed, currentValue, maxValue := at.checkTotalPositionLimit(d.Symbol, side, orderValue)
-	if !allowed {
-		logger.Errorf("[Grid] TOTAL POSITION LIMIT EXCEEDED: current=$%.2f + order=$%.2f > max=$%.2f. Rejecting order.",
-			currentValue, orderValue, maxValue)
-		return fmt.Errorf("total position value $%.2f would exceed limit $%.2f", currentValue+orderValue, maxValue)
 	}
 
 	// Dedup: skip if any pending grid level already has an order at this price.

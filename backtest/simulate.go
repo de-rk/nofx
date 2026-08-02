@@ -256,11 +256,9 @@ type pendingTTradeReduce struct {
 // simplification for grid backtesting in the absence of exchange order-book
 // data; it does not model partial fills or maker queue position. Trading
 // fees (GridParams.FeePct) ARE modeled — a flat rate charged on every fill's
-// notional — and each side's total position notional can be capped via
-// GridParams.MaxPositionSizePct (see step 2 below), mirroring
-// trader.checkTotalPositionLimit. Equity/drawdown are evaluated on each
-// bar's Close, so intrabar spikes through a level (not settled by Close)
-// are not reflected in the drawdown figure — a known limitation, not a bug.
+// notional. Equity/drawdown are evaluated on each bar's Close, so intrabar
+// spikes through a level (not settled by Close) are not reflected in the
+// drawdown figure — a known limitation, not a bug.
 //
 // Liquidation model: cross-margin, checked once per bar against the
 // account's combined long+short notional (see crossMarginMaintenanceRate).
@@ -303,14 +301,8 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 	maxDrawdownPct := 0.0
 	filledCount := 0
 	totalFees := 0.0
-	capRejectedFills := 0
 	ttradeThreshold := ttradeActivationThreshold(p.TTradePositionThresholdPct)
 	ttradeSpreadPct := ttradeSpread(p.TTradeSpreadPct)
-	maxPositionSizePct := p.MaxPositionSizePct
-	if maxPositionSizePct <= 0 {
-		maxPositionSizePct = 100
-	}
-	positionValueCap := totalInvestment * float64(p.Leverage) * maxPositionSizePct / 100
 
 	equityAt := func(mark float64) float64 {
 		return totalInvestment + cashReleased + long.unrealizedPnL(mark, true) + short.unrealizedPnL(mark, false)
@@ -328,25 +320,13 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		}
 
 		// 2. Normal level fill detection. A tagged level's fill additionally
-		// spawns a reduce-only order at fillPrice ± spread. A fill that would
-		// push its side's notional over positionValueCap is rejected instead
-		// (the level stays pending and is re-evaluated on later bars),
-		// mirroring trader.checkTotalPositionLimit — only entry fills are
-		// gated, since T-trade/risk-check reduces only ever shrink notional.
+		// spawns a reduce-only order at fillPrice ± spread.
 		for li := range levels {
 			lv := &levels[li]
 			if lv.Filled {
 				continue
 			}
 			if bar.Low <= lv.Price && lv.Price <= bar.High {
-				side := &short
-				if lv.Side == "buy" {
-					side = &long
-				}
-				if side.Qty*bar.Close+lv.Qty*lv.Price > positionValueCap {
-					capRejectedFills++
-					continue
-				}
 				lv.Filled = true
 				filledCount++
 				notional := lv.Qty * lv.Price
@@ -437,7 +417,6 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 				DrawdownCloses:      long.DrawdownCloseCount + short.DrawdownCloseCount,
 				SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
 				TotalFeesPaid:       totalFees,
-				CapRejectedFills:    capRejectedFills,
 				BlewUp:              true,
 				Score:               -1e9,
 			}
@@ -466,7 +445,6 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		DrawdownCloses:      long.DrawdownCloseCount + short.DrawdownCloseCount,
 		SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
 		TotalFeesPaid:       totalFees,
-		CapRejectedFills:    capRejectedFills,
 		BlewUp:              false,
 		Score:               Score(returnPct, maxDrawdownPct),
 	}

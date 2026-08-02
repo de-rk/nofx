@@ -172,13 +172,13 @@
 
 | 文件 | 说明 |
 |------|------|
-| `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`MaxPositionSizePct`（单侧仓位价值上限，复刻 `checkTotalPositionLimit`，<=0 回退到 100 即不额外限制））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid`/`CapRejectedFills` 计数） |
+| `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid` 计数） |
 | `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD` |
-| `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 单侧仓位价值上限（复刻 `checkTotalPositionLimit`：超出 `positionValueCap` 的入场挂单直接跳过、计入 `CapRejectedFills`，等待后续K线重新尝试；只对入场成交生效，T字/风控减仓只会缩小仓位故无需校验）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费/仓位上限拒单次数；`Score()` 按「收益 - 1.5×最大回撤」打分，爆仓给 `-1e9` 极端惩罚分 |
+| `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费；`Score()` 按「收益 - 1.5×最大回撤」打分，爆仓给 `-1e9` 极端惩罚分 |
 | `backtest/anneal.go` | `Anneal()` 通用模拟退火循环，`AnnealConfig.OnProgress` 回调用于流式上报迭代进度（供 SSE handler 使用），不知道传输层细节 |
 | `scripts/grid_backtest/main.go` | CLI 入口，薄封装调用 `backtest` 包，含 T字/利润回撤/小仓位平仓/手续费率/仓位上限对应 flag。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000 -enable-ttrade -ttrade-position-threshold-pct 30 -fee-pct 0.02 -max-position-size-pct 35` |
-| `api/backtest.go` | `handleGridBacktestRun` — SSE 接口，流式推送 `baseline`/`progress`/`done`/`error` 四种事件，路由 `GET /api/backtest/grid/run`（`api/server.go`，需登录）。基准网格参数（`grid_count`/`atr_multiplier`/`distribution`/`profit_reduce_step_pct`/`profit_reduce_multiplier`/`enable_trapped_reduce`/`t_trade_position_threshold_pct`/`t_trade_spread_pct`/`profit_drawdown_threshold`/`enable_small_position_close`/`fee_pct`/`max_position_size_pct`）均可通过 query 覆盖，默认才用硬编码猜测值（`fee_pct` 默认 0.02 对齐 OKX 常规档位 maker 费率，`max_position_size_pct` 默认 35 对齐 `store/grid.go` 的 DB 列默认值） |
-| `web/src/pages/GridBacktestPage.tsx` | 前端页面：策略下拉选择器（`GET /api/strategies`，同 `PromptTestPage.tsx` 的模式，不再依赖"当前激活策略"）+ 参数表单 + SSE 流式读取（`fetch` + `ReadableStream`，同 `App.tsx` 订单事件流的读取方式）+ 基准/最优结果对比卡片。选中策略后用其 `grid_config` 真实值预填基准参数（symbol/leverage/investment + 上述全部网格与风控字段，含新增的 `max_position_size_pct`——为此在 `web/src/types.ts` 的 `GridStrategyConfig` 补上了这个此前未暴露给前端的字段），未选择则保留通用默认值，可手动覆盖任意字段；`fee_pct` 无实盘配置对应项，始终用表单默认值。T字相关输入仅在勾选启用后展示。导航栏入口：`HeaderBar.tsx` 桌面版 `navTabs`（`/grid-backtest`，与 `prompt-test` 一样未接入移动端菜单） |
+| `api/backtest.go` | `handleGridBacktestRun` — SSE 接口，流式推送 `baseline`/`progress`/`done`/`error` 四种事件，路由 `GET /api/backtest/grid/run`（`api/server.go`，需登录）。基准网格参数（`grid_count`/`atr_multiplier`/`distribution`/`profit_reduce_step_pct`/`profit_reduce_multiplier`/`enable_trapped_reduce`/`t_trade_position_threshold_pct`/`t_trade_spread_pct`/`profit_drawdown_threshold`/`enable_small_position_close`/`fee_pct`）均可通过 query 覆盖，默认才用硬编码猜测值（`fee_pct` 默认 0.02 对齐 OKX 常规档位 maker 费率） |
+| `web/src/pages/GridBacktestPage.tsx` | 前端页面：策略下拉选择器（`GET /api/strategies`，同 `PromptTestPage.tsx` 的模式，不再依赖"当前激活策略"）+ 参数表单 + SSE 流式读取（`fetch` + `ReadableStream`，同 `App.tsx` 订单事件流的读取方式）+ 基准/最优结果对比卡片。选中策略后用其 `grid_config` 真实值预填基准参数（symbol/leverage/investment + 上述全部网格与风控字段），未选择则保留通用默认值，可手动覆盖任意字段；`fee_pct` 无实盘配置对应项，始终用表单默认值。T字相关输入仅在勾选启用后展示。导航栏入口：`HeaderBar.tsx` 桌面版 `navTabs`（`/grid-backtest`，与 `prompt-test` 一样未接入移动端菜单） |
 
 只打印/展示建议参数，不写回任何策略配置或数据库。
 
@@ -337,6 +337,25 @@ HTTP 请求
 | 移除 `autoAdjustGrid()` 与 `checkInvestmentRefresh()` 里"T-trade 有挂单就整个跳过重置"的外层保护——`resetGrid` 自身已经能正确处理，不再需要多等 | `trader/auto_trader_grid.go` `autoAdjustGrid()`、`checkInvestmentRefresh()` |
 
 减仓单（T-trade 与止盈）本身的保护（不被撤单）不受影响，改动的只是"要不要因为有标记单/减仓单挂着就连整个重置都不做"这一层。
+
+### 2026-08-02（四）— 删除"单侧仓位上限 %"（`MaxPositionSizePct`），实盘与回测一并移除
+
+排查"单侧仓位上限 %"为什么在实盘里看起来没生效时发现：这不是执行逻辑的 bug，而是这个功能从一开始就没有可用的配置入口——
+
+- 策略配置是整体序列化成 JSON blob 存的（`StrategyConfig.Config` 字段），不是走 GORM 表列，所以 `store/grid.go` 里那个 `gorm:"default:35"` 根本不生效——那张 `grid_configs` 表（`GridConfigModel`）本身就是从未被实际读写过的历史遗留表（`SaveGridConfig`/`LoadGridConfig`/`ListGridConfigs` 零调用方），跟真正在用的策略配置无关。
+- `web/src/components/strategy/GridConfigEditor.tsx` 从来没有"单侧仓位上限 %"这个输入框，连 `defaultGridConfig` 预设里都没有这个字段。
+
+所以任何通过前端创建的策略，`MaxPositionSizePct` 在真正使用的 `GridStrategyConfig`（`store/strategy.go`）里永远是 Go 零值 `0`，被 `checkTotalPositionLimit` 的 `<=0 → 100` 兜底吃掉——100% 上限在正常网格分配下（单侧最多约占用50%名义仓位）几乎不可能触发，等于形同虚设。用户确认不需要修复，直接删除整个功能，并同步移除本次一起加进回测的对应实现：
+
+| 删除内容 | 位置 |
+|---------|------|
+| `checkTotalPositionLimit()` 函数及其在 `placeGridLimitOrder()` 里的调用点 | `trader/auto_trader_grid.go` |
+| `GridStrategyConfig.MaxPositionSizePct` 字段 | `store/strategy.go` |
+| `GridParams.MaxPositionSizePct`、`SimResult.CapRejectedFills`，`Simulate()` 里对应的仓位上限检查逻辑 | `backtest/types.go`、`backtest/simulate.go` |
+| `max_position_size_pct` query 参数与 `-max-position-size-pct` CLI flag | `api/backtest.go`、`scripts/grid_backtest/main.go` |
+| `max_position_size_pct`/`cap_rejected_fills` 相关的 state、表单输入框、翻译文案、`GridStrategyConfig` 类型字段 | `web/src/pages/GridBacktestPage.tsx`、`web/src/types.ts` |
+
+`store/grid.go` 里 `GridConfigModel.MaxPositionSizePct`（那张从未被使用的历史遗留表）本次未动，因为它跟这个功能是否生效完全无关，属于更早就存在、范围更大的另一个死代码问题。
 
 ### 已知设计限制（待优化）
 

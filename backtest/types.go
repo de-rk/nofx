@@ -12,9 +12,9 @@ package backtest
 // backtest run can reflect a real strategy's full risk configuration.
 // GridCount/ATRMultiplier/Distribution/Leverage/ProfitReduceStepPct/
 // ProfitReduceMultiplier are perturbed by Anneal (see anneal.go's
-// neighbor()); the T-trade/profit-drawdown/small-position-close/fee/
-// position-cap fields below are held fixed at whatever value the caller
-// supplies (typically copied from a selected strategy's grid_config) for
+// neighbor()); the T-trade/profit-drawdown/small-position-close/fee
+// fields below are held fixed at whatever value the caller supplies
+// (typically copied from a selected strategy's grid_config) for
 // the whole search — they describe risk mechanisms/costs to simulate
 // faithfully, not dimensions to optimize over. Fields not listed here
 // (symbol, total investment, investment refresh, etc.) are likewise held
@@ -59,14 +59,6 @@ type GridParams struct {
 	// fill; this flat-rate model is a deliberate simplification, not a
 	// fidelity target. 0 disables fee simulation.
 	FeePct float64 `json:"fee_pct"`
-
-	// MaxPositionSizePct caps each side's total position notional at
-	// TotalInvestment × Leverage × MaxPositionSizePct / 100, mirroring
-	// trader.checkTotalPositionLimit. A fill that would push a side over
-	// this cap is rejected (the level stays pending and is re-evaluated on
-	// later bars) rather than clamped down to what fits. <=0 falls back to
-	// 100 (no additional cap), matching the live code's fallback convention.
-	MaxPositionSizePct float64 `json:"max_position_size_pct"`
 }
 
 func (p GridParams) Clone() GridParams { return p }
@@ -102,7 +94,6 @@ type SimResult struct {
 	DrawdownCloses      int     `json:"drawdown_closes"`
 	SmallPositionCloses int     `json:"small_position_closes"`
 	TotalFeesPaid       float64 `json:"total_fees_paid"`
-	CapRejectedFills    int     `json:"cap_rejected_fills"` // fills skipped because they'd exceed MaxPositionSizePct
-	BlewUp              bool    `json:"blew_up"`            // equity dropped to <= maintenance margin during the run (proxy for cross-margin liquidation)
+	BlewUp              bool    `json:"blew_up"` // equity dropped to <= maintenance margin during the run (proxy for cross-margin liquidation)
 	Score               float64 `json:"score"`
 }

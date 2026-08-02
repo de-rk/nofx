@@ -30,7 +30,6 @@ func main() {
 		profitDrawdownThresholdPct float64
 		enableSmallPositionClose   bool
 		feePct                     float64
-		maxPositionSizePct         float64
 	)
 	flag.StringVar(&symbol, "symbol", "HYPEUSDT", "trading symbol")
 	flag.StringVar(&timeframe, "timeframe", "15m", "candle timeframe for the backtest")
@@ -45,7 +44,6 @@ func main() {
 	flag.Float64Var(&profitDrawdownThresholdPct, "profit-drawdown-threshold-pct", 0, "peak-profit pullback %% that triggers a full close (0 disables)")
 	flag.BoolVar(&enableSmallPositionClose, "enable-small-position-close", false, "fully close a side once profit > 2x step and notional < $100")
 	flag.Float64Var(&feePct, "fee-pct", 0.02, "flat maker/taker fee %% charged on every simulated fill's notional (0 disables)")
-	flag.Float64Var(&maxPositionSizePct, "max-position-size-pct", 35, "cap each side's position notional at investment*leverage*pct/100 (<=0 falls back to 100, i.e. no extra cap)")
 	flag.Parse()
 
 	tfDur, err := market.TFDuration(timeframe)
@@ -85,7 +83,6 @@ func main() {
 		ProfitDrawdownThresholdPct: profitDrawdownThresholdPct,
 		EnableSmallPositionClose:   enableSmallPositionClose,
 		FeePct:                     feePct,
-		MaxPositionSizePct:         maxPositionSizePct,
 	}
 
 	baseline := backtest.Simulate(klines, startIdx, totalInvestment, initial)
@@ -131,7 +128,6 @@ func printResult(label string, p backtest.GridParams, r backtest.SimResult) {
 	if p.FeePct > 0 {
 		fmt.Printf("  fee_pct=%.3f%%\n", p.FeePct)
 	}
-	fmt.Printf("  max_position_size_pct=%.1f\n", p.MaxPositionSizePct)
-	fmt.Printf("  return=%.2f%% max_drawdown=%.2f%% filled_levels=%d long_reduces=%d short_reduces=%d ttrade_reduces=%d drawdown_closes=%d small_position_closes=%d cap_rejected_fills=%d total_fees_paid=%.2f blew_up=%v score=%.2f\n",
-		r.ReturnPct, r.MaxDrawdownPct, r.FilledLevels, r.LongReduces, r.ShortReduces, r.TTradeReduces, r.DrawdownCloses, r.SmallPositionCloses, r.CapRejectedFills, r.TotalFeesPaid, r.BlewUp, r.Score)
+	fmt.Printf("  return=%.2f%% max_drawdown=%.2f%% filled_levels=%d long_reduces=%d short_reduces=%d ttrade_reduces=%d drawdown_closes=%d small_position_closes=%d total_fees_paid=%.2f blew_up=%v score=%.2f\n",
+		r.ReturnPct, r.MaxDrawdownPct, r.FilledLevels, r.LongReduces, r.ShortReduces, r.TTradeReduces, r.DrawdownCloses, r.SmallPositionCloses, r.TotalFeesPaid, r.BlewUp, r.Score)
 }
