@@ -374,6 +374,14 @@ HTTP 请求
 
 这样无论 `resetGrid` 由网格倾斜、资金刷新还是其他路径触发、也无论触发得多频繁，只要有减仓单正在下单过程中，`cancelAllGridOrders` 都会先等它落地记账、再决定撤哪些单——不再依赖"恰好有别的 T-trade 挂单顺手把整个重置卡住"这种偶然的保护。
 
+### 2026-08-02（六）— 排查上一条竞态时顺带发现：减仓单会被误"收编"成网格层挂单
+
+排查主账号那笔"没重置网格却被撤单"的报告时确认：那也是修复前同一批竞态问题的现场记录，不是新 bug。但排查过程中确认了另一个真实存在、独立的问题——`syncExchangeState` 的"收编未跟踪交易所挂单"逻辑（服务重启后/会话外挂的单，按价格就近认领到空的网格层）只检查订单ID是否在 `OrderBook` 里，没有排除 T-trade 减仓单和止盈减仓单——这两类单从设计上就不会进 `OrderBook`（它们独立存在于 `TTradeReduceOrders`/`ProfitReduceOrderIDs`，保护判断也是按订单ID直查这两张表，跟 `OrderBook`/`Levels` 无关）。结果就是一笔减仓单如果价格恰好落在某个空网格层附近（半个网格间距内），会被误当成普通网格挂单"收编"进 `Levels`，把它的方向/数量按网格层记账——不会导致被撤单（撤单判断本来就跟 Levels 无关），但会污染仓位记账：这笔减仓单以后真成交时会被当成"网格层新开仓"处理，而不是识别成减仓，可能让 `PositionSize`/`TotalTrades` 记错。
+
+| 修复 | 位置 |
+|-----|------|
+| 收编逻辑遍历交易所挂单时，新增对 `TTradePrepOrders`/`TTradeReduceOrders`/`ProfitReduceOrderIDs` 的排除检查，命中任意一张表就跳过、不收编 | `trader/auto_trader_grid.go` `syncExchangeState()`（"Adopt untracked exchange orders" 段） |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |

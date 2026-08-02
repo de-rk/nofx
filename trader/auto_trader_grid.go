@@ -2104,9 +2104,25 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 		}
 	}
 
-	// Adopt untracked exchange orders (e.g. placed outside this session or after a restart)
+	// Adopt untracked exchange orders (e.g. placed outside this session or after a restart).
+	// Skip anything already tracked as a T-trade prep/reduce order or a
+	// profit-reduce order — those live outside Levels/OrderBook by design
+	// (protection is ID-based via TTradePrepOrders/TTradeReduceOrders/
+	// ProfitReduceOrderIDs, not this map) and are already correctly
+	// protected from cancellation elsewhere. Adopting one here would
+	// mislabel a reduce-only order as a fresh grid entry, corrupting
+	// PositionSize/TotalTrades bookkeeping whenever it eventually fills.
 	for _, o := range openOrders {
 		if _, tracked := at.gridState.OrderBook[o.OrderID]; tracked {
+			continue
+		}
+		if _, isPrep := at.gridState.TTradePrepOrders[o.OrderID]; isPrep {
+			continue
+		}
+		if _, isReduce := at.gridState.TTradeReduceOrders[o.OrderID]; isReduce {
+			continue
+		}
+		if at.gridState.ProfitReduceOrderIDs[o.OrderID] {
 			continue
 		}
 		bestIdx := -1
