@@ -8,6 +8,12 @@ import type { Strategy } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
+// Minutes per bar for each selectable timeframe — used only to show the
+// user roughly how many K-line bars a given timeframe+days combination
+// pulls, so "iterations" (a separate, unrelated search-budget knob) isn't
+// mistaken for something that scales with it.
+const TIMEFRAME_MINUTES: Record<string, number> = { '5m': 5, '15m': 15, '1h': 60, '4h': 240 }
+
 interface GridParams {
   grid_count: number
   atr_multiplier: number
@@ -53,6 +59,11 @@ export function GridBacktestPage() {
   const [leverage, setLeverage] = useState(5)
   const [iterations, setIterations] = useState(2000)
 
+  // Purely informational — how many K-line bars the current timeframe+days
+  // combination will pull (e.g. 15m x 60 days = 5760 bars). Doesn't feed
+  // into any request param; iterations is a separate, unrelated knob.
+  const klineBarCount = Math.floor((days * 24 * 60) / (TIMEFRAME_MINUTES[timeframe] ?? 15))
+
   // Baseline grid params — prefilled from the selected strategy's
   // grid_config (see applyStrategyConfig below), otherwise a generic guess.
   const [gridCount, setGridCount] = useState(20)
@@ -92,6 +103,10 @@ export function GridBacktestPage() {
       investment: { zh: '起始投入 (USDT)', en: 'Starting investment (USDT)' },
       leverage: { zh: '起始杠杆', en: 'Starting leverage' },
       iterations: { zh: '退火迭代次数', en: 'Annealing iterations' },
+      klineBarCount: {
+        zh: '当前周期/天数约拉取 {n} 根K线（与迭代次数无关，迭代次数是搜索预算，独立设置）',
+        en: '~{n} K-line bars for the current timeframe/days (unrelated to iterations, which is a separate search budget)',
+      },
       run: { zh: '开始回测', en: 'Run backtest' },
       stop: { zh: '停止', en: 'Stop' },
       running: { zh: '运行中...', en: 'Running...' },
@@ -422,6 +437,9 @@ export function GridBacktestPage() {
               />
             </div>
           </div>
+          <p className="text-xs text-nofx-text-secondary/70 -mt-2 mb-4">
+            {t('klineBarCount').replace('{n}', klineBarCount.toLocaleString())}
+          </p>
 
           {loadedFromStrategy && (
             <div className="flex items-center gap-2 text-xs text-green-400 mb-4">
