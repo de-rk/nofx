@@ -359,6 +359,8 @@ export interface GridStrategyConfig {
   investment_refresh_days?: number;
   // Kline timeframe that triggers AI grid cycle on candle close (default "5m")
   ai_trigger_tf?: string;
+  // Decision mode: "ai" | "ai_with_algo_fallback" | "algo_only". Unset/empty defaults to "ai".
+  decision_mode?: 'ai' | 'ai_with_algo_fallback' | 'algo_only';
 }
 
 export interface CoinSourceConfig {

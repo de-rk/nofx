@@ -163,6 +163,13 @@ type FullDecision struct {
 	RawResponse         string     `json:"raw_response"`
 	Timestamp           time.Time  `json:"timestamp"`
 	AIRequestDurationMs int64      `json:"ai_request_duration_ms,omitempty"`
+	// ParseFailed is true when the AI call itself succeeded but its response
+	// couldn't be parsed into valid decisions, so Decisions was silently
+	// replaced with a single "hold". Callers that need to distinguish "AI
+	// genuinely decided to hold" from "AI response was unusable" (e.g. to
+	// fall back to an algorithmic decision maker) should check this instead
+	// of pattern-matching the hold's Reasoning text.
+	ParseFailed bool `json:"parse_failed,omitempty"`
 }
 
 // QuantData quantitative data structure (fund flow, position changes, price changes)

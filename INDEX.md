@@ -31,8 +31,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出） |
-| `grid_engine.go` | 网格专用引擎：构建 system/user prompt，解析网格决策；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt` |
+| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
+| `grid_engine.go` | 网格专用引擎：构建 system/user prompt，解析网格决策；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现） |
 | `prompt_builder.go` | 非网格策略的 prompt 构建 |
 | `formatter.go` | 决策输出格式化 |
 | `schema.go` | AI 输出 JSON schema 定义 |
@@ -44,7 +44,7 @@
 | 文件 | 说明 |
 |------|------|
 | `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理 |
-| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查） |
+| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路 |
 | `interface.go` | `GridTrader` 接口定义 |
 | `helpers.go` | 通用工具函数（数量计算、价格格式化等） |
 | `tp_manager.go` | 止盈管理器：`TPManager` 后台监控循环（每个 trader 实例共用，网格/非网格均会启动），但分批止盈的外部写入入口（`SetTPLevels`）已删除——目前无任何调用方会真正喂数据进去，循环本身是活的、`activeLevels` 永远为空 |
@@ -212,7 +212,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `GridConfigEditor.tsx` | 网格策略配置编辑器（层数、投资额、T-trade 阈值等） |
+| `GridConfigEditor.tsx` | 网格策略配置编辑器（层数、投资额、T-trade 阈值、决策模式等） |
 
 ---
 
@@ -381,6 +381,28 @@ HTTP 请求
 | 修复 | 位置 |
 |-----|------|
 | 收编逻辑遍历交易所挂单时，新增对 `TTradePrepOrders`/`TTradeReduceOrders`/`ProfitReduceOrderIDs` 的排除检查，命中任意一张表就跳过、不收编 | `trader/auto_trader_grid.go` `syncExchangeState()`（"Adopt untracked exchange orders" 段） |
+
+### 2026-08-03 — 新增算法决策模式（不依赖 AI 也能维护网格）
+
+起因：AI 网络不稳定时（超时、返回内容解析失败）网格周期只能兜底 hold，整个周期不维护网格，完全靠 API 稳定性撑着。排查执行链路后发现：`place_buy_limit`/`place_sell_limit`/`cancel_order` 的执行代码（`executeGridDecision`→`placeGridLimitOrder`/`cancelGridOrder`）完全不关心决策是不是 AI 给的，`Reasoning`/`Confidence` 只用于日志展示——这意味着可以写一个确定性算法直接生成同样格式的 `kernel.Decision`，走一模一样的执行链路（下单前的资金校验、撤单前的 T字/止盈减仓单保护，全部原样复用，不用重新实现）。
+
+新增 `GridStrategyConfig.DecisionMode`（`"ai"` | `"ai_with_algo_fallback"` | `"algo_only"`，为空默认 `"ai"`，行为完全不变）：
+
+| 模式 | 行为 |
+|-----|------|
+| `ai`（默认） | 跟之前完全一样，不受本次改动影响 |
+| `ai_with_algo_fallback` | 正常调用 AI；AI 调用报错，或者返回内容解析失败被兜底成 hold（`FullDecision.ParseFailed`），这两种情况都视为"AI 不可用"，切换成算法决策；AI 真的自己决定 hold 则不受影响 |
+| `algo_only` | 完全不调用 AI，每个周期都走算法 |
+
+算法本身（`buildAlgoGridDecision`）只做两件事：① 每个空网格层按预设价位、`SuggestedQuantity`（从 `kernel/grid_engine.go` 里给 AI 展示"建议数量"的公式抽出来的共用函数，跟 AI prompt 表格算的是同一个数）算出的数量补单；② 挂单超过 6 小时（`algoStaleOrderTimeout`）未成交就撤销，让该层下一周期在当前价位重新评估。刻意不做"价格偏离网格范围就撤单"——网格边界的重新计算本来就由 `checkGridSkew`/`resetGrid`/`checkInvestmentRefresh` 这些跟决策模式无关的机制在管，不需要再加一套重复的判断。
+
+| 变更 | 位置 |
+|-----|------|
+| `GridStrategyConfig` 新增 `DecisionMode string` | `store/strategy.go` |
+| `FullDecision` 新增 `ParseFailed bool`，在 `GetGridDecisions` 解析失败兜底 hold 时置位，供调用方区分"AI 真 hold"与"AI 响应不可用"，不再需要靠字符串匹配 Reasoning 文案判断 | `kernel/engine.go`、`kernel/grid_engine.go` |
+| 抽出共用的 `SuggestedQuantity(level, ctx)` 函数，替换掉中英文两份 prompt 构建函数里原本逐字重复的建议数量公式 | `kernel/grid_engine.go` |
+| 新增 `buildAlgoGridDecision()`（补空层+超时撤单，产出 `kernel.FullDecision`）；`RunGridCycle` 按 `DecisionMode` 分支调用 AI/算法/两者结合 | `trader/auto_trader_grid.go` |
+| 新增"决策模式"下拉选择器（三个选项），`defaultGridConfig` 默认值 `'ai'` | `web/src/components/strategy/GridConfigEditor.tsx`、`web/src/types.ts` |
 
 ### 已知设计限制（待优化）
 

@@ -37,6 +37,7 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *
 	}
 
 	decisions, err := parseGridDecisions(response, ctx.Symbol)
+	parseFailed := err != nil
 	if err != nil {
 		logger.Warnf("Failed to parse grid decisions: %v\nRaw response: %s", err, response)
 		decisions = []Decision{{
@@ -70,6 +71,7 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *
 		RawResponse:         response,
 		AIRequestDurationMs: duration,
 		Timestamp:           time.Now(),
+		ParseFailed:         parseFailed,
 	}, nil
 }
 
@@ -490,6 +492,23 @@ func BuildGridUserPrompt(ctx *GridContext, lang string) string {
 	return buildGridUserPromptEn(ctx)
 }
 
+// SuggestedQuantity computes the quantity a level "should" trade at, scaling
+// its AllocatedUSD share by current total equity (not just the original
+// TotalInvestment, so it reflects actual account size) and leverage. Shared
+// by the AI prompt builders (as a suggestion the AI can deviate from) and
+// the algorithmic decision maker (as the actual quantity to place).
+func SuggestedQuantity(level GridLevelInfo, ctx *GridContext) float64 {
+	allocUSD := level.AllocatedUSD
+	if ctx.TotalInvestment > 0 && ctx.TotalEquity > 0 {
+		allocUSD = level.AllocatedUSD / ctx.TotalInvestment * ctx.TotalEquity
+	}
+	if level.Price <= 0 || allocUSD <= 0 {
+		return 0
+	}
+	raw := allocUSD * float64(ctx.Leverage) / level.Price
+	return math.Round(raw*10000) / 10000
+}
+
 func buildGridUserPromptZh(ctx *GridContext) string {
 	var sb strings.Builder
 
@@ -586,11 +605,7 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 		if ctx.TotalInvestment > 0 && ctx.TotalEquity > 0 {
 			allocUSD = level.AllocatedUSD / ctx.TotalInvestment * ctx.TotalEquity
 		}
-		suggestedQty := 0.0
-		if level.Price > 0 && allocUSD > 0 {
-			raw := allocUSD * float64(ctx.Leverage) / level.Price
-			suggestedQty = math.Round(raw*10000) / 10000
-		}
+		suggestedQty := SuggestedQuantity(level, ctx)
 		var equityUSD float64
 		switch level.State {
 		case "filled":
@@ -714,11 +729,7 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 		if ctx.TotalInvestment > 0 && ctx.TotalEquity > 0 {
 			allocUSD = level.AllocatedUSD / ctx.TotalInvestment * ctx.TotalEquity
 		}
-		suggestedQty := 0.0
-		if level.Price > 0 && allocUSD > 0 {
-			raw := allocUSD * float64(ctx.Leverage) / level.Price
-			suggestedQty = math.Round(raw*10000) / 10000
-		}
+		suggestedQty := SuggestedQuantity(level, ctx)
 		var equityUSD float64
 		switch level.State {
 		case "filled":

@@ -31,6 +31,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   enable_investment_refresh: false,
   investment_refresh_days: 2,
   ai_trigger_tf: '5m',
+  decision_mode: 'ai',
 }
 
 export function GridConfigEditor({
@@ -59,6 +60,16 @@ export function GridConfigEditor({
       investmentRefreshDays: { zh: '刷新间隔 (天)', en: 'Refresh Interval (days)' },
       leverage: { zh: '杠杆倍数', en: 'Leverage' },
       leverageDesc: { zh: '交易使用的杠杆倍数 (1-5)', en: 'Leverage for trading (1-5)' },
+
+      // Decision mode
+      decisionMode: { zh: '决策模式', en: 'Decision Mode' },
+      decisionModeDesc: {
+        zh: 'AI 调用失败或解析失败时如何处理。算法模式：空网格层按预设价位/数量补单，挂单超过6小时未成交自动撤销重挂，不依赖 AI 判断行情。',
+        en: 'What to do when the AI call fails or its response can\'t be parsed. Algorithmic mode: fills empty grid levels at their preset price/quantity, cancels orders resting over 6h so they get re-priced — no market judgment, no AI dependency.',
+      },
+      decisionModeAi: { zh: '仅 AI（默认）', en: 'AI Only (default)' },
+      decisionModeAiAlgoFallback: { zh: 'AI + 算法备用', en: 'AI + Algorithmic Fallback' },
+      decisionModeAlgoOnly: { zh: '仅算法', en: 'Algorithmic Only' },
 
       // Grid parameters
       gridCount: { zh: '网格数量', en: 'Grid Count' },
@@ -243,6 +254,27 @@ export function GridConfigEditor({
               <option value="5m">5m</option>
               <option value="15m">15m</option>
               <option value="30m">30m</option>
+            </select>
+          </div>
+
+          {/* Decision Mode */}
+          <div className="p-4 rounded-lg" style={sectionStyle}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('decisionMode')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('decisionModeDesc')}
+            </p>
+            <select
+              value={config.decision_mode ?? 'ai'}
+              onChange={(e) => updateField('decision_mode', e.target.value as 'ai' | 'ai_with_algo_fallback' | 'algo_only')}
+              disabled={disabled}
+              className="w-full px-3 py-2 rounded text-sm"
+              style={{ background: '#2B3139', border: '1px solid #474D57', color: '#EAECEF' }}
+            >
+              <option value="ai">{t('decisionModeAi')}</option>
+              <option value="ai_with_algo_fallback">{t('decisionModeAiAlgoFallback')}</option>
+              <option value="algo_only">{t('decisionModeAlgoOnly')}</option>
             </select>
           </div>
 

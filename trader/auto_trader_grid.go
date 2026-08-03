@@ -561,20 +561,33 @@ func (at *AutoTrader) RunGridCycle() error {
 		return fmt.Errorf("failed to build grid context: %w", err)
 	}
 
-	// Get AI decisions
-	decision, err := kernel.GetGridDecisions(gridCtx, at.mcpClient, at.config.StrategyConfig, lang)
-	if err != nil {
-		at.gridState.mu.Lock()
-		at.gridState.DecisionMemory = append(at.gridState.DecisionMemory, kernel.DecisionSummary{
-			Timestamp: time.Now().Format("15:04:05"),
-			Action:    "timeout",
-			Reasoning: fmt.Sprintf("AI call timed out: %v", err),
-		})
-		if len(at.gridState.DecisionMemory) > 5 {
-			at.gridState.DecisionMemory = at.gridState.DecisionMemory[len(at.gridState.DecisionMemory)-5:]
+	// Get decisions — AI, algorithmic, or AI with algorithmic fallback,
+	// depending on gridConfig.DecisionMode (empty defaults to "ai").
+	decisionMode := gridConfig.DecisionMode
+	var decision *kernel.FullDecision
+	if decisionMode == "algo_only" {
+		decision = at.buildAlgoGridDecision(gridCtx)
+	} else {
+		decision, err = kernel.GetGridDecisions(gridCtx, at.mcpClient, at.config.StrategyConfig, lang)
+		aiFailed := err != nil || (decision != nil && decision.ParseFailed)
+		if aiFailed && decisionMode == "ai_with_algo_fallback" {
+			logger.Warnf("[Grid] AI decision unavailable (err=%v, parse_failed=%v) — falling back to algorithmic decision",
+				err, decision != nil && decision.ParseFailed)
+			decision = at.buildAlgoGridDecision(gridCtx)
+			err = nil
+		} else if err != nil {
+			at.gridState.mu.Lock()
+			at.gridState.DecisionMemory = append(at.gridState.DecisionMemory, kernel.DecisionSummary{
+				Timestamp: time.Now().Format("15:04:05"),
+				Action:    "timeout",
+				Reasoning: fmt.Sprintf("AI call timed out: %v", err),
+			})
+			if len(at.gridState.DecisionMemory) > 5 {
+				at.gridState.DecisionMemory = at.gridState.DecisionMemory[len(at.gridState.DecisionMemory)-5:]
+			}
+			at.gridState.mu.Unlock()
+			return fmt.Errorf("failed to get grid decisions: %w", err)
 		}
-		at.gridState.mu.Unlock()
-		return fmt.Errorf("failed to get grid decisions: %w", err)
 	}
 
 	// Check if trader is stopped before executing any decisions (prevent trades after Stop())
@@ -1249,6 +1262,95 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 	}
 
 	return ctx, nil
+}
+
+// algoStaleOrderTimeout is how long a pending grid order can sit unfilled in
+// algorithmic decision mode before it's cancelled so the level gets
+// re-evaluated (and re-priced) on a later cycle. Mirrors the AI's implicit
+// judgment call ("this level's price probably isn't relevant anymore") as a
+// fixed rule, since there's no LLM here to make that call.
+const algoStaleOrderTimeout = 6 * time.Hour
+
+// buildAlgoGridDecision is the deterministic, non-AI equivalent of
+// kernel.GetGridDecisions: place an order for every empty level (buy below
+// current price, sell above — ctx.Levels[i].Side is already kept current
+// for empty levels by buildGridContext) at the quantity
+// kernel.SuggestedQuantity would suggest to the AI, and cancel any pending
+// order that's been resting longer than algoStaleOrderTimeout. Deliberately
+// does NOT do price-deviation-based cancellation — grid bounds already get
+// recalculated independently of decision mode (checkGridSkew/resetGrid/
+// checkInvestmentRefresh), so a second overlapping mechanism isn't needed.
+// Reuses ctx.Levels (a snapshot already taken under gridState.mu by
+// buildGridContext) rather than re-reading at.gridState, so this needs no
+// locking of its own. Returns decisions through the exact same
+// kernel.FullDecision/Decision shape the AI produces, so callers execute it
+// via the identical path (executeGridDecision) — per-cycle caps
+// (maxOrdersPerCycle/maxCancelsPerCycle), pause/balance guards, and
+// T-trade/profit-reduce order protection in cancelGridOrder all apply
+// exactly as they do to AI-issued decisions.
+func (at *AutoTrader) buildAlgoGridDecision(ctx *kernel.GridContext) *kernel.FullDecision {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	var decisions []kernel.Decision
+
+	for i, level := range ctx.Levels {
+		switch level.State {
+		case "empty":
+			qty := kernel.SuggestedQuantity(level, ctx)
+			if qty <= 0 {
+				continue
+			}
+			action := "place_buy_limit"
+			if level.Side == "sell" {
+				action = "place_sell_limit"
+			}
+			decisions = append(decisions, kernel.Decision{
+				Symbol:     gridConfig.Symbol,
+				Action:     action,
+				Price:      level.Price,
+				Quantity:   qty,
+				LevelIndex: i,
+				Reasoning:  "algo: filling empty grid level",
+			})
+		case "pending":
+			if level.OrderID != "" && !level.OrderPlacedAt.IsZero() && time.Since(level.OrderPlacedAt) > algoStaleOrderTimeout {
+				decisions = append(decisions, kernel.Decision{
+					Symbol:     gridConfig.Symbol,
+					Action:     "cancel_order",
+					OrderID:    level.OrderID,
+					LevelIndex: i,
+					Reasoning:  "algo: order stale, cancelling for re-pricing",
+				})
+			}
+		}
+	}
+
+	if len(decisions) == 0 {
+		decisions = []kernel.Decision{{
+			Symbol:    gridConfig.Symbol,
+			Action:    "hold",
+			Reasoning: "algo: nothing to do this cycle",
+		}}
+	}
+
+	placeCount, cancelCount := 0, 0
+	for _, d := range decisions {
+		switch d.Action {
+		case "place_buy_limit", "place_sell_limit":
+			placeCount++
+		case "cancel_order":
+			cancelCount++
+		}
+	}
+	cot := fmt.Sprintf("Algorithmic decision mode (no AI call): %d empty level(s) filled, %d stale order(s) cancelled.",
+		placeCount, cancelCount)
+
+	return &kernel.FullDecision{
+		SystemPrompt: "[algorithmic mode — no AI system prompt]",
+		UserPrompt:   "[algorithmic mode — no AI user prompt]",
+		CoTTrace:     cot,
+		Decisions:    decisions,
+		Timestamp:    time.Now(),
+	}
 }
 
 // executeGridDecision executes a single grid decision

@@ -114,6 +114,12 @@ type GridStrategyConfig struct {
 	InvestmentRefreshDays int `json:"investment_refresh_days"`
 	// Kline timeframe that triggers AI grid cycle on candle close (default "5m")
 	AITriggerTf string `json:"ai_trigger_tf"`
+	// Decision mode: "ai" | "ai_with_algo_fallback" | "algo_only". Empty defaults to "ai".
+	// "ai_with_algo_fallback" and "algo_only" use a deterministic algorithm (fill empty
+	// levels at their pre-computed price/quantity, cancel stale pending orders) instead
+	// of an LLM call — see AutoTrader.buildAlgoGridDecision — either as a fallback when
+	// the AI call errors or fails to parse, or unconditionally every cycle.
+	DecisionMode string `json:"decision_mode"`
 }
 
 // PromptSectionsConfig editable sections of System Prompt
