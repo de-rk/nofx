@@ -21,6 +21,7 @@ interface GridParams {
   profit_drawdown_threshold: number
   enable_small_position_close: boolean
   fee_pct: number
+  score_mode: string
 }
 
 interface SimResult {
@@ -65,6 +66,7 @@ export function GridBacktestPage() {
   const [profitDrawdownThresholdPct, setProfitDrawdownThresholdPct] = useState(0)
   const [enableSmallPositionClose, setEnableSmallPositionClose] = useState(false)
   const [feePct, setFeePct] = useState(0.02)
+  const [scoreMode, setScoreMode] = useState('balanced')
   const [loadedFromStrategy, setLoadedFromStrategy] = useState(false)
 
   const [isRunning, setIsRunning] = useState(false)
@@ -108,6 +110,13 @@ export function GridBacktestPage() {
       profitDrawdownHint: { zh: '0 = 禁用', en: '0 = disabled' },
       enableSmallPositionClose: { zh: '小仓位自动平仓', en: 'Auto-close small positions' },
       feePct: { zh: '手续费率 % (0=禁用)', en: 'Fee rate % (0 disables)' },
+      scoreMode: { zh: '评分策略', en: 'Score Mode' },
+      scoreModeDesc: {
+        zh: '控制退火搜索在"收益"与"回撤"之间怎么取舍，不影响单次回测的成交/手续费/回撤本身，只影响搜索器最终偏好哪组参数。',
+        en: 'Controls the trade-off the annealing search makes between return and drawdown. Doesn\'t change a single run\'s fills/fees/drawdown — only which parameter set the search ends up favoring.',
+      },
+      scoreModeBalanced: { zh: '收益与风险均衡（推荐）', en: 'Balanced (Return & Risk, recommended)' },
+      scoreModeReturnFocused: { zh: '收益优先', en: 'Return-focused' },
       returnPct: { zh: '收益率', en: 'Return' },
       maxDrawdown: { zh: '最大回撤', en: 'Max drawdown' },
       filledLevels: { zh: '成交层数', en: 'Filled levels' },
@@ -206,6 +215,7 @@ export function GridBacktestPage() {
       profit_drawdown_threshold: String(profitDrawdownThresholdPct),
       enable_small_position_close: String(enableSmallPositionClose),
       fee_pct: String(feePct),
+      score_mode: scoreMode,
     })
 
     try {
@@ -284,6 +294,9 @@ export function GridBacktestPage() {
       )}
       {p.fee_pct > 0 && (
         <div><span className="text-nofx-text-secondary">{t('feePct')}: </span>{p.fee_pct.toFixed(3)}%</div>
+      )}
+      {p.score_mode === 'return_focused' && (
+        <div className="text-nofx-text-secondary">{t('scoreMode')}: {t('scoreModeReturnFocused')}</div>
       )}
     </div>
   )
@@ -509,7 +522,20 @@ export function GridBacktestPage() {
                 className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
               />
             </div>
+            <div>
+              <label className="block text-xs text-nofx-text-secondary mb-1">{t('scoreMode')}</label>
+              <select
+                value={scoreMode}
+                onChange={(e) => setScoreMode(e.target.value)}
+                disabled={isRunning}
+                className="w-full px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50"
+              >
+                <option value="balanced">{t('scoreModeBalanced')}</option>
+                <option value="return_focused">{t('scoreModeReturnFocused')}</option>
+              </select>
+            </div>
           </div>
+          <p className="text-xs text-nofx-text-secondary/70 -mt-2 mb-4">{t('scoreModeDesc')}</p>
 
           <div className="flex flex-wrap items-center gap-6 mb-4">
             <label className="flex items-center gap-2 text-sm text-nofx-text cursor-pointer">

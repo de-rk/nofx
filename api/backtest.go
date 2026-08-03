@@ -46,6 +46,7 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 	profitDrawdownThresholdPct := queryFloat(c, "profit_drawdown_threshold", 0, 0, 100)
 	enableSmallPositionClose := queryBool(c, "enable_small_position_close", false)
 	feePct := queryFloat(c, "fee_pct", 0.02, 0, 1)
+	scoreMode := c.DefaultQuery("score_mode", "balanced")
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -91,6 +92,7 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 		ProfitDrawdownThresholdPct: profitDrawdownThresholdPct,
 		EnableSmallPositionClose:   enableSmallPositionClose,
 		FeePct:                     feePct,
+		ScoreMode:                  scoreMode,
 	}
 
 	baseline := backtest.Simulate(klines, startIdx, totalInvestment, initial)

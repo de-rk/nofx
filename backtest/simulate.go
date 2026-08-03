@@ -446,14 +446,22 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
 		TotalFeesPaid:       totalFees,
 		BlewUp:              false,
-		Score:               Score(returnPct, maxDrawdownPct),
+		Score:               Score(returnPct, maxDrawdownPct, p.ScoreMode),
 	}
 }
 
 // Score is the annealing objective: reward return, penalize drawdown.
-// Tune drawdownPenalty to taste — higher values favor safer parameter sets
-// over raw return.
-func Score(returnPct, maxDrawdownPct float64) float64 {
-	const drawdownPenalty = 1.5
+// mode == "return_focused" uses a much lighter drawdown penalty so the
+// search chases raw return; anything else (including "") is "balanced",
+// the original heavier-penalty behavior. Blown-up runs are excluded from
+// either mode by a separate, fixed -1e9 penalty applied at the call site
+// in Simulate() (not here), so "return_focused" still won't favor a
+// combination that wipes the account — it just tolerates more drawdown
+// short of that.
+func Score(returnPct, maxDrawdownPct float64, mode string) float64 {
+	drawdownPenalty := 1.5
+	if mode == "return_focused" {
+		drawdownPenalty = 0.3
+	}
 	return returnPct - drawdownPenalty*maxDrawdownPct
 }

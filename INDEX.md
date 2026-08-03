@@ -172,13 +172,13 @@
 
 | 文件 | 说明 |
 |------|------|
-| `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid` 计数） |
+| `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`ScoreMode`（"balanced"（默认，回撤惩罚系数1.5）| "return_focused"（回撤惩罚系数0.3），只影响退火搜索怎么打分选参数，不改变单次回测本身的成交/回撤结果））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid` 计数） |
 | `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD` |
-| `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费；`Score()` 按「收益 - 1.5×最大回撤」打分，爆仓给 `-1e9` 极端惩罚分 |
+| `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费；`Score(returnPct, maxDrawdownPct, mode)` 按「收益 - 回撤惩罚系数×最大回撤」打分（系数由 `GridParams.ScoreMode` 决定），爆仓固定给 `-1e9` 极端惩罚分（不受 ScoreMode 影响） |
 | `backtest/anneal.go` | `Anneal()` 通用模拟退火循环，`AnnealConfig.OnProgress` 回调用于流式上报迭代进度（供 SSE handler 使用），不知道传输层细节 |
-| `scripts/grid_backtest/main.go` | CLI 入口，薄封装调用 `backtest` 包，含 T字/利润回撤/小仓位平仓/手续费率/仓位上限对应 flag。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000 -enable-ttrade -ttrade-position-threshold-pct 30 -fee-pct 0.02 -max-position-size-pct 35` |
-| `api/backtest.go` | `handleGridBacktestRun` — SSE 接口，流式推送 `baseline`/`progress`/`done`/`error` 四种事件，路由 `GET /api/backtest/grid/run`（`api/server.go`，需登录）。基准网格参数（`grid_count`/`atr_multiplier`/`distribution`/`profit_reduce_step_pct`/`profit_reduce_multiplier`/`enable_trapped_reduce`/`t_trade_position_threshold_pct`/`t_trade_spread_pct`/`profit_drawdown_threshold`/`enable_small_position_close`/`fee_pct`）均可通过 query 覆盖，默认才用硬编码猜测值（`fee_pct` 默认 0.02 对齐 OKX 常规档位 maker 费率） |
-| `web/src/pages/GridBacktestPage.tsx` | 前端页面：策略下拉选择器（`GET /api/strategies`，同 `PromptTestPage.tsx` 的模式，不再依赖"当前激活策略"）+ 参数表单 + SSE 流式读取（`fetch` + `ReadableStream`，同 `App.tsx` 订单事件流的读取方式）+ 基准/最优结果对比卡片。选中策略后用其 `grid_config` 真实值预填基准参数（symbol/leverage/investment + 上述全部网格与风控字段），未选择则保留通用默认值，可手动覆盖任意字段；`fee_pct` 无实盘配置对应项，始终用表单默认值。T字相关输入仅在勾选启用后展示。导航栏入口：`HeaderBar.tsx` 桌面版 `navTabs`（`/grid-backtest`，与 `prompt-test` 一样未接入移动端菜单） |
+| `scripts/grid_backtest/main.go` | CLI 入口，薄封装调用 `backtest` 包，含 T字/利润回撤/小仓位平仓/手续费率/评分模式对应 flag。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000 -enable-ttrade -ttrade-position-threshold-pct 30 -fee-pct 0.02 -score-mode balanced` |
+| `api/backtest.go` | `handleGridBacktestRun` — SSE 接口，流式推送 `baseline`/`progress`/`done`/`error` 四种事件，路由 `GET /api/backtest/grid/run`（`api/server.go`，需登录）。基准网格参数（`grid_count`/`atr_multiplier`/`distribution`/`profit_reduce_step_pct`/`profit_reduce_multiplier`/`enable_trapped_reduce`/`t_trade_position_threshold_pct`/`t_trade_spread_pct`/`profit_drawdown_threshold`/`enable_small_position_close`/`fee_pct`/`score_mode`）均可通过 query 覆盖，默认才用硬编码猜测值（`fee_pct` 默认 0.02 对齐 OKX 常规档位 maker 费率，`score_mode` 默认 `balanced`） |
+| `web/src/pages/GridBacktestPage.tsx` | 前端页面：策略下拉选择器（`GET /api/strategies`，同 `PromptTestPage.tsx` 的模式，不再依赖"当前激活策略"）+ 参数表单 + SSE 流式读取（`fetch` + `ReadableStream`，同 `App.tsx` 订单事件流的读取方式）+ 基准/最优结果对比卡片。选中策略后用其 `grid_config` 真实值预填基准参数（symbol/leverage/investment + 上述全部网格与风控字段），未选择则保留通用默认值，可手动覆盖任意字段；`fee_pct`/`score_mode` 无实盘配置对应项，始终用表单默认值。T字相关输入仅在勾选启用后展示。导航栏入口：`HeaderBar.tsx` 桌面版 `navTabs`（`/grid-backtest`，与 `prompt-test` 一样未接入移动端菜单） |
 
 只打印/展示建议参数，不写回任何策略配置或数据库。
 
@@ -403,6 +403,17 @@ HTTP 请求
 | 抽出共用的 `SuggestedQuantity(level, ctx)` 函数，替换掉中英文两份 prompt 构建函数里原本逐字重复的建议数量公式 | `kernel/grid_engine.go` |
 | 新增 `buildAlgoGridDecision()`（补空层+超时撤单，产出 `kernel.FullDecision`）；`RunGridCycle` 按 `DecisionMode` 分支调用 AI/算法/两者结合 | `trader/auto_trader_grid.go` |
 | 新增"决策模式"下拉选择器（三个选项），`defaultGridConfig` 默认值 `'ai'` | `web/src/components/strategy/GridConfigEditor.tsx`、`web/src/types.ts` |
+
+### 2026-08-03（续）— 回测新增评分模式："收益优先" / "收益与风险均衡"
+
+`Score()`（退火搜索的目标函数）原来只有一套固定公式「收益 - 1.5×最大回撤」，搜索器只会往"稳"的方向偏。新增 `GridParams.ScoreMode`：`"balanced"`（默认，回撤惩罚系数 1.5，跟改动前完全一样）与 `"return_focused"`（回撤惩罚系数 0.3，让搜索更愿意接受高回撤换更高收益的组合）。注意这个参数**不改变单次回测本身的成交/回撤/手续费结果**——同一组参数在两种模式下 `ReturnPct`/`MaxDrawdownPct` 完全一样，只有 `Score` 字段的值不同，进而影响退火搜索最终选中哪一组参数。爆仓（`BlewUp`）固定给 `-1e9` 极端惩罚分，不受 `ScoreMode` 影响——"收益优先"也不会选出一个会打爆仓的组合。
+
+| 变更 | 位置 |
+|-----|------|
+| `GridParams` 新增 `ScoreMode string`（`"balanced"`\|`"return_focused"`） | `backtest/types.go` |
+| `Score()` 签名新增 `mode string` 参数，按 mode 选择回撤惩罚系数 | `backtest/simulate.go` |
+| 新增 `score_mode` query 参数 / `-score-mode` CLI flag，默认 `balanced` | `api/backtest.go`、`scripts/grid_backtest/main.go` |
+| 新增"评分策略"下拉选择器（收益与风险均衡/收益优先） | `web/src/pages/GridBacktestPage.tsx` |
 
 ### 已知设计限制（待优化）
 

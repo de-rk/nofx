@@ -59,6 +59,16 @@ type GridParams struct {
 	// fill; this flat-rate model is a deliberate simplification, not a
 	// fidelity target. 0 disables fee simulation.
 	FeePct float64 `json:"fee_pct"`
+
+	// ScoreMode picks the annealing objective's return/drawdown trade-off
+	// (see Score()): "balanced" (default, empty also means this) weighs
+	// drawdown heavily so the search favors safer parameter sets;
+	// "return_focused" weighs it much less so the search chases raw return,
+	// still bounded by the separate hard -1e9 penalty for BlewUp. Unlike the
+	// other fields above, this doesn't change what Simulate() does — the
+	// same run produces the same fills/fees/drawdown — it only changes which
+	// candidate Anneal() ends up preferring.
+	ScoreMode string `json:"score_mode"`
 }
 
 func (p GridParams) Clone() GridParams { return p }
