@@ -302,7 +302,7 @@ HTTP 请求
 | 删除内容 | 根因/说明 |
 |---------|-----------|
 | `trader/auto_trader_grid.go` 的 `checkBreakout`/`checkBoxBreakout`/`handleBreakout`/`executeBreakoutAction`/`closeAllPositions`/`checkFalseBreakoutRecovery` 及其专属类型 `BreakoutType`/`BreakoutNone`/`BreakoutUpper`/`BreakoutLower` | 突破检测从未被 `RunGridCycle` 调用；`RunGridCycle` 里有一段独立的 box 数据刷新代码（供风险面板显示用，已保留），跟这批死函数只是"读同一份数据"，没有调用关系 |
-| `trader/auto_trader_grid.go` 的 `checkMaxDrawdown`/`checkDailyLossLimit`/`updateDailyPnL` | 零调用方；对应的 `MaxDrawdownPct`/`DailyLossLimitPct` 配置字段本身也从未被前端编辑器或 AI prompt 读取，本次未动这些字段（不阻塞、改动它们要牵涉 DB schema） |
+| `trader/auto_trader_grid.go` 的 `checkMaxDrawdown`/`checkDailyLossLimit`/`updateDailyPnL` | 零调用方；对应的 `MaxDrawdownPct`/`DailyLossLimitPct` 配置字段本身也从未被前端编辑器或 AI prompt 读取，当时未动这些字段（这几个 struct 字段后来在下面"排查回测与实盘参数差异"那次一并删除了） |
 | `trader/auto_trader_grid.go` 的 `checkAndExecuteStopLoss` | 函数体是空的（注释明写"disabled"），删除空壳调用点 |
 | `trader/grid_regime.go`（整个文件删除）：`classifyRegimeLevel`/`getDynamicLeverage`/`getDynamicPositionLimit`/`detectBoxBreakout`/`confirmBreakout`/`getBreakoutAction`/`BreakoutState`/`BreakoutAction` | 前三者仅测试引用或完全零引用；后几个是上面删除 `checkBoxBreakout` 后连带变成孤儿的支撑代码。`GridState.CurrentRegimeLevel` 字段从未被赋值（永远读到默认值 "standard"），保留不动（`GetGridRiskInfo` 仍读取它，改动需要额外碰 API 契约，不在本次范围） |
 | `trader/grid_regime_test.go` 里对应的 4 个测试 | `TestClassifyRegimeLevel`/`TestDetectBoxBreakout`/`TestBreakoutConfirmation`/`TestGetBreakoutAction`——随源码一起删除，保留同文件里无关的 `TestGetBuySellRatio` |
@@ -414,6 +414,19 @@ HTTP 请求
 | `Score()` 签名新增 `mode string` 参数，按 mode 选择回撤惩罚系数 | `backtest/simulate.go` |
 | 新增 `score_mode` query 参数 / `-score-mode` CLI flag，默认 `balanced` | `api/backtest.go`、`scripts/grid_backtest/main.go` |
 | 新增"评分策略"下拉选择器（收益与风险均衡/收益优先） | `web/src/pages/GridBacktestPage.tsx` |
+
+### 2026-08-06 — 清理网格配置里的三个死字段
+
+排查回测与实盘参数差异时发现：`GridStrategyConfig.MaxDrawdownPct`/`.StopLossPct`/`.DailyLossLimitPct` 定义在 struct 里、能存进数据库，但全仓库零读取——`auto_trader_grid.go` 里约30处 `gridConfig := at.config.StrategyConfig.GridConfig` 取值从没碰过这三个字段，前端 `GridConfigEditor.tsx` 也从没暴露过对应输入框。溯源到 `docs/plans/2026-01-14-grid-trading-fixes.md`，当年是计划做止损/回撤/日损限制，但从未真正落地到代码，一直是纯占位字段。
+
+顺带核实了另一个疑似死代码候选——非网格路径 `RiskControlConfig.ProfitDrawdownPct`/`.ProfitThresholdPct`——确认是**活代码**：`checkProfitDrawdown()`（`auto_trader.go:2546`）读取这两个字段做峰值回撤全平判断，且被 `auto_trader.go:541`/`728` 两处真实调用，未做改动。
+
+| 变更 | 位置 |
+|-----|------|
+| 删除 `GridStrategyConfig` 的 `MaxDrawdownPct`/`StopLossPct`/`DailyLossLimitPct` 三个字段 | `store/strategy.go` |
+| 删除 `GridStrategyConfig` TS 镜像接口里对应的三个字段 | `web/src/types.ts` |
+
+`store/grid.go`（`GridConfigModel`，那张已确认零调用方的历史遗留表）里的同名字段本次未动，维持之前清理 `MaxPositionSizePct` 时的判断——那是更早、范围更大的另一个死代码问题，不在本次范围内。
 
 ### 已知设计限制（待优化）
 

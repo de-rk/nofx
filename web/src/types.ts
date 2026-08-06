@@ -328,12 +328,6 @@ export interface GridStrategyConfig {
   atr_multiplier: number;
   // Position distribution: "uniform" | "gaussian" | "pyramid"
   distribution: 'uniform' | 'gaussian' | 'pyramid';
-  // Maximum drawdown percentage before emergency exit
-  max_drawdown_pct?: number;
-  // Stop loss percentage per position
-  stop_loss_pct?: number;
-  // Daily loss limit percentage
-  daily_loss_limit_pct?: number;
   // Use maker-only orders for lower fees
   use_maker_only: boolean;
   // Auto-close small positions (value < 100 USDT) when profit exceeds step*1.2 (default true)

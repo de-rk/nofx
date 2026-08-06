@@ -82,12 +82,6 @@ type GridStrategyConfig struct {
 	ATRMultiplier float64 `json:"atr_multiplier"`
 	// Position distribution: "uniform" | "gaussian" | "pyramid"
 	Distribution string `json:"distribution"`
-	// Maximum drawdown percentage before emergency exit
-	MaxDrawdownPct float64 `json:"max_drawdown_pct"`
-	// Stop loss percentage per position
-	StopLossPct float64 `json:"stop_loss_pct"`
-	// Daily loss limit percentage
-	DailyLossLimitPct float64 `json:"daily_loss_limit_pct"`
 	// Use maker-only orders for lower fees
 	UseMakerOnly bool `json:"use_maker_only"`
 	// Auto-close small positions (value < 100 USDT) when profit exceeds step*1.2 (default true)
