@@ -173,7 +173,7 @@
 | 文件 | 说明 |
 |------|------|
 | `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`ScoreMode`（"balanced"（默认，回撤惩罚系数1.5）| "return_focused"（回撤惩罚系数0.3），只影响退火搜索怎么打分选参数，不改变单次回测本身的成交/回撤结果））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid` 计数） |
-| `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD` |
+| `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD`；另复刻 `checkGridSkew`/`autoAdjustGrid`/`resetGrid`：`checkGridSkew` 判断单边成交是否≥3倍或另一侧完全空仓，`maybeResetGrid` 在判定失衡后再额外要求当前价偏离网格中心超过区间30%（双重门槛，跟实盘一致）才真正重建——重新计算边界、重建全部层级，并把仍持仓的层按价格就近迁移到新层 |
 | `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费；`Score(returnPct, maxDrawdownPct, mode)` 按「收益 - 回撤惩罚系数×最大回撤」打分（系数由 `GridParams.ScoreMode` 决定），爆仓固定给 `-1e9` 极端惩罚分（不受 ScoreMode 影响） |
 | `backtest/anneal.go` | `Anneal()` 通用模拟退火循环，`AnnealConfig.OnProgress` 回调用于流式上报迭代进度（供 SSE handler 使用），不知道传输层细节 |
 | `scripts/grid_backtest/main.go` | CLI 入口，薄封装调用 `backtest` 包，含 T字/利润回撤/小仓位平仓/手续费率/评分模式对应 flag。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000 -enable-ttrade -ttrade-position-threshold-pct 30 -fee-pct 0.02 -score-mode balanced` |
@@ -414,6 +414,19 @@ HTTP 请求
 | `Score()` 签名新增 `mode string` 参数，按 mode 选择回撤惩罚系数 | `backtest/simulate.go` |
 | 新增 `score_mode` query 参数 / `-score-mode` CLI flag，默认 `balanced` | `api/backtest.go`、`scripts/grid_backtest/main.go` |
 | 新增"评分策略"下拉选择器（收益与风险均衡/收益优先） | `web/src/pages/GridBacktestPage.tsx` |
+
+### 2026-08-06（续）— 回测补充网格失衡自动重建
+
+排查回测与实盘参数差异时发现的最大一项缺口：实盘遇到单边行情、买卖失衡超3倍（或一侧完全空仓）会自动撤单、按当前价重建网格（`checkGridSkew`/`autoAdjustGrid`/`resetGrid`），回测的网格边界和层级此前建好后永远不变，趋势行情下会持续偏离、结果被系统性拉偏。
+
+新增 `checkGridSkew(levels)`（复刻同名实盘函数，用"已成交/未成交"层数近似实盘的"filled/empty"状态区分）+ `maybeResetGrid(...)`（复刻 `autoAdjustGrid`+`resetGrid`：失衡判定通过后，还要求当前价偏离网格中心超过区间30%才真正重建，跟实盘的双重门槛一致；重建时重新算边界、重建全部层级，已成交层按价格就近迁移到新层，这一步在回测里是精确匹配而非近似，因为模拟器的成交价从不偏离层的目标价）。每根K线在风控检查后、爆仓判断前跑一次；T字减仓单在途时跳过重建（避免 `pendingReduces` 里的层索引指向重建后数组里不相关的层），近似实盘"重建时保护在途减仓单"的效果。新增 `SimResult.GridResets` 计数上报重建次数。
+
+| 变更 | 位置 |
+|-----|------|
+| 新增 `checkGridSkew`/`maybeResetGrid` | `backtest/grid.go` |
+| 主循环每根K线新增第4.5步重建检查；`SimResult` 新增 `GridResets` | `backtest/simulate.go`、`backtest/types.go` |
+| `printResult` 新增 `grid_resets` 展示 | `scripts/grid_backtest/main.go` |
+| 结果卡片新增"网格重建次数"展示 | `web/src/pages/GridBacktestPage.tsx` |
 
 ### 2026-08-06 — 清理网格配置里的三个死字段
 

@@ -41,6 +41,7 @@ interface SimResult {
   drawdown_closes: number
   small_position_closes: number
   total_fees_paid: number
+  grid_resets: number
   blew_up: boolean
   score: number
 }
@@ -142,13 +143,14 @@ export function GridBacktestPage() {
       drawdownCloses: { zh: '回撤全平次数', en: 'Drawdown closes' },
       smallCloses: { zh: '小仓位平仓次数', en: 'Small-position closes' },
       totalFeesPaid: { zh: '累计手续费', en: 'Total fees paid' },
+      gridResets: { zh: '网格重建次数', en: 'Grid resets' },
       score: { zh: '评分', en: 'Score' },
       blewUp: { zh: '⚠️ 该组合触发全仓强平（按简化维持保证金率估算），风险极高', en: '⚠️ This combination triggered cross-margin liquidation (approximated maintenance margin rate) — very high risk' },
       clickToRun: { zh: '设置参数后点击"开始回测"', en: 'Set parameters and click "Run backtest"' },
       loadedFromStrategy: { zh: '已从所选策略加载基准参数', en: 'Baseline params loaded from selected strategy' },
       fillModelNote: {
-        zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交和做市排队。手续费按固定费率模拟（对每笔成交的名义价值收取）。爆仓判断按全仓模式，用固定维持保证金率（0.5%）估算，不是交易所精确的分层保证金率表。T字被套减仓、利润回撤全平、小仓位自动平仓均已按对应实盘逻辑复刻，但仍是简化模型。结果仅供参考。',
-        en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills or maker queue modeled. Trading fees are simulated as a flat rate on each fill\'s notional. Liquidation is approximated for cross-margin using a flat 0.5% maintenance margin rate, not an exchange\'s exact tiered schedule. T-trade, profit-drawdown close, and small-position close are ported from the corresponding live logic, but remain simplified models. Results are indicative only.',
+        zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交和做市排队。手续费按固定费率模拟（对每笔成交的名义价值收取）。爆仓判断按全仓模式，用固定维持保证金率（0.5%）估算，不是交易所精确的分层保证金率表。T字被套减仓、利润回撤全平、小仓位自动平仓、网格失衡自动重建均已按对应实盘逻辑复刻，但仍是简化模型。结果仅供参考。',
+        en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills or maker queue modeled. Trading fees are simulated as a flat rate on each fill\'s notional. Liquidation is approximated for cross-margin using a flat 0.5% maintenance margin rate, not an exchange\'s exact tiered schedule. T-trade, profit-drawdown close, small-position close, and grid-skew auto-reset are ported from the corresponding live logic, but remain simplified models. Results are indicative only.',
       },
       applyBest: { zh: '应用最优参数到策略', en: 'Apply best params to strategy' },
       applyBestDesc: { zh: '选择要更新的策略（只覆盖网格参数，其他配置不变）', en: 'Select a strategy to update (only overwrites grid params, everything else stays)' },
@@ -406,6 +408,7 @@ export function GridBacktestPage() {
       {r.drawdown_closes > 0 && <div><span className="text-nofx-text-secondary">{t('drawdownCloses')}: </span>{r.drawdown_closes}</div>}
       {r.small_position_closes > 0 && <div><span className="text-nofx-text-secondary">{t('smallCloses')}: </span>{r.small_position_closes}</div>}
       {r.total_fees_paid > 0 && <div><span className="text-nofx-text-secondary">{t('totalFeesPaid')}: </span>{r.total_fees_paid.toFixed(2)}</div>}
+      {r.grid_resets > 0 && <div><span className="text-nofx-text-secondary">{t('gridResets')}: </span>{r.grid_resets}</div>}
       <div><span className="text-nofx-text-secondary">{t('score')}: </span>{r.score.toFixed(2)}</div>
       {r.blew_up && (
         <div className="col-span-2 sm:col-span-3 flex items-center gap-2 text-amber-400">

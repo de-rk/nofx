@@ -301,6 +301,7 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 	maxDrawdownPct := 0.0
 	filledCount := 0
 	totalFees := 0.0
+	gridResets := 0
 	ttradeThreshold := ttradeActivationThreshold(p.TTradePositionThresholdPct)
 	ttradeSpreadPct := ttradeSpread(p.TTradeSpreadPct)
 
@@ -398,6 +399,25 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		cashReleased += longPnL + shortPnL
 		totalFees += longFee + shortFee
 
+		// 4.5. Grid-skew auto-reset (ports trader.autoAdjustGrid/resetGrid),
+		// run once per bar after this bar's fills/reduces settle — matching
+		// live, where autoAdjustGrid runs at the end of the cycle via
+		// syncExchangeState's post-checks. Skipped while a T-trade reduce is
+		// in flight: maybeResetGrid rebuilds `levels` from scratch, and a
+		// pendingReduces entry's LevelIndex would then point at an unrelated
+		// level in the new array — live avoids the equivalent problem by
+		// protecting (not touching) in-flight reduce orders across a reset,
+		// which this simplified model approximates by just deferring the
+		// reset a bar rather than replicating that per-order protection.
+		if len(pendingReduces) == 0 {
+			atr14Now := atrAt(klines, i)
+			var reset bool
+			levels, reset = maybeResetGrid(levels, bar.Close, atr14Now, totalInvestment, p)
+			if reset {
+				gridResets++
+			}
+		}
+
 		// 5. Cross-margin liquidation check + equity/drawdown tracking.
 		// Notional is marked at the current bar's close (not entry price) —
 		// maintenance margin scales with current position value, same as a
@@ -417,6 +437,7 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 				DrawdownCloses:      long.DrawdownCloseCount + short.DrawdownCloseCount,
 				SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
 				TotalFeesPaid:       totalFees,
+				GridResets:          gridResets,
 				BlewUp:              true,
 				Score:               -1e9,
 			}
@@ -445,6 +466,7 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		DrawdownCloses:      long.DrawdownCloseCount + short.DrawdownCloseCount,
 		SmallPositionCloses: long.SmallCloseCount + short.SmallCloseCount,
 		TotalFeesPaid:       totalFees,
+		GridResets:          gridResets,
 		BlewUp:              false,
 		Score:               Score(returnPct, maxDrawdownPct, p.ScoreMode),
 	}

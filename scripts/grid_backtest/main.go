@@ -134,6 +134,6 @@ func printResult(label string, p backtest.GridParams, r backtest.SimResult) {
 	if p.ScoreMode == "return_focused" {
 		fmt.Printf("  score_mode: return_focused\n")
 	}
-	fmt.Printf("  return=%.2f%% max_drawdown=%.2f%% filled_levels=%d long_reduces=%d short_reduces=%d ttrade_reduces=%d drawdown_closes=%d small_position_closes=%d total_fees_paid=%.2f blew_up=%v score=%.2f\n",
-		r.ReturnPct, r.MaxDrawdownPct, r.FilledLevels, r.LongReduces, r.ShortReduces, r.TTradeReduces, r.DrawdownCloses, r.SmallPositionCloses, r.TotalFeesPaid, r.BlewUp, r.Score)
+	fmt.Printf("  return=%.2f%% max_drawdown=%.2f%% filled_levels=%d long_reduces=%d short_reduces=%d ttrade_reduces=%d drawdown_closes=%d small_position_closes=%d grid_resets=%d total_fees_paid=%.2f blew_up=%v score=%.2f\n",
+		r.ReturnPct, r.MaxDrawdownPct, r.FilledLevels, r.LongReduces, r.ShortReduces, r.TTradeReduces, r.DrawdownCloses, r.SmallPositionCloses, r.GridResets, r.TotalFeesPaid, r.BlewUp, r.Score)
 }

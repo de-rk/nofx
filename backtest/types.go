@@ -104,6 +104,7 @@ type SimResult struct {
 	DrawdownCloses      int     `json:"drawdown_closes"`
 	SmallPositionCloses int     `json:"small_position_closes"`
 	TotalFeesPaid       float64 `json:"total_fees_paid"`
-	BlewUp              bool    `json:"blew_up"` // equity dropped to <= maintenance margin during the run (proxy for cross-margin liquidation)
+	GridResets          int     `json:"grid_resets"` // number of times the grid was rebuilt around price due to skew (see maybeResetGrid)
+	BlewUp              bool    `json:"blew_up"`     // equity dropped to <= maintenance margin during the run (proxy for cross-margin liquidation)
 	Score               float64 `json:"score"`
 }
