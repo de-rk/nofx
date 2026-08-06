@@ -441,6 +441,19 @@ HTTP 请求
 
 `store/grid.go`（`GridConfigModel`，那张已确认零调用方的历史遗留表）里的同名字段本次未动，维持之前清理 `MaxPositionSizePct` 时的判断——那是更早、范围更大的另一个死代码问题，不在本次范围内。
 
+### 2026-08-07 — 修复网格失衡重建引入的回测性能回归（O(n²) → O(n)）
+
+用户反馈网格回测变慢很多，排查是上一条"网格失衡自动重建"改动引入的性能回归：`maybeResetGrid` 每根K线都要重新算一次 ATR14 判断是否需要重建，而 `atrAt(klines, idx)` 每次调用都从 `klines[:idx]` 重新算全量真实波幅序列再跑一遍 Wilder 平滑——单次 O(idx)，放进主循环逐根K线调用后整体变成 O(n²)，K线数量/回测天数越大越慢。
+
+Wilder 平滑本身就是 O(1) 的滚动递推公式（`atr = (atr*(period-1) + tr)/period`），没有必要每次从头重算。改为一次性预计算：新增 `atrSeries(klines) []float64`（`backtest/grid.go`）在 O(n) 内为每个下标算出对应的 ATR14 值，数值与原来逐次重算完全一致（同样的算式、同样的浮点运算顺序），只是不再重复劳动。`atrAt` 删除，`Simulate()`（`backtest/simulate.go`）里原来两处调用改为对预计算数组做 O(1) 查表。
+
+未加开关——这是纯粹的算法复杂度 bug，直接修掉比加开关"绕开"更合适，修复后行为（何时重建、重建到什么状态）与之前完全一致，只是变快了。
+
+| 变更 | 位置 |
+|-----|------|
+| 删除 `atrAt`，新增 O(n) 一次性预计算的 `atrSeries` | `backtest/grid.go` |
+| 两处调用改为查表 `atr14Series[idx]` | `backtest/simulate.go` |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |

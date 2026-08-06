@@ -281,7 +281,8 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		return SimResult{}
 	}
 	firstBar := klines[startIdx]
-	atr14 := atrAt(klines, startIdx)
+	atr14Series := atrSeries(klines) // O(n) once, replaces the old O(n) per-call atrAt(klines, i)
+	atr14 := atr14Series[startIdx]
 	upper, lower := computeBounds(firstBar.Close, atr14, p)
 	levels, _, err := buildLevels(firstBar.Close, upper, lower, totalInvestment, p)
 	if err != nil {
@@ -410,7 +411,7 @@ func Simulate(klines []market.Kline, startIdx int, totalInvestment float64, p Gr
 		// which this simplified model approximates by just deferring the
 		// reset a bar rather than replicating that per-order protection.
 		if len(pendingReduces) == 0 {
-			atr14Now := atrAt(klines, i)
+			atr14Now := atr14Series[i]
 			var reset bool
 			levels, reset = maybeResetGrid(levels, bar.Close, atr14Now, totalInvestment, p)
 			if reset {

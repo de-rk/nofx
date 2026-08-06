@@ -63,15 +63,54 @@ func buildLevels(currentPrice, upper, lower, totalInvestment float64, p GridPara
 	return levels, spacing, nil
 }
 
-// atrAt computes ATR14 (Wilder-style, matching market.ExportCalculateATR)
-// using only klines[0:idx] (exclusive of idx) so the simulation never looks
-// ahead into the future relative to the current bar.
-func atrAt(klines []market.Kline, idx int) float64 {
-	const period = 14
-	if idx <= period {
-		return 0
+// atr14Period matches market.calculateATR's period as used throughout this
+// package (grid bound sizing and mid-run resets both use ATR14).
+const atr14Period = 14
+
+// atrSeries returns, for every idx in [0, len(klines)], the ATR14 value
+// that market.ExportCalculateATR(klines[:idx], atr14Period) would have
+// returned — i.e. the Wilder-smoothed ATR as of having seen exactly the
+// first idx bars, with idx==0 unused and idx<=atr14Period holding 0 (matching
+// calculateATR's own "not enough bars yet" guard).
+//
+// This replaces the once-per-call atrAt(klines, idx), which recomputed the
+// full true-range series and re-ran Wilder smoothing from scratch on every
+// call — O(idx) per call, and since the simulation's main loop called it once
+// per bar (backtest/simulate.go's per-bar reset check), the whole run was
+// O(n^2) in the number of K-lines. Wilder smoothing is already an O(1)
+// per-step recurrence (atr = (atr*(period-1) + tr)/period), so computing it
+// once, incrementally, for every idx up front is both exact — the same
+// arithmetic in the same order, so results are identical, not merely close —
+// and O(n) overall.
+func atrSeries(klines []market.Kline) []float64 {
+	n := len(klines)
+	atr := make([]float64, n+1) // atr[idx] corresponds to klines[:idx]
+	if n <= atr14Period {
+		return atr // every idx <= n <= period, all zero per the guard above
 	}
-	return market.ExportCalculateATR(klines[:idx], period)
+
+	trs := make([]float64, n) // trs[0] unused; trs[i] is the true range of klines[i] vs klines[i-1]
+	for i := 1; i < n; i++ {
+		high := klines[i].High
+		low := klines[i].Low
+		prevClose := klines[i-1].Close
+		tr1 := high - low
+		tr2 := math.Abs(high - prevClose)
+		tr3 := math.Abs(low - prevClose)
+		trs[i] = math.Max(tr1, math.Max(tr2, tr3))
+	}
+
+	sum := 0.0
+	for i := 1; i <= atr14Period; i++ {
+		sum += trs[i]
+	}
+	value := sum / float64(atr14Period)
+	atr[atr14Period+1] = value
+	for idx := atr14Period + 2; idx <= n; idx++ {
+		value = (value*float64(atr14Period-1) + trs[idx-1]) / float64(atr14Period)
+		atr[idx] = value
+	}
+	return atr
 }
 
 // checkGridSkew ports trader.checkGridSkew: the grid is considered skewed if
