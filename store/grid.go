@@ -217,12 +217,12 @@ func (GridRegimeAssessmentModel) TableName() string {
 }
 
 // GridTradeLogModel records every significant trading action for post-analysis.
-// Source values: "ai", "ttrade", "profit_reduce", "profit_drawdown"
+// Source values: "ai", "algo", "ttrade", "profit_reduce", "profit_drawdown"
 type GridTradeLogModel struct {
 	ID           uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	InstanceID   string    `json:"instance_id" gorm:"index;not null"`
 	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime;index"`
-	Source       string    `json:"source" gorm:"not null;index"` // "ai" | "ttrade" | "profit_reduce" | "profit_drawdown"
+	Source       string    `json:"source" gorm:"not null;index"` // "ai" | "algo" | "ttrade" | "profit_reduce" | "profit_drawdown"
 	Action       string    `json:"action" gorm:"not null"`       // reduce_long, close_long, ttrade_tag, ttrade_fill, etc.
 	Symbol       string    `json:"symbol" gorm:"not null"`
 	Side         string    `json:"side"`         // "long" | "short"

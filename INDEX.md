@@ -44,7 +44,7 @@
 | 文件 | 说明 |
 |------|------|
 | `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理 |
-| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路 |
+| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路，交易日志 source 按实际来源标为 `"ai"` 或 `"algo"` |
 | `interface.go` | `GridTrader` 接口定义 |
 | `helpers.go` | 通用工具函数（数量计算、价格格式化等） |
 | `tp_manager.go` | 止盈管理器：`TPManager` 后台监控循环（每个 trader 实例共用，网格/非网格均会启动），但分批止盈的外部写入入口（`SetTPLevels`）已删除——目前无任何调用方会真正喂数据进去，循环本身是活的、`activeLevels` 永远为空 |
@@ -453,6 +453,18 @@ Wilder 平滑本身就是 O(1) 的滚动递推公式（`atr = (atr*(period-1) + 
 |-----|------|
 | 删除 `atrAt`，新增 O(n) 一次性预计算的 `atrSeries` | `backtest/grid.go` |
 | 两处调用改为查表 `atr14Series[idx]` | `backtest/simulate.go` |
+
+### 2026-08-07（续）— 算法决策模式的下单日志改用独立 `"algo"` 标签
+
+`RunGridCycle` 走算法决策模式（`algo_only` 或 `ai_with_algo_fallback` 触发的降级）时，`executeGridDecision` 之前无条件把 `logGridTrade` 的 source 写成 `"ai"`，导致算法补单在前端交易日志里显示成 AI 下单标签，无法区分。
+
+`RunGridCycle` 新增 `source` 局部变量（`buildAlgoGridDecision` 路径设为 `"algo"`，否则 `"ai"`），透传给 `executeGridDecision(d, ctx, source)`，写日志时用该值而非硬编码 `"ai"`。`GridTradeLogModel.Source` 取值集合新增 `"algo"`；前端 `SOURCE_COLORS`（`web/src/pages/TraderDashboardPage.tsx`）加对应配色，`types.ts` 注释同步。
+
+| 变更 | 位置 |
+|-----|------|
+| `executeGridDecision` 新增 `source` 参数，日志写入真实来源而非硬编码 `"ai"` | `trader/auto_trader_grid.go` |
+| `Source` 取值集合新增 `"algo"` | `store/grid.go`、`web/src/types.ts` |
+| 新增 `algo` 配色 | `web/src/pages/TraderDashboardPage.tsx` |
 
 ### 已知设计限制（待优化）
 

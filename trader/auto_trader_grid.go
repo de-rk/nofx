@@ -562,11 +562,15 @@ func (at *AutoTrader) RunGridCycle() error {
 	}
 
 	// Get decisions — AI, algorithmic, or AI with algorithmic fallback,
-	// depending on gridConfig.DecisionMode (empty defaults to "ai").
+	// depending on gridConfig.DecisionMode (empty defaults to "ai"). source
+	// tracks which one actually produced `decision` this cycle so the trade
+	// log (logGridTrade) records the true origin instead of always "ai".
 	decisionMode := gridConfig.DecisionMode
 	var decision *kernel.FullDecision
+	source := "ai"
 	if decisionMode == "algo_only" {
 		decision = at.buildAlgoGridDecision(gridCtx)
+		source = "algo"
 	} else {
 		decision, err = kernel.GetGridDecisions(gridCtx, at.mcpClient, at.config.StrategyConfig, lang)
 		aiFailed := err != nil || (decision != nil && decision.ParseFailed)
@@ -574,6 +578,7 @@ func (at *AutoTrader) RunGridCycle() error {
 			logger.Warnf("[Grid] AI decision unavailable (err=%v, parse_failed=%v) — falling back to algorithmic decision",
 				err, decision != nil && decision.ParseFailed)
 			decision = at.buildAlgoGridDecision(gridCtx)
+			source = "algo"
 			err = nil
 		} else if err != nil {
 			at.gridState.mu.Lock()
@@ -645,7 +650,7 @@ func (at *AutoTrader) RunGridCycle() error {
 			continue
 		}
 
-		err := at.executeGridDecision(&d, gridCtx)
+		err := at.executeGridDecision(&d, gridCtx, source)
 		if err != nil {
 			logger.Warnf("[Grid] Failed to execute decision %s: %v", d.Action, err)
 		}
@@ -1353,18 +1358,20 @@ func (at *AutoTrader) buildAlgoGridDecision(ctx *kernel.GridContext) *kernel.Ful
 	}
 }
 
-// executeGridDecision executes a single grid decision
-func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridContext) error {
+// executeGridDecision executes a single grid decision. source records who
+// produced d ("ai" or "algo" — see RunGridCycle) so the trade log reflects
+// the true origin rather than always attributing it to the AI.
+func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridContext, source string) error {
 	// Normalize hallucinated action prefixes (e.g. "place_place_buy_limit" → "place_buy_limit")
 	for _, canonical := range []string{"place_buy_limit", "place_sell_limit", "cancel_order", "cancel_all_orders", "reduce_long", "reduce_short", "hold"} {
 		if d.Action != canonical && strings.HasSuffix(d.Action, canonical) {
 			d.Action = canonical
 		}
 	}
-	logger.Infof("[Grid] AI action: %s | qty=%.4f price=%.2f | reason: %s",
-		d.Action, d.Quantity, d.Price, d.Reasoning)
+	logger.Infof("[Grid] %s action: %s | qty=%.4f price=%.2f | reason: %s",
+		source, d.Action, d.Quantity, d.Price, d.Reasoning)
 	symbol := at.config.StrategyConfig.GridConfig.Symbol
-	at.logGridTrade("ai", d.Action, "", symbol, d.Reasoning, "",
+	at.logGridTrade(source, d.Action, "", symbol, d.Reasoning, "",
 		d.Quantity, d.Price, 0, 0, 0, 0, true, "")
 	switch d.Action {
 	case "place_buy_limit":
@@ -2744,7 +2751,7 @@ func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
 // ============================================================================
 
 // logGridTrade writes a structured trade action record to grid_trade_logs.
-// source: "ai" | "ttrade" | "profit_reduce" | "profit_drawdown"
+// source: "ai" | "algo" | "ttrade" | "profit_reduce" | "profit_drawdown"
 // relatedOrderID is optional (variadic to avoid touching every call site): pass a second
 // order ID the entry references (e.g. the reduce order ID for a ttrade_reduce_placed row
 // keyed by the prep OrderID), stored structured instead of embedded in the Reason text.

@@ -568,7 +568,7 @@ export interface GridTradeLog {
   id: number
   instance_id: string
   created_at: string
-  source: string       // "ai" | "ttrade" | "profit_reduce"
+  source: string       // "ai" | "algo" | "ttrade" | "profit_reduce"
   action: string       // "hold" | "reduce_long" | "close_long" | "ttrade_tag" | "ttrade_fill" | "profit_reduce" | "profit_reduce_close" | ...
   symbol: string
   side: string         // "long" | "short"

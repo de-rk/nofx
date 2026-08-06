@@ -868,6 +868,7 @@ function StatCard({
 
 const SOURCE_COLORS: Record<string, string> = {
     ai: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    algo: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
     ttrade: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
     profit_reduce: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
 }
