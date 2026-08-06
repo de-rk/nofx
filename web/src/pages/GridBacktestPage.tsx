@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
-import { FlaskConical, Loader2, Play, Square, AlertTriangle, CheckCircle2 } from 'lucide-react'
-import { notify } from '../lib/notify'
+import { FlaskConical, Loader2, Play, Square, AlertTriangle, CheckCircle2, Download } from 'lucide-react'
+import { confirmToast, notify } from '../lib/notify'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
 import type { Strategy } from '../types'
 
@@ -79,6 +79,8 @@ export function GridBacktestPage() {
   const [feePct, setFeePct] = useState(0.02)
   const [scoreMode, setScoreMode] = useState('balanced')
   const [loadedFromStrategy, setLoadedFromStrategy] = useState(false)
+  const [applyTargetStrategyId, setApplyTargetStrategyId] = useState('')
+  const [isApplying, setIsApplying] = useState(false)
 
   const [isRunning, setIsRunning] = useState(false)
   const [baseline, setBaseline] = useState<{ params: GridParams; result: SimResult } | null>(null)
@@ -148,6 +150,15 @@ export function GridBacktestPage() {
         zh: '成交模型简化：K线最高/最低价覆盖某层价格即视为成交，不模拟部分成交和做市排队。手续费按固定费率模拟（对每笔成交的名义价值收取）。爆仓判断按全仓模式，用固定维持保证金率（0.5%）估算，不是交易所精确的分层保证金率表。T字被套减仓、利润回撤全平、小仓位自动平仓均已按对应实盘逻辑复刻，但仍是简化模型。结果仅供参考。',
         en: 'Simplified fill model: a level fills once a bar\'s high/low range crosses its price — no partial fills or maker queue modeled. Trading fees are simulated as a flat rate on each fill\'s notional. Liquidation is approximated for cross-margin using a flat 0.5% maintenance margin rate, not an exchange\'s exact tiered schedule. T-trade, profit-drawdown close, and small-position close are ported from the corresponding live logic, but remain simplified models. Results are indicative only.',
       },
+      applyBest: { zh: '应用最优参数到策略', en: 'Apply best params to strategy' },
+      applyBestDesc: { zh: '选择要更新的策略（只覆盖网格参数，其他配置不变）', en: 'Select a strategy to update (only overwrites grid params, everything else stays)' },
+      applyConfirmTitle: { zh: '确认应用', en: 'Confirm Apply' },
+      applyConfirmMsg: {
+        zh: '将最优参数写入策略"{name}"（grid_count/atr_multiplier/distribution/leverage/profit_reduce_step_pct/profit_reduce_multiplier/t_trade*/profit_drawdown_threshold/enable_small_position_close）。如果该策略正在运行，参数会立即热更新。继续？',
+        en: 'Write best params to strategy "{name}" (grid_count/atr_multiplier/distribution/leverage/profit_reduce_step_pct/profit_reduce_multiplier/t_trade*/profit_drawdown_threshold/enable_small_position_close). If this strategy is running, changes take effect immediately. Continue?',
+      },
+      applySuccess: { zh: '参数已写入策略，正在运行的 Trader 已热更新', en: 'Params written to strategy; running traders updated immediately' },
+      applySelectPlaceholder: { zh: '选择目标策略', en: 'Select target strategy' },
     }
     return translations[key]?.[language] || key
   }
@@ -199,6 +210,72 @@ export function GridBacktestPage() {
   const stop = () => {
     abortRef.current?.abort()
     setIsRunning(false)
+  }
+
+  // Writes best.params onto the target strategy's grid_config and PUTs the
+  // full strategy back — the update endpoint replaces the whole config, so
+  // we must start from the strategy's current config and only overwrite the
+  // fields backtest params actually cover (see the mapping table this was
+  // built against: fee_pct/score_mode have no live-config equivalent and are
+  // intentionally left out). If the strategy is currently running, the API
+  // hot-reloads it onto the live trader automatically — no extra step needed.
+  const applyBestToStrategy = async () => {
+    if (!token || !best || !applyTargetStrategyId) return
+    const strategy = strategies.find((s) => s.id === applyTargetStrategyId)
+    if (!strategy) return
+
+    const confirmed = await confirmToast(
+      t('applyConfirmMsg').replace('{name}', strategy.name),
+      {
+        title: t('applyConfirmTitle'),
+        okText: language === 'zh' ? '确认' : 'Confirm',
+        cancelText: language === 'zh' ? '取消' : 'Cancel',
+      }
+    )
+    if (!confirmed) return
+
+    setIsApplying(true)
+    try {
+      const currentGridConfig = strategy.config?.grid_config
+      if (!currentGridConfig) {
+        throw new Error('Strategy has no grid_config to update')
+      }
+      const p = best.params
+      const updatedGridConfig = {
+        ...currentGridConfig,
+        grid_count: p.grid_count,
+        atr_multiplier: p.atr_multiplier,
+        distribution: p.distribution as 'uniform' | 'gaussian' | 'pyramid',
+        leverage: p.leverage,
+        profit_reduce_step_pct: p.profit_reduce_step_pct,
+        profit_reduce_multiplier: p.profit_reduce_multiplier,
+        enable_trapped_reduce: p.enable_trapped_reduce,
+        t_trade_position_threshold_pct: p.t_trade_position_threshold_pct,
+        t_trade_spread_pct: p.t_trade_spread_pct,
+        profit_drawdown_threshold: p.profit_drawdown_threshold,
+        enable_small_position_close: p.enable_small_position_close,
+      }
+      const response = await fetch(`${API_BASE}/api/strategies/${applyTargetStrategyId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: strategy.name,
+          description: strategy.description,
+          config: { ...strategy.config, grid_config: updatedGridConfig },
+          is_public: strategy.is_public,
+          config_visible: strategy.config_visible,
+        }),
+      })
+      if (!response.ok) throw new Error(`Request failed (${response.status})`)
+      notify.success(t('applySuccess'))
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setIsApplying(false)
+    }
   }
 
   const run = async () => {
@@ -656,6 +733,31 @@ export function GridBacktestPage() {
                 <h3 className="text-sm font-semibold text-green-400 mb-3">{t('bestTitle')}</h3>
                 {renderParams(best.params)}
                 {renderResult(best.result)}
+                <div className="mt-4 pt-4 border-t border-nofx-gold/10">
+                  <label className="block text-xs text-nofx-text-secondary mb-1">{t('applyBest')}</label>
+                  <p className="text-xs text-nofx-text-secondary/70 mb-2">{t('applyBestDesc')}</p>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={applyTargetStrategyId}
+                      onChange={(e) => setApplyTargetStrategyId(e.target.value)}
+                      disabled={isApplying}
+                      className="flex-1 px-3 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold disabled:opacity-50 text-sm"
+                    >
+                      <option value="">{t('applySelectPlaceholder')}</option>
+                      {strategies.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={applyBestToStrategy}
+                      disabled={!applyTargetStrategyId || isApplying}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
+                    >
+                      {isApplying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      {t('applyBest')}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
