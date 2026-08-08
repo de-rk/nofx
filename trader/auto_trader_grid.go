@@ -1843,8 +1843,12 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 	// locally (see PendingReducePlacements' doc comment on GridState).
 	// Bounded so a stuck/slow exchange call can't hang grid maintenance
 	// forever; if it times out, the order is simply not protected this pass
-	// (same risk as before this fix existed, not a regression).
-	deadline := time.Now().Add(5 * time.Second)
+	// (same risk as before this fix existed, not a regression). Was 5s —
+	// raised to 30s after a real profit-reduce order got cancelled here
+	// because the exchange's order-placement round-trip took longer than
+	// the old deadline, so PendingReducePlacements was still >0 when this
+	// loop gave up and moved on to building protectedIDs from stale maps.
+	deadline := time.Now().Add(30 * time.Second)
 	for atomic.LoadInt32(&at.gridState.PendingReducePlacements) > 0 && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}

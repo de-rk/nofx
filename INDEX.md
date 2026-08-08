@@ -487,6 +487,18 @@ Wilder 平滑本身就是 O(1) 的滚动递推公式（`atr = (atr*(period-1) + 
 |-----|------|
 | "收编未跟踪交易所挂单"循环新增 side/positionSide 结构检查（与 `ttradeTagOrders` 一致） | `trader/auto_trader_grid.go` `syncExchangeState()` |
 
+### 2026-08-08（三）— 减仓单保护等待超时从 5 秒提高到 30 秒
+
+排查上一条 bug 现场时发现同一次事故里还有第二个独立缺口：一笔止盈减仓单（`checkProfitReduce` 下的"賣出平多"）在下单确认窗口内被 `resetGrid`（`checkInvestmentRefresh` 定期资金刷新触发）批量撤单误撤——跟同一批次的几笔网格开仓单一起被撤，是 `cancelAllGridOrders()` 的典型特征。
+
+根因在 `cancelAllGridOrders()` 开头等待 `PendingReducePlacements` 归零的逻辑（`2026-08-02（五）`引入）：等待时间硬编码 5 秒，超时后直接放弃保护、按改动前的行为继续（注释里也写明这是已知风险，不是新引入的）。交易所下单确认在网络抖动或 API 变慢时超过 5 秒并不罕见，一旦命中就会让这笔已经真实挂在交易所上、本该受保护的减仓单被当成普通网格挂单撤掉——跟上一条 bug 同属"下单确认延迟窗口"这一类问题的另一处表现，但触发路径不同（那个是收编逻辑缺结构判断，这个是等待超时不够长）。
+
+用户确认直接把超时从 5 秒提高到 30 秒，缩小窗口触发概率（不是从根本上消除，正常网络延迟不会超过几秒，只有极端变慢才会撞上）。
+
+| 变更 | 位置 |
+|-----|------|
+| `cancelAllGridOrders()` 等待 `PendingReducePlacements` 归零的超时从 5 秒改为 30 秒 | `trader/auto_trader_grid.go` |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
