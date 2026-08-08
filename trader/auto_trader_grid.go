@@ -1277,14 +1277,24 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 const algoStaleOrderTimeout = 6 * time.Hour
 
 // buildAlgoGridDecision is the deterministic, non-AI equivalent of
-// kernel.GetGridDecisions: place an order for every empty level (buy below
-// current price, sell above — ctx.Levels[i].Side is already kept current
-// for empty levels by buildGridContext) at the quantity
+// kernel.GetGridDecisions: place an order for every *affordable* empty level
+// (buy below current price, sell above — ctx.Levels[i].Side is already kept
+// current for empty levels by buildGridContext) at the quantity
 // kernel.SuggestedQuantity would suggest to the AI, and cancel any pending
 // order that's been resting longer than algoStaleOrderTimeout. Deliberately
 // does NOT do price-deviation-based cancellation — grid bounds already get
 // recalculated independently of decision mode (checkGridSkew/resetGrid/
 // checkInvestmentRefresh), so a second overlapping mechanism isn't needed.
+//
+// Affordability check: each empty level's order needs roughly
+// qty*price/leverage of margin. Rather than blindly emitting a
+// place_*_limit for every empty level and letting exchange rejections (or
+// the coarse gridCtx.AvailableBalance<1.0 break in RunGridCycle) sort it out
+// later — which produced a long list of decisions per cycle even when only
+// a handful were actually fundable — this tracks running margin usage
+// against ctx.AvailableBalance and stops adding new place decisions once
+// the available balance is exhausted. Stale-order cancellation is exempt
+// since it frees margin rather than consuming it.
 // Reuses ctx.Levels (a snapshot already taken under gridState.mu by
 // buildGridContext) rather than re-reading at.gridState, so this needs no
 // locking of its own. Returns decisions through the exact same
@@ -1297,11 +1307,27 @@ func (at *AutoTrader) buildAlgoGridDecision(ctx *kernel.GridContext) *kernel.Ful
 	gridConfig := at.config.StrategyConfig.GridConfig
 	var decisions []kernel.Decision
 
+	leverage := gridConfig.Leverage
+	if leverage <= 0 {
+		leverage = 1
+	}
+	availableMargin := ctx.AvailableBalance
+	skippedForBalance := 0
+
 	for i, level := range ctx.Levels {
 		switch level.State {
 		case "empty":
 			qty := kernel.SuggestedQuantity(level, ctx)
 			if qty <= 0 {
+				continue
+			}
+			marginNeeded := qty * level.Price / float64(leverage)
+			if marginNeeded > availableMargin {
+				// Not enough available balance left for this level (or any
+				// further one — levels are processed in index/price order,
+				// but a later cheaper level could theoretically still fit,
+				// so keep scanning instead of breaking outright).
+				skippedForBalance++
 				continue
 			}
 			action := "place_buy_limit"
@@ -1316,6 +1342,7 @@ func (at *AutoTrader) buildAlgoGridDecision(ctx *kernel.GridContext) *kernel.Ful
 				LevelIndex: i,
 				Reasoning:  "algo: filling empty grid level",
 			})
+			availableMargin -= marginNeeded
 		case "pending":
 			if level.OrderID != "" && !level.OrderPlacedAt.IsZero() && time.Since(level.OrderPlacedAt) > algoStaleOrderTimeout {
 				decisions = append(decisions, kernel.Decision{
@@ -1330,10 +1357,14 @@ func (at *AutoTrader) buildAlgoGridDecision(ctx *kernel.GridContext) *kernel.Ful
 	}
 
 	if len(decisions) == 0 {
+		reason := "algo: nothing to do this cycle"
+		if skippedForBalance > 0 {
+			reason = fmt.Sprintf("algo: %d empty level(s) need funding but available balance $%.2f is insufficient", skippedForBalance, ctx.AvailableBalance)
+		}
 		decisions = []kernel.Decision{{
 			Symbol:    gridConfig.Symbol,
 			Action:    "hold",
-			Reasoning: "algo: nothing to do this cycle",
+			Reasoning: reason,
 		}}
 	}
 
@@ -1346,8 +1377,8 @@ func (at *AutoTrader) buildAlgoGridDecision(ctx *kernel.GridContext) *kernel.Ful
 			cancelCount++
 		}
 	}
-	cot := fmt.Sprintf("Algorithmic decision mode (no AI call): %d empty level(s) filled, %d stale order(s) cancelled.",
-		placeCount, cancelCount)
+	cot := fmt.Sprintf("Algorithmic decision mode (no AI call): %d empty level(s) filled, %d stale order(s) cancelled, %d skipped (insufficient balance).",
+		placeCount, cancelCount, skippedForBalance)
 
 	return &kernel.FullDecision{
 		SystemPrompt: "[algorithmic mode — no AI system prompt]",

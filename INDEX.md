@@ -466,6 +466,17 @@ Wilder 平滑本身就是 O(1) 的滚动递推公式（`atr = (atr*(period-1) + 
 | `Source` 取值集合新增 `"algo"` | `store/grid.go`、`web/src/types.ts` |
 | 新增 `algo` 配色 | `web/src/pages/TraderDashboardPage.tsx` |
 
+### 2026-08-08 — 算法决策模式下单前先按可用余额过滤，不再整屏刷决策列表
+
+用户反馈算法模式一个周期刷出一长串 `algo: filling empty grid level` 的 WAIT 卡片，但实际能下的单远少于此——`buildAlgoGridDecision` 之前对每个 `"empty"` 层都无条件生成一条 `place_*_limit` 决策，完全不管余额，指望 `RunGridCycle` 里那个粗粒度的 `gridCtx.AvailableBalance < 1.0` 兜底（或干脆等交易所拒单）来收场，实际效果是决策列表照样很长，只是后面静默失败/跳过。
+
+改为在生成决策的同一个循环里维护一个 `availableMargin` 累计余额（初值 `ctx.AvailableBalance`），每accepted一个空层就按 `qty*price/leverage` 估算所需保证金并扣减；余额不够的层直接跳过（不生成决策），继续扫描后面的层（后面价位更便宜的层可能仍然够用，不整体截断）。全部层都因为余额不足被跳过时，`hold` 的 `Reasoning` 会带上"N 个空层因余额不足未下单"的提示，而不是笼统的"nothing to do"。
+
+| 变更 | 位置 |
+|-----|------|
+| `buildAlgoGridDecision` 新增按 `AvailableBalance` 累计扣减的可下单性过滤，跳过的空层不再生成决策 | `trader/auto_trader_grid.go` |
+| `hold` 的 `Reasoning`、算法模式 `CoTTrace` 补充"因余额不足跳过 N 个空层"的计数 | `trader/auto_trader_grid.go` |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
