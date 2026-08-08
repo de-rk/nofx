@@ -2252,6 +2252,18 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 	// protected from cancellation elsewhere. Adopting one here would
 	// mislabel a reduce-only order as a fresh grid entry, corrupting
 	// PositionSize/TotalTrades bookkeeping whenever it eventually fills.
+	//
+	// The ID-based checks above only catch a reduce/profit-reduce order once
+	// its ID has actually landed in one of those maps — but placeTTradeReduceOrder
+	// and checkProfitReduce write the ID only *after* the exchange call returns,
+	// so there's a real (network-round-trip-sized) window where such an order is
+	// already live but not yet tracked anywhere. If syncExchangeState's adoption
+	// pass lands inside that window, it can't tell the order apart by ID and used
+	// to adopt it as a fresh grid entry — this is what actually happened to a real
+	// "close long" reduce order that got misfiled as a T-trade short prep.
+	// Guard against that with the same side/positionSide structural check
+	// ttradeTagOrders already uses: SELL+LONG or BUY+SHORT is unconditionally a
+	// closing order, never a new grid-level entry, regardless of ID tracking state.
 	for _, o := range openOrders {
 		if _, tracked := at.gridState.OrderBook[o.OrderID]; tracked {
 			continue
@@ -2263,6 +2275,14 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 			continue
 		}
 		if at.gridState.ProfitReduceOrderIDs[o.OrderID] {
+			continue
+		}
+		side := strings.ToLower(o.Side)
+		posSide := strings.ToUpper(o.PositionSide)
+		if side == "sell" && posSide == "LONG" {
+			continue
+		}
+		if side == "buy" && posSide == "SHORT" {
 			continue
 		}
 		bestIdx := -1

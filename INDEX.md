@@ -477,6 +477,16 @@ Wilder 平滑本身就是 O(1) 的滚动递推公式（`atr = (atr*(period-1) + 
 | `buildAlgoGridDecision` 新增按 `AvailableBalance` 累计扣减的可下单性过滤，跳过的空层不再生成决策 | `trader/auto_trader_grid.go` |
 | `hold` 的 `Reasoning`、算法模式 `CoTTrace` 补充"因余额不足跳过 N 个空层"的计数 | `trader/auto_trader_grid.go` |
 
+### 2026-08-08（续）— 修复减仓单在下单落地窗口内被误收编成网格层挂单
+
+用户反馈实盘出现一笔"賣出平多"（止盈减仓关多）成交后，系统日志把它当成 T-trade 标记单，自动派了一张"减仓"单去平根本不存在的空头。排查确认是 `2026-08-02（六）` 那次修复的防御不完整：`syncExchangeState()` 的"收编未跟踪交易所挂单"逻辑只按订单ID排除已记录在 `TTradePrepOrders`/`TTradeReduceOrders`/`ProfitReduceOrderIDs` 里的单，但 `checkProfitReduce`/`placeTTradeReduceOrder` 都是**先调用交易所下单接口，返回成功后才**把订单号写进这些表——这段网络往返窗口内，一笔已经真实挂在交易所上的减仓单在本地还没有任何ID记录，如果 `syncExchangeState` 恰好在这个窗口跑收编逻辑，仅凭ID排除认不出它，就会按价格就近把它收编成空网格层的开仓挂单；如果价格又恰好落在某个"看似应该开空"的层附近，后续 `ttradeTagOrders` 就会把它错当成 T-trade 标记单继续处理。
+
+`ttradeTagOrders` 本身早就有"SELL+LONG 或 BUY+SHORT 必然是平仓单，不可能是新开仓"的结构性判断（`side`/`posSide` 组合），但收编逻辑没有复用这条判断，只靠ID一层防护，窗口期内失效。修复：收编逻辑新增同样的 side/positionSide 结构检查，不管ID有没有被记上保护表，SELL+LONG / BUY+SHORT 组合永远不收编。
+
+| 变更 | 位置 |
+|-----|------|
+| "收编未跟踪交易所挂单"循环新增 side/positionSide 结构检查（与 `ttradeTagOrders` 一致） | `trader/auto_trader_grid.go` `syncExchangeState()` |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
