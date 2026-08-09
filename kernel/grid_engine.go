@@ -75,8 +75,6 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, strategyConfig *
 	}, nil
 }
 
-
-
 // reTrailingComma matches trailing commas before ] or }
 var reTrailingComma = regexp.MustCompile(`,\s*([}\]])`)
 
@@ -294,18 +292,18 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 
 // GridLevelInfo represents a single grid level's current state
 type GridLevelInfo struct {
-	Index          int       `json:"index"`           // Level index (0 = lowest)
-	Price          float64   `json:"price"`           // Target price for this level
-	State          string    `json:"state"`           // "empty", "pending", "filled"
-	Side           string    `json:"side"`            // "buy" or "sell"
-	OrderID        string    `json:"order_id"`         // Current order ID (if pending)
-	OrderQuantity  float64   `json:"order_quantity"`   // Order quantity
-	PositionSize   float64   `json:"position_size"`   // Position size (if filled)
-	PositionEntry  float64   `json:"position_entry"`   // Entry price (if filled)
-	AllocatedUSD   float64   `json:"allocated_usd"`   // USD allocated to this level
-	UnrealizedPnL  float64   `json:"unrealized_pnl"`   // Unrealized P&L (if filled)
-	DistancePct    float64   `json:"distance_pct"`    // % distance from current price (+ = above, - = below)
-	OrderPlacedAt  time.Time `json:"order_placed_at"` // When the current order was placed (for grace period)
+	Index         int       `json:"index"`           // Level index (0 = lowest)
+	Price         float64   `json:"price"`           // Target price for this level
+	State         string    `json:"state"`           // "empty", "pending", "filled"
+	Side          string    `json:"side"`            // "buy" or "sell"
+	OrderID       string    `json:"order_id"`        // Current order ID (if pending)
+	OrderQuantity float64   `json:"order_quantity"`  // Order quantity
+	PositionSize  float64   `json:"position_size"`   // Position size (if filled)
+	PositionEntry float64   `json:"position_entry"`  // Entry price (if filled)
+	AllocatedUSD  float64   `json:"allocated_usd"`   // USD allocated to this level
+	UnrealizedPnL float64   `json:"unrealized_pnl"`  // Unrealized P&L (if filled)
+	DistancePct   float64   `json:"distance_pct"`    // % distance from current price (+ = above, - = below)
+	OrderPlacedAt time.Time `json:"order_placed_at"` // When the current order was placed (for grace period)
 }
 
 // GridContext contains all information needed for AI grid decision making
@@ -325,10 +323,10 @@ type GridContext struct {
 	Distribution    string  `json:"distribution"`
 
 	// Grid state
-	Levels            []GridLevelInfo `json:"levels"`
-	ActiveOrderCount  int             `json:"active_order_count"`
-	FilledLevelCount  int             `json:"filled_level_count"`
-	IsPaused          bool            `json:"is_paused"`
+	Levels           []GridLevelInfo `json:"levels"`
+	ActiveOrderCount int             `json:"active_order_count"`
+	FilledLevelCount int             `json:"filled_level_count"`
+	IsPaused         bool            `json:"is_paused"`
 
 	// Market data
 	ATR14           float64 `json:"atr14"`
@@ -354,7 +352,7 @@ type GridContext struct {
 	AvailableBalance float64 `json:"available_balance"`
 	CurrentPosition  float64 `json:"current_position"` // Net position size
 	LongPosition     float64 `json:"long_position"`    // Long position size
-	ShortPosition    float64 `json:"short_position"`    // Short position size
+	ShortPosition    float64 `json:"short_position"`   // Short position size
 	UnrealizedPnL    float64 `json:"unrealized_pnl"`
 
 	// Performance
@@ -382,23 +380,23 @@ type GridContext struct {
 
 // TrappedPositionInfo contains information about trapped (losing) positions
 type TrappedPositionInfo struct {
-	IsTrapped            bool    `json:"is_trapped"`             // whether currently trapped
-	Side                 string  `json:"side"`                  // "buy" (long trapped) or "sell" (short trapped)
-	TotalUnrealizedLoss  float64 `json:"total_unrealized_loss"`  // total USD loss
-	LossPct              float64 `json:"loss_pct"`               // loss as % of total investment
-	TrappedLevelCount    int     `json:"trapped_level_count"`    // number of losing levels
-	ThresholdPct         float64 `json:"threshold_pct"`           // configured trigger threshold %
-	TrappedPositionSize  float64 `json:"trapped_position_size"`   // total size of trapped position
-	AvgEntryPrice        float64 `json:"avg_entry_price"`         // weighted average entry price
-	CurrentPrice         float64 `json:"current_price"`           // current market price
-	PriceDiffPct         float64 `json:"price_diff_pct"`          // (avgEntry - current) / avgEntry * 100
-	SuggestReducePct     float64 `json:"suggest_reduce_pct"`      // suggested reduction percentage
-	LastReduceMinutes    int     `json:"last_reduce_minutes"`    // minutes since last reduction (-1 = never)
+	IsTrapped           bool    `json:"is_trapped"`            // whether currently trapped
+	Side                string  `json:"side"`                  // "buy" (long trapped) or "sell" (short trapped)
+	TotalUnrealizedLoss float64 `json:"total_unrealized_loss"` // total USD loss
+	LossPct             float64 `json:"loss_pct"`              // loss as % of total investment
+	TrappedLevelCount   int     `json:"trapped_level_count"`   // number of losing levels
+	ThresholdPct        float64 `json:"threshold_pct"`         // configured trigger threshold %
+	TrappedPositionSize float64 `json:"trapped_position_size"` // total size of trapped position
+	AvgEntryPrice       float64 `json:"avg_entry_price"`       // weighted average entry price
+	CurrentPrice        float64 `json:"current_price"`         // current market price
+	PriceDiffPct        float64 `json:"price_diff_pct"`        // (avgEntry - current) / avgEntry * 100
+	SuggestReducePct    float64 `json:"suggest_reduce_pct"`    // suggested reduction percentage
+	LastReduceMinutes   int     `json:"last_reduce_minutes"`   // minutes since last reduction (-1 = never)
 	// T-trade state (T字状态)
-	TTradePhase         string  `json:"t_trade_phase"`           // "idle" | "waiting_buy_fill" | "waiting_reduce_fill"
-	TTradeBuyOrderID    string  `json:"t_trade_buy_order_id"`    // first pending T-trade buy order ID (if waiting)
-	TTradeBuyPrice      float64 `json:"t_trade_buy_price"`       // price of first pending T-trade buy
-	TTradePendingReduce float64 `json:"t_trade_pending_reduce"`  // total qty tagged / pending reduce
+	TTradePhase         string  `json:"t_trade_phase"`          // "idle" | "waiting_buy_fill" | "waiting_reduce_fill"
+	TTradeBuyOrderID    string  `json:"t_trade_buy_order_id"`   // first pending T-trade buy order ID (if waiting)
+	TTradeBuyPrice      float64 `json:"t_trade_buy_price"`      // price of first pending T-trade buy
+	TTradePendingReduce float64 `json:"t_trade_pending_reduce"` // total qty tagged / pending reduce
 }
 
 // ============================================================================
@@ -468,11 +466,12 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 ### 余额为零时的处理
 当 available_balance ≤ $1 时，下单会被系统拦截。此时可以使用 hold、cancel_order、cancel_all_orders，禁止下单。在 reasoning 中简要说明下一步可能释放余额的条件（例如现有网格单成交）。
 
+**每个周期最多输出 8 个下单决策（place_buy_limit / place_sell_limit 合计），超出部分会被忽略。**
+**reasoning 字段保持简洁，不超过 2 句话。**
+
 ## 输出格式
 JSON 数组，每个决策一个对象：
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"order_id":"","confidence":0,"reasoning":"..."}]
-**每个周期最多输出 8 个下单决策（place_buy_limit / place_sell_limit 合计），超出部分会被忽略。**
-**reasoning 字段保持简洁，不超过 2 句话。**
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, ttradeNote)
 }
 
@@ -523,11 +522,12 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 ### Zero-Balance Handling
 When available_balance ≤ $1, order placement is blocked by the system. You may still use hold, cancel_order, or cancel_all_orders. Do NOT attempt to place orders. In reasoning, briefly analyze what would unlock capital next (e.g. an existing order fill).
 
+**Maximum 8 order decisions (place_buy_limit + place_sell_limit combined) per cycle — excess will be ignored.**
+**Keep reasoning concise — 2 sentences max.**
+
 ## Output Format
 JSON array, one object per decision:
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"order_id":"","confidence":0,"reasoning":"..."}]
-**Maximum 8 order decisions (place_buy_limit + place_sell_limit combined) per cycle — excess will be ignored.**
-**Keep reasoning concise — 2 sentences max.**
 `, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, ttradeNote)
 }
 
@@ -676,7 +676,6 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	}
 	sb.WriteString("\n")
 
-
 	sb.WriteString("请分析以上数据，输出JSON数组格式的决策。\n")
 	return sb.String()
 }
@@ -799,7 +798,6 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 			level.OrderQuantity, level.PositionSize))
 	}
 	sb.WriteString("\n")
-
 
 	sb.WriteString("Analyze the data above and output a JSON array of decisions.\n")
 	return sb.String()
