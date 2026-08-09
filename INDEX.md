@@ -32,7 +32,7 @@
 | 文件 | 说明 |
 |------|------|
 | `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
-| `grid_engine.go` | 网格专用引擎：构建 system/user prompt，解析网格决策；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现） |
+| `grid_engine.go` | 网格专用引擎：构建 system/user prompt，解析网格决策；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
 | `prompt_builder.go` | 非网格策略的 prompt 构建 |
 | `formatter.go` | 决策输出格式化 |
 | `schema.go` | AI 输出 JSON schema 定义 |
@@ -498,6 +498,21 @@ Wilder 平滑本身就是 O(1) 的滚动递推公式（`atr = (atr*(period-1) + 
 | 变更 | 位置 |
 |-----|------|
 | `cancelAllGridOrders()` 等待 `PendingReducePlacements` 归零的超时从 5 秒改为 30 秒 | `trader/auto_trader_grid.go` |
+
+### 2026-08-08（四）— 网格决策动作名归一化，容忍 AI 不遵循 prompt 词表
+
+用户更换了一个 AI 模型后，网格决策卡片全变成了 `WAIT_FOR_CONFIRMATION`/`MONITOR_STOP_LOSS`/`ADD_BUY_ORDERS`/`REBALANCE_GRID`/大写 `CANCEL_ORDER` 这类词，跟 `BuildGridSystemPrompt` 里规定的小写动作词表（`hold`/`place_buy_limit`/`cancel_order`...）完全不一致。
+
+排查确认这不是解析失败——JSON 本身能正常解析，`parseGridDecisions` 只在动作名不在白名单里时打一条 `Invalid grid action` 的 warning 日志，不会拦截或改写。真正出问题的是 `executeGridDecision` 的 switch 语句：这些自造/大小写不一致的动作名匹配不到任何已知 case，直接落到 `default` 分支——只打一条 `Unknown action` 日志，不下单、不撤单、不返回错误。结果是这个 AI 每个周期的所有决策都被静默丢弃，网格完全没被维护，但前端看不出任何报错，只有一堆"看起来正常"但什么都没发生的决策卡片。
+
+修复不是去纠正这个 AI（模型行为不受控），而是在解析层加一层归一化，把常见的同义/变体动作名映射回规范词表：
+
+| 变更 | 位置 |
+|-----|------|
+| 新增 `gridActionSynonyms` 映射表（如 `wait_for_confirmation`/`monitor_stop_loss`/`no_action` → `hold`，`add_buy_order(s)`/`open_buy_limit` → `place_buy_limit`，`rebalance`/`rebalance_grid`/`reset_grid` → `adjust_grid`，`cancel_all` → `cancel_all_orders`）+ `normalizeGridAction()`（先转小写再查表，未命中的动作原样小写返回，让 `isValidGridAction` 的告警仍能捕获真正未知的动作） | `kernel/grid_engine.go` |
+| `parseGridDecisions` 在校验前先跑归一化，命中时打一条 Info 日志记录改写前后的值 | `kernel/grid_engine.go` |
+
+只覆盖了这次实际观察到的变体，不是穷举所有可能的 AI 输出；后续换模型如果又出现新的自造动作名，需要照这个模式往 `gridActionSynonyms` 里追加。
 
 ### 已知设计限制（待优化）
 

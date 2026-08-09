@@ -142,12 +142,59 @@ func parseGridDecisions(response string, symbol string) ([]Decision, error) {
 		if decisions[i].Symbol == "" {
 			decisions[i].Symbol = symbol
 		}
+		if normalized := normalizeGridAction(decisions[i].Action); normalized != decisions[i].Action {
+			logger.Infof("Normalized grid action %q -> %q", decisions[i].Action, normalized)
+			decisions[i].Action = normalized
+		}
 		if !isValidGridAction(decisions[i].Action) {
 			logger.Warnf("Invalid grid action: %s", decisions[i].Action)
 		}
 	}
 
 	return decisions, nil
+}
+
+// gridActionSynonyms maps action names some AI providers/models emit instead of
+// the exact vocabulary given in the system prompt (BuildGridSystemPrompt) to the
+// canonical action executeGridDecision's switch understands. Not every model
+// follows the prompt's action list precisely — one observed model returned
+// "WAIT_FOR_CONFIRMATION", "MONITOR_STOP_LOSS", "ADD_BUY_ORDERS",
+// "REBALANCE_GRID", and uppercase "CANCEL_ORDER" instead of the documented
+// lowercase verbs. Without this mapping, such actions fall through the
+// execution switch to its default case: no order placed, no error returned,
+// nothing visibly wrong — the grid just silently stops being maintained every
+// cycle. Keys are matched case-insensitively (normalizeGridAction lowercases
+// first); values must be one of the canonical actions in isValidGridAction.
+var gridActionSynonyms = map[string]string{
+	"wait":                  "hold",
+	"wait_for_confirmation": "hold",
+	"monitor":               "hold",
+	"monitor_position":      "hold",
+	"monitor_stop_loss":     "hold",
+	"no_action":             "hold",
+	"add_buy_order":         "place_buy_limit",
+	"add_buy_orders":        "place_buy_limit",
+	"open_buy_limit":        "place_buy_limit",
+	"add_sell_order":        "place_sell_limit",
+	"add_sell_orders":       "place_sell_limit",
+	"open_sell_limit":       "place_sell_limit",
+	"cancel_all":            "cancel_all_orders",
+	"rebalance":             "adjust_grid",
+	"rebalance_grid":        "adjust_grid",
+	"reset_grid":            "adjust_grid",
+}
+
+// normalizeGridAction lowercases action and, if it matches a known synonym
+// (see gridActionSynonyms), rewrites it to the canonical action name. Actions
+// that are already canonical (just differently-cased, e.g. "CANCEL_ORDER")
+// are returned lowercased; unrecognized actions are returned lowercased
+// as-is so isValidGridAction's warning still fires for genuinely unknown ones.
+func normalizeGridAction(action string) string {
+	lower := strings.ToLower(strings.TrimSpace(action))
+	if canonical, ok := gridActionSynonyms[lower]; ok {
+		return canonical
+	}
+	return lower
 }
 
 // isValidGridAction checks if action is a valid grid action
