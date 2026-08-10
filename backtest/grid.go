@@ -39,7 +39,13 @@ func buildLevels(currentPrice, upper, lower, totalInvestment float64, p GridPara
 			sigma := float64(p.GridCount) / 4
 			weights[i] = math.Exp(-math.Pow(float64(i)-center, 2) / (2 * sigma * sigma))
 		case "pyramid":
-			weights[i] = float64(p.GridCount - i)
+			// Symmetric around center (see trader.initializeGridLevels'
+			// comment) — a one-sided "GridCount - i" only grows weight
+			// toward the buy side and shrinks it toward the sell side,
+			// inverting the intended dollar-cost-averaging shape above
+			// the current price.
+			center := float64(p.GridCount-1) / 2
+			weights[i] = 1 + math.Abs(float64(i)-center)
 		default: // uniform
 			weights[i] = 1.0
 		}

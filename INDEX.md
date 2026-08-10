@@ -514,6 +514,18 @@ Wilder 平滑本身就是 O(1) 的滚动递推公式（`atr = (atr*(period-1) + 
 
 只覆盖了这次实际观察到的变体，不是穷举所有可能的 AI 输出；后续换模型如果又出现新的自造动作名，需要照这个模式往 `gridActionSynonyms` 里追加。
 
+### 2026-08-08（五）— 修复金字塔资金分配在卖方权重方向反了
+
+用户反馈"金字塔分配"感觉有问题，排查确认权重公式 `weights[i] = GridCount - i` 只是对绝对下标 `i` 做单调线性递减，跟 gaussian 那个"以当前价为中心对称"的公式（`|i - center|`）不一样——完全不知道当前价格在网格里的位置。
+
+网格下标 `i` 从下往上递增（`i=0` 是最低价，`i=GridCount-1` 是最高价），买方层（价格低于当前价）恰好落在低下标区间，"下标越小权重越大"跟"离当前价越远权重越大"方向一致，看起来符合"金字塔"直觉；但卖方层（价格高于当前价）落在高下标区间，同一个公式在这边是"下标越大权重越小"，等于"离当前价越远权重越小"——跟买方方向正好相反，网格最顶部（该重仓做空的位置）反而分到最少资金。三处复制粘贴的实现（`trader/auto_trader_grid.go` 的 `initializeGridLevels`/`initializeGridLevelsLocked`，`backtest/grid.go` 的 `buildLevels`）都有同样的问题。
+
+修复：改成跟 gaussian 一样以当前价格所在下标为中心的对称公式 `weights[i] = 1 + |i - center|`，买卖两侧都变成"离当前价越远权重越大"，形状真正对称。
+
+| 变更 | 位置 |
+|-----|------|
+| pyramid 权重公式从单侧线性 `GridCount - i` 改为以 center 对称的 `1 + |i - center|` | `trader/auto_trader_grid.go`（`initializeGridLevels`、`initializeGridLevelsLocked`）、`backtest/grid.go`（`buildLevels`） |
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |

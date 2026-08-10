@@ -463,8 +463,16 @@ func (at *AutoTrader) initializeGridLevels(currentPrice float64, config *store.G
 			sigma := float64(config.GridCount) / 4
 			weights[i] = math.Exp(-math.Pow(float64(i)-center, 2) / (2 * sigma * sigma))
 		case "pyramid":
-			// Pyramid - more weight at bottom
-			weights[i] = float64(config.GridCount - i)
+			// Pyramid - more weight the farther a level is from the current
+			// price (both directions), so levels get progressively larger as
+			// price moves against you — a dollar-cost-averaging shape. Must
+			// be symmetric around center like gaussian's: a one-sided
+			// "GridCount - i" formula only increases weight toward the buy
+			// side (low index) and, since the same value decreases toward
+			// the sell side (high index), it inverts the intended shape for
+			// every level above the current price.
+			center := float64(config.GridCount-1) / 2
+			weights[i] = 1 + math.Abs(float64(i)-center)
 		default: // uniform
 			weights[i] = 1.0
 		}
@@ -2613,8 +2621,13 @@ func (at *AutoTrader) initializeGridLevelsLocked(currentPrice float64, config *s
 			sigma := float64(config.GridCount) / 4
 			weights[i] = math.Exp(-math.Pow(float64(i)-center, 2) / (2 * sigma * sigma))
 		case "pyramid":
-			// Pyramid - more weight at bottom
-			weights[i] = float64(config.GridCount - i)
+			// Pyramid - more weight the farther a level is from the current
+			// price (both directions) — see initializeGridLevels' comment for
+			// why this must be symmetric around center rather than the old
+			// one-sided "GridCount - i" (which inverted the intended shape
+			// on the sell side).
+			center := float64(config.GridCount-1) / 2
+			weights[i] = 1 + math.Abs(float64(i)-center)
 		default: // uniform
 			weights[i] = 1.0
 		}
