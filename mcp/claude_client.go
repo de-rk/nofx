@@ -78,12 +78,27 @@ func (c *ClaudeClient) buildUrl() string {
 	return fmt.Sprintf("%s/messages", c.BaseURL)
 }
 
-// buildMCPRequestBody Claude has different request format
+// buildMCPRequestBody Claude has different request format.
+// system is sent as an array with cache_control so Claude's prompt cache
+// can be reused across consecutive cycles — the system prompt changes only
+// when GridConfig changes, so it is almost always identical between requests.
 func (c *ClaudeClient) buildMCPRequestBody(systemPrompt, userPrompt string) map[string]any {
+	var system any
+	if systemPrompt != "" {
+		system = []map[string]any{
+			{
+				"type": "text",
+				"text": systemPrompt,
+				"cache_control": map[string]string{
+					"type": "ephemeral",
+				},
+			},
+		}
+	}
 	requestBody := map[string]any{
 		"model":      c.Model,
 		"max_tokens": c.MaxTokens,
-		"system":     systemPrompt,
+		"system":     system,
 		"messages": []map[string]string{
 			{"role": "user", "content": userPrompt},
 		},
@@ -100,8 +115,10 @@ func (c *ClaudeClient) parseMCPResponse(body []byte) (string, error) {
 			Text string `json:"text"`
 		} `json:"content"`
 		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 		Error *struct {
 			Type    string `json:"type"`
@@ -130,6 +147,8 @@ func (c *ClaudeClient) parseMCPResponse(body []byte) (string, error) {
 			PromptTokens:     response.Usage.InputTokens,
 			CompletionTokens: response.Usage.OutputTokens,
 			TotalTokens:      totalTokens,
+			CacheReadTokens:  response.Usage.CacheReadInputTokens,
+			CacheWriteTokens: response.Usage.CacheCreationInputTokens,
 		})
 	}
 
