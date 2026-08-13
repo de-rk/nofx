@@ -27,8 +27,8 @@ func TestProfitReduceNoDuplicateOrders(t *testing.T) {
 			{
 				OrderID:  "existing-reduce-order",
 				Symbol:   "HYPEUSDT",
-				Side:     "BUY",         // SHORT position reduce = BUY
-				Price:    60.66,         // Near mark price (60.67)
+				Side:     "BUY", // SHORT position reduce = BUY
+				Price:    60.66, // Near mark price (60.67)
 				Quantity: 1.9764,
 			},
 		},
@@ -38,10 +38,10 @@ func TestProfitReduceNoDuplicateOrders(t *testing.T) {
 	config := AutoTraderConfig{
 		StrategyConfig: &store.StrategyConfig{
 			GridConfig: &store.GridStrategyConfig{
-				Symbol:                 "HYPEUSDT",
-				Leverage:               3,
-				ProfitReduceStepPct:    10.0,
-				ProfitReduceMultiplier: 1.0,
+				Symbol:                   "HYPEUSDT",
+				Leverage:                 3,
+				ProfitReduceStepPct:      10.0,
+				ProfitReduceMultiplier:   1.0,
 				EnableSmallPositionClose: false,
 			},
 		},
@@ -56,8 +56,8 @@ func TestProfitReduceNoDuplicateOrders(t *testing.T) {
 		},
 	}
 
-	// Run profit reduce check
-	at.checkProfitReduce()
+	// Run profit reduce check with mock positions
+	at.checkProfitReduce(mockTrader.positions)
 
 	// Verify no new orders were placed (since one already exists)
 	if len(mockTrader.placedOrders) > 0 {
@@ -69,7 +69,7 @@ func TestProfitReduceNoDuplicateOrders(t *testing.T) {
 // TestProfitReduceSameStepNoRetrigger verifies that profit reduce does not re-trigger
 // at the same step level even if profit increases within that step range.
 func TestProfitReduceSameStepNoRetrigger(t *testing.T) {
-	// Scenario: 
+	// Scenario:
 	// - Step size is 6% (ProfitReduceStepPct)
 	// - Already reduced at 18% step (ShortProfitReducedPct = 18)
 	// - Current profit is 21.4% (which is still in 18-24% range)
@@ -87,17 +87,17 @@ func TestProfitReduceSameStepNoRetrigger(t *testing.T) {
 				"unRealizedProfit": 107.0, // ~21.4% profit (107 / (100.8*50/3) * 100)
 			},
 		},
-		openOrders: []types.OpenOrder{},
+		openOrders:   []types.OpenOrder{},
 		placedOrders: []string{},
 	}
 
 	config := AutoTraderConfig{
 		StrategyConfig: &store.StrategyConfig{
 			GridConfig: &store.GridStrategyConfig{
-				Symbol:                 "HYPEUSDT",
-				Leverage:               3,
-				ProfitReduceStepPct:    6.0,  // 6% steps: 6%, 12%, 18%, 24%, ...
-				ProfitReduceMultiplier: 0.1,
+				Symbol:                   "HYPEUSDT",
+				Leverage:                 3,
+				ProfitReduceStepPct:      6.0, // 6% steps: 6%, 12%, 18%, 24%, ...
+				ProfitReduceMultiplier:   0.1,
 				EnableSmallPositionClose: false,
 			},
 		},
@@ -112,8 +112,8 @@ func TestProfitReduceSameStepNoRetrigger(t *testing.T) {
 		},
 	}
 
-	// Run profit reduce check
-	at.checkProfitReduce()
+	// Run profit reduce check with mock positions
+	at.checkProfitReduce(mockTrader.positions)
 
 	// Verify NO new orders were placed (profit 21.4% should not re-trigger at 18% step)
 	if len(mockTrader.placedOrders) > 0 {
@@ -145,17 +145,17 @@ func TestProfitReduceNextStep(t *testing.T) {
 				"unRealizedProfit": 125.0, // ~25% profit
 			},
 		},
-		openOrders: []types.OpenOrder{},
+		openOrders:   []types.OpenOrder{},
 		placedOrders: []string{},
 	}
 
 	config := AutoTraderConfig{
 		StrategyConfig: &store.StrategyConfig{
 			GridConfig: &store.GridStrategyConfig{
-				Symbol:                 "HYPEUSDT",
-				Leverage:               3,
-				ProfitReduceStepPct:    6.0,
-				ProfitReduceMultiplier: 0.1,
+				Symbol:                   "HYPEUSDT",
+				Leverage:                 3,
+				ProfitReduceStepPct:      6.0,
+				ProfitReduceMultiplier:   0.1,
 				EnableSmallPositionClose: false,
 			},
 		},
@@ -170,8 +170,8 @@ func TestProfitReduceNextStep(t *testing.T) {
 		},
 	}
 
-	// Run profit reduce check
-	at.checkProfitReduce()
+	// Run profit reduce check with mock positions
+	at.checkProfitReduce(mockTrader.positions)
 
 	// Verify ONE new order was placed (should trigger at 24% step)
 	if len(mockTrader.placedOrders) != 1 {

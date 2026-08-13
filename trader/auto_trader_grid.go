@@ -896,21 +896,19 @@ func (at *AutoTrader) getMinOrderSize(symbol string) (float64, error) {
 // checkProfitReduce checks per-side unrealized profit and reduces position accordingly:
 // - Every ProfitReduceStepPct increment → reduce that % of current position
 // - If profit > step*1.2 AND position value < 100 USD → close entire side
-// positions may be passed directly from a WS push; if nil, fetched via GetPositions.
+// positions should be passed from WS push when available. Pass nil to skip the check entirely
+// (Grid Cycle should skip since WS position push already handles profit-reduce checks frequently).
 func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
+	if positions == nil {
+		// nil means skip this check (caller relies on WS position push to handle it)
+		return
+	}
+
 	gridConfig := at.config.StrategyConfig.GridConfig
 	symbol := gridConfig.Symbol
 	step := gridConfig.ProfitReduceStepPct
 	if step <= 0 {
 		step = 10.0
-	}
-
-	if positions == nil {
-		var err error
-		positions, err = at.trader.GetPositions()
-		if err != nil {
-			return
-		}
 	}
 
 	type sideInfo struct {
