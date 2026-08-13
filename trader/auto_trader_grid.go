@@ -202,8 +202,6 @@ func (at *AutoTrader) InitializeGrid() error {
 	// Initialize grid levels
 	at.initializeGridLevels(price, gridConfig)
 
-	at.gridState.IsInitialized = true
-
 	// Restore profit-reduce progress from trade log to prevent re-triggering after restart.
 	// Only restore if the position has NOT been closed since the last reduce
 	// (a close event means the position was reset and tracker should start from 0).
@@ -480,6 +478,13 @@ func (at *AutoTrader) InitializeGrid() error {
 			}
 		}
 	}
+
+	// Mark grid as fully initialized AFTER all state restoration completes.
+	// This prevents the first RunGridCycle (called immediately in auto_trader.go:505)
+	// from running before ProfitReduceOrderIDs and TTradePrepOrders are restored,
+	// which would cause cancelAllGridOrders to cancel reduce orders that aren't
+	// yet tracked in the protection maps.
+	at.gridState.IsInitialized = true
 
 	return nil
 }
