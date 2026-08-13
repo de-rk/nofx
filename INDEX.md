@@ -526,6 +526,84 @@ Wilder 平滑本身就是 O(1) 的滚动递推公式（`atr = (atr*(period-1) + 
 |-----|------|
 | pyramid 权重公式从单侧线性 `GridCount - i` 改为以 center 对称的 `1 + |i - center|` | `trader/auto_trader_grid.go`（`initializeGridLevels`、`initializeGridLevelsLocked`）、`backtest/grid.go`（`buildLevels`） |
 
+### 2026-08-09（六）— 浮盈减仓并发竞态与重启保护修复
+
+用户报告浮盈减仓出现重复下单（同一阶梯触发两次）和重启后减仓单被取消的问题。
+
+**问题1：并发竞态导致重复减仓**
+
+`checkProfitReduce()` 有两个并发调用点：
+- Grid Cycle（`auto_trader_grid.go:625`）：每个周期主动调用，传 `nil`
+- WS Position Push（`auto_trader.go:539`）：持仓推送时触发，传入 `positions` 数据
+
+如果两者几乎同时触发（如 WS 推送到达时 Grid Cycle 定时器也恰好到期），都会通过 954 行的 `targetReducePct <= alreadyReduced` 判断（此时读到相同的旧值），然后都执行下单，1108-1111 行才更新 `LongProfitReducedPct`。虽然 1008-1059 行有"检查交易所是否已有减仓单"的逻辑，但如果第一次下单还没返回（API 延迟），第二次检查不到，就会重复下单。
+
+**修复**：在下单前（1071行之前）新增原子检查：
+- 锁内再次验证 `targetReducePct <= currentReduced`，如果并发调用已更新则跳过
+- 预先更新 `LongProfitReducedPct = targetReducePct`（占位）
+- 下单成功后保持该值；下单失败则回滚到 `oldPct`
+
+**问题2：重启后减仓单被取消**
+
+`ProfitReduceOrderIDs` 是内存映射（不持久化），重启后为空。`cancelAllGridOrders()` 通过 `activeProfitReduceOrderIDs()` 获取需要保护的减仓单ID，但重启后该映射为空，交易所上还挂着的减仓单会被当成"普通单"撤掉。
+
+原先 `InitializeGrid` 在 210-313 行恢复浮盈减仓进度时，只恢复了 `LongProfitReducedPct` 的值（从日志读取），没有恢复 `ProfitReduceOrderIDs`。
+
+**修复**：在恢复进度时同步恢复 `ProfitReduceOrderIDs`：
+- 调用 `GetOpenOrders()` 和 `GetPositions()` 获取交易所当前状态
+- 推断哪些是减仓单（方向与持仓相反、价格在 mark price 2% 以内、不在网格层级里）
+- 恢复匹配的订单ID到 `ProfitReduceOrderIDs`，使其受 `cancelAllGridOrders` 保护
+
+**问题3：时序竞态导致保护失效**
+
+`InitializeGrid()` 在 205 行就设置 `IsInitialized = true`，然后 210-415 行才执行恢复逻辑（需要网络调用 `GetOpenOrders`/`GetPositions`）。`auto_trader.go:505` 在 `InitializeGrid()` 返回后立即调用 `RunGridCycle()`，如果这次调用抢在恢复逻辑完成之前执行：
+- 看到 `IsInitialized = true`（通过检查）
+- 但 `ProfitReduceOrderIDs = {}`（还没恢复）
+- AI 决策或其他逻辑触发 `cancelAllGridOrders()`
+- `activeProfitReduceOrderIDs()` 返回空集合
+- 减仓单不在保护列表 → 被撤销
+
+**修复**：延迟设置 `IsInitialized = true` 到恢复逻辑完成之后（487行，`return nil` 之前），阻止 `RunGridCycle` 在保护映射未就绪时进入。
+
+**附加优化：去除冗余 GetPositions 调用**
+
+Grid Cycle 调用 `checkProfitReduce(nil)` 会触发内部调用 `GetPositions()`，但 WS position push 已经每 2 秒推送一次并触发 `checkProfitReduce(positions)`，Grid Cycle 的调用是冗余的。
+
+修改 `checkProfitReduce(nil)` 语义：`nil` 表示"跳过检查"而非"获取持仓后检查"，Grid Cycle 传 `nil` 直接返回，依赖 WS 推送触发检查，减少一次 REST API 调用。
+
+| 变更 | 位置 |
+|-----|------|
+| `checkProfitReduce` 下单前新增原子检查：锁内再次验证进度、预先更新、失败时回滚 | `trader/auto_trader_grid.go:1059-1093` |
+| `InitializeGrid` 恢复 `LongProfitReducedPct` 时，从交易所挂单推断并恢复 `ProfitReduceOrderIDs` | `trader/auto_trader_grid.go:211-310` |
+| 延迟设置 `IsInitialized = true` 到所有恢复逻辑完成之后（`return nil` 之前） | `trader/auto_trader_grid.go:487` |
+| `checkProfitReduce(nil)` 语义改为"跳过检查"，Grid Cycle 不再调用 `GetPositions()` | `trader/auto_trader_grid.go:901-906` |
+| 测试修复：显式传入 mock positions 而非依赖已删除的 `GetPositions()` 回退 | `trader/profit_reduce_duplicate_test.go` |
+
+### 2026-08-09（六）— Claude API Prompt Caching 启用
+
+启用 Anthropic Claude API 的 prompt caching 功能，减少重复 token 开销。网格 AI 的 system prompt 在单个交易周期内几乎完全一致（只依赖 GridConfig，不依赖实时市场数据），缓存命中率高。
+
+| 变更 | 位置 |
+|-----|------|
+| `ClaudeClient` 的 system prompt 从裸字符串改为带 `cache_control: {type: "ephemeral"}` 的对象数组格式 | `mcp/claude_client.go` |
+| 解析响应中的 `usage.cache_read_input_tokens` 和 `usage.cache_creation_input_tokens`，传给 `TokenUsage` 结构体 | `mcp/claude_client.go` |
+| `TokenUsage` 新增 `CacheReadTokens` 和 `CacheWriteTokens` 字段 | `mcp/request.go` |
+
+缓存 TTL：新模型（Opus 4/Sonnet 4）1小时，旧模型 5 分钟。网格 AI 调用间隔通常在 TTL 以内，可持续命中缓存。
+
+### 2026-08-09（六）— Grid AI System Prompt 角色描述更新
+
+原 system prompt 的角色描述过于狭窄，只提到"判断市场状态、补充空层级"，但 AI 实际可以执行的操作更多（撤单、重置网格、观望）。
+
+| 变更 | 位置 |
+|-----|------|
+| 角色描述从"执行引擎"改为"决策引擎"，列出所有可用操作（place_buy_limit、place_sell_limit、cancel_order、cancel_all_orders、adjust_grid、hold） | `kernel/grid_engine.go` |
+| 新增"极端单边"市场状态行：网格严重失衡且价格偏离中心 > 30% 时，用 `adjust_grid` 重建 | `kernel/grid_engine.go` |
+| 明确说明系统自动处理的部分（浮盈减仓、T-trade 标记/减仓、自动网格重建），AI 无需输出这些决策 | `kernel/grid_engine.go` |
+| 重新组织约束条件：补单规则、撤单规则、禁用操作、零余额处理，分节清晰列出 | `kernel/grid_engine.go` |
+
+中英文 prompt 同步更新。无逻辑变更，纯文档优化。
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
