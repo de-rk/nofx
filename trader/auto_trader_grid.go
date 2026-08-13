@@ -208,6 +208,35 @@ func (at *AutoTrader) InitializeGrid() error {
 	// Only restore if the position has NOT been closed since the last reduce
 	// (a close event means the position was reset and tracker should start from 0).
 	if at.store != nil && gridConfig.EnableProfitReduce {
+		// First, fetch open orders and positions to restore ProfitReduceOrderIDs from exchange
+		openOrders, oErr := at.trader.GetOpenOrders(gridConfig.Symbol)
+		openOrderMap := make(map[string]types.OpenOrder)
+		if oErr == nil {
+			for _, o := range openOrders {
+				openOrderMap[o.OrderID] = o
+			}
+		}
+		positions, pErr := at.trader.GetPositions()
+		positionSides := make(map[string]float64) // "long"/"short" -> position size
+		if pErr == nil {
+			for _, pos := range positions {
+				sym, _ := pos["symbol"].(string)
+				if sym != gridConfig.Symbol {
+					continue
+				}
+				side, _ := pos["positionSide"].(string)
+				size, _ := pos["positionAmt"].(float64)
+				if size == 0 {
+					continue
+				}
+				if side == "LONG" && size > 0 {
+					positionSides["long"] = size
+				} else if side == "SHORT" && size < 0 {
+					positionSides["short"] = math.Abs(size)
+				}
+			}
+		}
+
 		for _, side := range []string{"long", "short"} {
 			reduceEntry, err := at.store.Grid().GetLatestGridTradeLogByAction(at.id, "profit_reduce", side)
 			if err != nil || reduceEntry == nil {
@@ -243,6 +272,43 @@ func (at *AutoTrader) InitializeGrid() error {
 				}
 				at.gridState.mu.Unlock()
 				logger.Infof("[Grid] Restored %s profit-reduce progress from log: %.0f%%", side, targetPct)
+
+				// Restore ProfitReduceOrderIDs from open orders on the exchange.
+				// Reduce orders: direction opposite to position, not in grid levels, price near mark.
+				if posSize, hasPos := positionSides[side]; hasPos && posSize > 0 && len(openOrderMap) > 0 {
+					expectedOrderSide := "SELL"
+					if side == "short" {
+						expectedOrderSide = "BUY"
+					}
+					markPrice, _ := at.trader.GetMarketPrice(gridConfig.Symbol)
+					for _, order := range openOrderMap {
+						if order.Side != expectedOrderSide {
+							continue
+						}
+						// Skip if it's a grid level order (will be restored separately)
+						isGridOrder := false
+						for _, level := range at.gridState.Levels {
+							if level.OrderID == order.OrderID {
+								isGridOrder = true
+								break
+							}
+						}
+						if isGridOrder {
+							continue
+						}
+						// Check if price is close to mark (within 2% — reduce orders placed at mark)
+						if markPrice > 0 {
+							priceDiff := math.Abs(order.Price-markPrice) / markPrice
+							if priceDiff < 0.02 {
+								at.gridState.mu.Lock()
+								at.gridState.ProfitReduceOrderIDs[order.OrderID] = true
+								at.gridState.mu.Unlock()
+								logger.Infof("[Grid] Restored %s profit-reduce order %s from exchange (qty=%.4f, price=%.2f)",
+									side, order.OrderID, order.Quantity, order.Price)
+							}
+						}
+					}
+				}
 			}
 		}
 	}
@@ -1062,6 +1128,34 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			logger.Infof("[Grid] Profit-reduce: %s reducing %.4f (target=%.0f%%)", info.side, a.qty, a.targetReducePct)
 		}
 
+		// Final check-and-set under lock to prevent concurrent calls from both placing orders.
+		// If two checkProfitReduce calls run concurrently (one from grid cycle, one from WS
+		// position push) and both pass the initial check at line 950, they could both reach here.
+		// We atomically verify the target hasn't been reached yet, then mark it as "in progress"
+		// by updating the tracker BEFORE placing the order.
+		at.gridState.mu.Lock()
+		currentReduced := at.gridState.LongProfitReducedPct
+		if info.side == "short" {
+			currentReduced = at.gridState.ShortProfitReducedPct
+		}
+		if !a.closeAll && a.targetReducePct <= currentReduced {
+			at.gridState.mu.Unlock()
+			logger.Debugf("[Grid] Profit-reduce %s: skipping — already reduced at %.0f%% by concurrent call",
+				info.side, currentReduced)
+			continue
+		}
+		// Mark as in-progress by updating the tracker now (before PlaceLimitOrder).
+		// If the order fails, we'll revert this below.
+		oldPct := currentReduced
+		if !a.closeAll {
+			if info.side == "long" {
+				at.gridState.LongProfitReducedPct = a.targetReducePct
+			} else {
+				at.gridState.ShortProfitReducedPct = a.targetReducePct
+			}
+		}
+		at.gridState.mu.Unlock()
+
 		// See PendingReducePlacements' doc comment on GridState — closes the
 		// window between "order live on the exchange" and "order recorded
 		// locally" during which a concurrent cancelAllGridOrders (triggered
@@ -1104,9 +1198,19 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			profitPct, info.unrealizedProfit, err == nil, errMsg)
 		if err != nil {
 			logger.Warnf("[Grid] Profit-reduce %s failed: %v", info.side, err)
+			// Revert the tracker update we did before placing the order
+			at.gridState.mu.Lock()
+			if info.side == "long" {
+				at.gridState.LongProfitReducedPct = oldPct
+			} else {
+				at.gridState.ShortProfitReducedPct = oldPct
+			}
+			at.gridState.mu.Unlock()
 			continue
 		}
 
+		// Order placed successfully — tracker was already updated before PlaceLimitOrder.
+		// Just log the state transition.
 		at.gridState.mu.Lock()
 		if a.closeAll {
 			if info.side == "long" {
@@ -1116,18 +1220,8 @@ func (at *AutoTrader) checkProfitReduce(positions []map[string]interface{}) {
 			}
 			logger.Infof("[Grid] Profit-reduce %s: state updated to 0%% (closeAll)", info.side)
 		} else {
-			newPct := a.targetReducePct
-			oldPct := at.gridState.LongProfitReducedPct
-			if info.side == "short" {
-				oldPct = at.gridState.ShortProfitReducedPct
-			}
-			if info.side == "long" {
-				at.gridState.LongProfitReducedPct = newPct
-			} else {
-				at.gridState.ShortProfitReducedPct = newPct
-			}
 			logger.Infof("[Grid] Profit-reduce %s: state updated from %.0f%% to %.0f%%",
-				info.side, oldPct, newPct)
+				info.side, oldPct, a.targetReducePct)
 		}
 		at.gridState.mu.Unlock()
 	}
