@@ -12,6 +12,7 @@
 | `Makefile` | 构建、部署快捷命令 |
 | `docker-compose.yml` | 本地开发容器编排 |
 | `docker-compose.prod.yml` | 生产环境容器编排 |
+| `docker-compose.stable.yml` | 稳定版环境容器编排 |
 
 ---
 
@@ -21,6 +22,7 @@
 |------|------|
 | `server.go` | 路由注册、中间件、服务器启动 |
 | `strategy.go` | 策略配置的 CRUD 接口 |
+| `backtest.go` | 回测接口（网格策略回测、参数搜索） |
 | `crypto_handler.go` | 加密相关接口（密钥导入/导出） |
 | `errors.go` | 统一错误响应格式 |
 | `utils.go` | 接口层通用工具函数 |
@@ -32,8 +34,8 @@
 | 文件 | 说明 |
 |------|------|
 | `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
-| `grid_engine.go` | 网格专用引擎：构建 system/user prompt，解析网格决策；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
-| `prompt_builder.go` | 非网格策略的 prompt 构建 |
+| `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
+| `prompt_builder.go` | 根据市场状态动态调整 prompt 的逻辑（识别趋势/震荡、计算技术指标、生成实时风险提示） |
 | `formatter.go` | 决策输出格式化 |
 | `schema.go` | AI 输出 JSON schema 定义 |
 
@@ -43,8 +45,10 @@
 
 | 文件 | 说明 |
 |------|------|
-| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理 |
+| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
 | `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路，交易日志 source 按实际来源标为 `"ai"` 或 `"algo"` |
+| `position_rebuild.go` | 持仓重建逻辑：从交易所读取持仓，匹配到网格层级，重建本地状态 |
+| `position_snapshot.go` | 持仓快照定时存储（用于绩效分析） |
 | `interface.go` | `GridTrader` 接口定义 |
 | `helpers.go` | 通用工具函数（数量计算、价格格式化等） |
 | `tp_manager.go` | 止盈管理器：`TPManager` 后台监控循环（每个 trader 实例共用，网格/非网格均会启动），但分批止盈的外部写入入口（`SetTPLevels`）已删除——目前无任何调用方会真正喂数据进去，循环本身是活的、`activeLevels` 永远为空 |
