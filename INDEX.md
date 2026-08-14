@@ -608,6 +608,45 @@ Grid Cycle 调用 `checkProfitReduce(nil)` 会触发内部调用 `GetPositions()
 
 中英文 prompt 同步更新。无逻辑变更，纯文档优化。
 
+### 2026-08-09（六）— 网格重置逻辑重构：从订单失衡改为价格边界触发
+
+原网格重置逻辑基于订单成交失衡（一侧 filled ≥ 3倍另一侧，且 >5 个），依赖订单状态，对趋势响应滞后。重构为基于价格位置的直接触发。
+
+**问题1：投资额刷新触发不必要的网格重置**
+
+`checkInvestmentRefresh` 每 2 天刷新一次投资额（从余额重新计算），之前会自动调用 `resetGrid(currentPrice)`，导致所有挂单被取消、网格重建。对于持续运行的策略，这会造成不必要的订单扰动和持仓中断。
+
+**修复**：移除 `checkInvestmentRefresh` 中的 `resetGrid` 调用。投资额仍然按周期刷新，但不再触发网格重置。网格会通过 `autoAdjustGrid` 在价格显著偏离时自然调整。
+
+**问题2：订单失衡检测不直观且滞后**
+
+`checkGridSkew` 统计买卖两侧的 filled/empty 订单数，通过比例判断失衡（3x、>5 个）。这个逻辑：
+- 依赖订单状态，不直接反映价格位置
+- 趋势行情中，价格可能已跑出网格很远，但订单状态变化滞后
+- 阈值（3x、>5）较为武断，难以调优
+
+**修复**：重构 `checkGridSkew` 为基于价格边界的触发条件：
+- 当 `currentPrice > upper * 1.03` 或 `currentPrice < lower * 0.97` 时触发重置
+- 直接反映价格位置，不依赖订单状态
+- 阈值清晰：价格超出网格边界 3% 即重置
+
+**问题3：autoAdjustGrid 重复检查价格偏离**
+
+`autoAdjustGrid` 在 `checkGridSkew` 返回 skewed 后，还会再次计算 `math.Abs(currentPrice-midPrice) < gridRange*0.3` 做二次过滤。价格检查逻辑分散在两个函数中，不够清晰。
+
+**修复**：将价格检查完全集成到 `checkGridSkew` 中，`autoAdjustGrid` 直接根据返回值决定是否重置。
+
+| 变更 | 位置 |
+|-----|------|
+| `checkInvestmentRefresh` 移除 `resetGrid` 调用，只刷新投资额 | `trader/auto_trader_grid.go:1645-1651` |
+| `checkGridSkew` 从订单失衡检测改为价格边界检测（超出 upper*1.03 或低于 lower*0.97） | `trader/auto_trader_grid.go:2507-2546` |
+| `autoAdjustGrid` 移除重复的价格偏离检查，简化逻辑 | `trader/auto_trader_grid.go:2641-2661` |
+
+**影响**：
+- 网格对趋势行情响应更快（价格一旦超出边界 3% 立即触发，不等订单状态变化）
+- 减少误触发（投资额刷新不再重置网格）
+- 重置条件更清晰，便于调试和优化
+
 ### 已知设计限制（待优化）
 
 | 问题 | 说明 |
