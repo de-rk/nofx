@@ -1645,13 +1645,10 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 
 	logger.Infof("[Grid] Periodic investment refresh: %.2f -> %.2f USDT (interval=%dd)", old, inv, days)
 
-	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
-	if err != nil {
-		logger.Warnf("[Grid] Investment refresh: failed to get price for grid reset: %v", err)
-		return
-	}
-	logger.Infof("[Grid] Investment refresh: resetting grid around $%.2f", currentPrice)
-	at.resetGrid(currentPrice)
+	// Investment refresh no longer triggers automatic grid reset.
+	// Grid will naturally adjust through autoAdjustGrid when price moves
+	// far enough from the current grid center (triggered after AI decisions).
+	// This prevents unnecessary disruption to active positions and open orders.
 }
 
 // placeGridLimitOrder places a limit order for grid trading
@@ -2504,47 +2501,47 @@ func (at *AutoTrader) IsGridStrategy() bool {
 	return at.config.StrategyConfig.StrategyType == "grid_trading" && at.config.StrategyConfig.GridConfig != nil
 }
 
-// checkGridSkew checks if grid is heavily skewed (too many fills on one side)
-// Returns: (skewed bool, buyFilledCount int, sellFilledCount int)
+// checkGridSkew checks if current price has moved significantly outside the grid range.
+// Returns: (needReset bool, buyFilledCount int, sellFilledCount int)
+// The filled counts are kept for logging purposes but no longer drive the reset decision.
 func (at *AutoTrader) checkGridSkew() (bool, int, int) {
 	at.gridState.mu.RLock()
-	defer at.gridState.mu.RUnlock()
+	upper := at.gridState.UpperPrice
+	lower := at.gridState.LowerPrice
+	at.gridState.mu.RUnlock()
 
+	gridConfig := at.config.StrategyConfig.GridConfig
+	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
+	if err != nil {
+		logger.Warnf("[Grid] checkGridSkew: failed to get price: %v", err)
+		return false, 0, 0
+	}
+
+	gridRange := upper - lower
+	midPrice := (upper + lower) / 2
+
+	// Reset if price has moved outside the grid boundaries by more than 3%.
+	// This triggers when price exceeds upper + 3% or falls below lower - 3%.
+	upperThreshold := upper * 1.03
+	lowerThreshold := lower * 0.97
+	needReset := currentPrice > upperThreshold || currentPrice < lowerThreshold
+
+	// Still count filled levels for logging purposes
 	buyFilled := 0
 	sellFilled := 0
-	buyEmpty := 0
-	sellEmpty := 0
-
+	at.gridState.mu.RLock()
 	for _, level := range at.gridState.Levels {
-		if level.Side == "buy" {
-			if level.State == "filled" {
+		if level.State == "filled" {
+			if level.Side == "buy" {
 				buyFilled++
-			} else if level.State == "empty" {
-				buyEmpty++
-			}
-		} else {
-			if level.State == "filled" {
+			} else {
 				sellFilled++
-			} else if level.State == "empty" {
-				sellEmpty++
 			}
 		}
 	}
+	at.gridState.mu.RUnlock()
 
-	// Grid is skewed if one side has 3x more fills than the other
-	// or if one side is completely empty
-	skewed := false
-	if buyFilled > 0 && sellFilled == 0 && sellEmpty > 5 {
-		skewed = true // All buys filled, no sells
-	} else if sellFilled > 0 && buyFilled == 0 && buyEmpty > 5 {
-		skewed = true // All sells filled, no buys
-	} else if buyFilled >= 3*sellFilled && buyFilled > 5 {
-		skewed = true
-	} else if sellFilled >= 3*buyFilled && sellFilled > 5 {
-		skewed = true
-	}
-
-	return skewed, buyFilled, sellFilled
+	return needReset, buyFilled, sellFilled
 }
 
 // resetGrid cancels all orders, recalculates bounds around currentPrice, reinitializes levels,
@@ -2641,13 +2638,14 @@ func (at *AutoTrader) resetGrid(currentPrice float64) {
 }
 
 // autoAdjustGrid automatically adjusts grid when heavily skewed
+// autoAdjustGrid automatically adjusts grid when price moves outside the grid range
 func (at *AutoTrader) autoAdjustGrid() {
-	skewed, buyFilled, sellFilled := at.checkGridSkew()
-	if !skewed {
+	needReset, buyFilled, sellFilled := at.checkGridSkew()
+	if !needReset {
 		return
 	}
 
-	logger.Warnf("[Grid] Grid heavily skewed: buy_filled=%d, sell_filled=%d. Auto-adjusting...",
+	logger.Infof("[Grid] Price moved outside grid range (buy_filled=%d, sell_filled=%d). Auto-adjusting...",
 		buyFilled, sellFilled)
 
 	gridConfig := at.config.StrategyConfig.GridConfig
@@ -2658,18 +2656,7 @@ func (at *AutoTrader) autoAdjustGrid() {
 		return
 	}
 
-	at.gridState.mu.RLock()
-	upper := at.gridState.UpperPrice
-	lower := at.gridState.LowerPrice
-	at.gridState.mu.RUnlock()
-
-	gridRange := upper - lower
-	midPrice := (upper + lower) / 2
-	if math.Abs(currentPrice-midPrice) < gridRange*0.3 {
-		return
-	}
-
-	logger.Infof("[Grid] Adjusting grid around new price $%.2f", currentPrice)
+	logger.Infof("[Grid] Resetting grid around new price $%.2f", currentPrice)
 	at.resetGrid(currentPrice)
 }
 
