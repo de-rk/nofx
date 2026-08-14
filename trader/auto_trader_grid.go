@@ -2517,9 +2517,6 @@ func (at *AutoTrader) checkGridSkew() (bool, int, int) {
 		return false, 0, 0
 	}
 
-	gridRange := upper - lower
-	midPrice := (upper + lower) / 2
-
 	// Reset if price has moved outside the grid boundaries by more than 3%.
 	// This triggers when price exceeds upper + 3% or falls below lower - 3%.
 	upperThreshold := upper * 1.03

@@ -119,61 +119,14 @@ func atrSeries(klines []market.Kline) []float64 {
 	return atr
 }
 
-// checkGridSkew ports trader.checkGridSkew: the grid is considered skewed if
-// one side has filled >=3x more levels than the other (both sides having
-// filled more than 5), or if one side has filled at least one level while
-// the other has never filled anything and has more than 5 unfilled levels.
-// Unlike live, this simplified fill model has no distinct "pending" (order
-// resting) vs "empty" (no order placed) level state — every unfilled level
-// here is instantaneously fillable, closer in spirit to live's "pending"
-// than "empty" — so the "one side completely dead" branch is approximated
-// using unfilled-level counts rather than live's stricter "empty" count.
-func checkGridSkew(levels []simLevel) bool {
-	buyFilled, sellFilled, buyUnfilled, sellUnfilled := 0, 0, 0, 0
-	for _, lv := range levels {
-		if lv.Side == "buy" {
-			if lv.Filled {
-				buyFilled++
-			} else {
-				buyUnfilled++
-			}
-		} else {
-			if lv.Filled {
-				sellFilled++
-			} else {
-				sellUnfilled++
-			}
-		}
-	}
-	if buyFilled > 0 && sellFilled == 0 && sellUnfilled > 5 {
-		return true
-	}
-	if sellFilled > 0 && buyFilled == 0 && buyUnfilled > 5 {
-		return true
-	}
-	if buyFilled >= 3*sellFilled && buyFilled > 5 {
-		return true
-	}
-	if sellFilled >= 3*buyFilled && sellFilled > 5 {
-		return true
-	}
-	return false
-}
-
-// maybeResetGrid ports trader.autoAdjustGrid + resetGrid. If the grid is
-// heavily skewed (checkGridSkew) AND the current price has drifted more than
-// 30% of the grid range away from its center — the same two-part gate live
-// uses before paying the cost of a rebuild — the grid is rebuilt around the
-// current price: bounds are recalculated (computeBounds) and levels rebuilt
-// from scratch (buildLevels), then any currently-filled level's position is
-// carried over to the nearest new level by price. This is exact here (unlike
-// live's PositionEntry-based nearest-match, which accounts for real fill
-// slippage) since this simulator's fills never slip from a level's target
-// price. Returns the levels to use going forward (the original slice,
-// unchanged, if no reset fired) and whether a reset happened.
-func maybeResetGrid(levels []simLevel, currentPrice, atr14, totalInvestment float64, p GridParams) ([]simLevel, bool) {
-	if !checkGridSkew(levels) {
-		return levels, false
+// checkGridSkew checks if current price has moved outside the grid boundaries.
+// Ported from trader.checkGridSkew after 2026-08-09 refactor: the grid reset
+// trigger is now based on price position (exceeding upper*1.03 or below lower*0.97)
+// rather than filled-level imbalance, matching live behavior for consistency.
+// Returns true if the grid should be reset.
+func checkGridSkew(levels []simLevel, currentPrice float64) bool {
+	if len(levels) == 0 {
+		return false
 	}
 
 	lower, upper := levels[0].Price, levels[0].Price
@@ -185,9 +138,28 @@ func maybeResetGrid(levels []simLevel, currentPrice, atr14, totalInvestment floa
 			upper = lv.Price
 		}
 	}
-	gridRange := upper - lower
-	midPrice := (upper + lower) / 2
-	if gridRange <= 0 || math.Abs(currentPrice-midPrice) < gridRange*0.3 {
+
+	// Reset if price has moved outside the grid boundaries by more than 3%.
+	// This triggers when price exceeds upper + 3% or falls below lower - 3%.
+	upperThreshold := upper * 1.03
+	lowerThreshold := lower * 0.97
+	return currentPrice > upperThreshold || currentPrice < lowerThreshold
+}
+
+// maybeResetGrid checks if the grid needs to be reset based on price position.
+// Ported from trader.autoAdjustGrid after 2026-08-09 refactor: simplified to
+// rely entirely on checkGridSkew's price-boundary logic (currentPrice exceeding
+// upper*1.03 or below lower*0.97), removing the duplicate 30%-drift check that
+// live previously had. If reset is triggered, the grid is rebuilt around the
+// current price: bounds are recalculated (computeBounds) and levels rebuilt
+// from scratch (buildLevels), then any currently-filled level's position is
+// carried over to the nearest new level by price. This is exact here (unlike
+// live's PositionEntry-based nearest-match, which accounts for real fill
+// slippage) since this simulator's fills never slip from a level's target
+// price. Returns the levels to use going forward (the original slice,
+// unchanged, if no reset fired) and whether a reset happened.
+func maybeResetGrid(levels []simLevel, currentPrice, atr14, totalInvestment float64, p GridParams) ([]simLevel, bool) {
+	if !checkGridSkew(levels, currentPrice) {
 		return levels, false
 	}
 
