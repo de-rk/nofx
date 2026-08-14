@@ -139,10 +139,10 @@ func checkGridSkew(levels []simLevel, currentPrice float64) bool {
 		}
 	}
 
-	// Reset if price has moved outside the grid boundaries by more than 3%.
-	// This triggers when price exceeds upper + 3% or falls below lower - 3%.
-	upperThreshold := upper * 1.03
-	lowerThreshold := lower * 0.97
+	// Reset if price has moved outside the grid boundaries by more than 5%.
+	// This triggers when price exceeds upper + 5% or falls below lower - 5%.
+	upperThreshold := upper * 1.05
+	lowerThreshold := lower * 0.95
 	return currentPrice > upperThreshold || currentPrice < lowerThreshold
 }
 

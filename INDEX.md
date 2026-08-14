@@ -626,9 +626,9 @@ Grid Cycle 调用 `checkProfitReduce(nil)` 会触发内部调用 `GetPositions()
 - 阈值（3x、>5）较为武断，难以调优
 
 **修复**：重构 `checkGridSkew` 为基于价格边界的触发条件：
-- 当 `currentPrice > upper * 1.03` 或 `currentPrice < lower * 0.97` 时触发重置
+- 当 `currentPrice > upper * 1.05` 或 `currentPrice < lower * 0.95` 时触发重置
 - 直接反映价格位置，不依赖订单状态
-- 阈值清晰：价格超出网格边界 3% 即重置
+- 阈值清晰：价格超出网格边界 5% 即重置
 
 **问题3：autoAdjustGrid 重复检查价格偏离**
 
@@ -639,13 +639,15 @@ Grid Cycle 调用 `checkProfitReduce(nil)` 会触发内部调用 `GetPositions()
 | 变更 | 位置 |
 |-----|------|
 | `checkInvestmentRefresh` 移除 `resetGrid` 调用，只刷新投资额 | `trader/auto_trader_grid.go:1645-1651` |
-| `checkGridSkew` 从订单失衡检测改为价格边界检测（超出 upper*1.03 或低于 lower*0.97） | `trader/auto_trader_grid.go:2507-2546` |
+| `checkGridSkew` 从订单失衡检测改为价格边界检测（超出 upper*1.05 或低于 lower*0.95） | `trader/auto_trader_grid.go:2507-2546` |
 | `autoAdjustGrid` 移除重复的价格偏离检查，简化逻辑 | `trader/auto_trader_grid.go:2641-2661` |
+| 回测同步：`backtest/grid.go` 的 `checkGridSkew` 和 `maybeResetGrid` 使用相同的 5% 边界触发 | `backtest/grid.go:127-150, 161-185` |
 
 **影响**：
-- 网格对趋势行情响应更快（价格一旦超出边界 3% 立即触发，不等订单状态变化）
+- 网格对趋势行情响应更快（价格一旦超出边界 5% 立即触发，不等订单状态变化）
 - 减少误触发（投资额刷新不再重置网格）
 - 重置条件更清晰，便于调试和优化
+- 回测与实盘逻辑保持一致，确保回测结果能准确预测实盘表现
 
 ### 已知设计限制（待优化）
 
