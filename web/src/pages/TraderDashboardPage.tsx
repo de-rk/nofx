@@ -871,6 +871,7 @@ const SOURCE_COLORS: Record<string, string> = {
     algo: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
     ttrade: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
     profit_reduce: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    system: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
 }
 
 const ACTION_ICONS: Record<string, string> = {
@@ -893,6 +894,7 @@ const ACTION_ICONS: Record<string, string> = {
     profit_reduce_close: '🎯',
     profit_drawdown_close: '💰',
     profit_reduce_reset: '🔄',
+    grid_rebuild: '🏗️',
 }
 
 function GridTradeLogList({ logs, language }: { logs?: GridTradeLog[]; language: string }) {
