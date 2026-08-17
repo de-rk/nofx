@@ -2443,7 +2443,9 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 		len(openOrders), pendingCount, currentPositionSize)
 
 	if runPostChecks {
-		at.autoAdjustGrid()
+		// autoAdjustGrid removed — grid boundary check is now handled by
+		// maybeRebuildGrid() which runs unconditionally at the start of each
+		// RunGridCycle, so no post-cycle check is needed here.
 	}
 }
 
