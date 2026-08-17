@@ -176,8 +176,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`ScoreMode`（"balanced"（默认，回撤惩罚系数1.5）| "return_focused"（回撤惩罚系数0.3），只影响退火搜索怎么打分选参数，不改变单次回测本身的成交/回撤结果））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid` 计数） |
-| `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD`；另复刻 `checkGridSkew`/`autoAdjustGrid`/`resetGrid`：`checkGridSkew` 判断单边成交是否≥3倍或另一侧完全空仓，`maybeResetGrid` 在判定失衡后再额外要求当前价偏离网格中心超过区间30%（双重门槛，跟实盘一致）才真正重建——重新计算边界、重建全部层级，并把仍持仓的层按价格就近迁移到新层 |
+| `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`InvestmentRefreshDays`（每隔N天从权益重算投资额，0=禁用，复刻 trader.checkInvestmentRefresh）、`ScoreMode`（"balanced"（默认，回撤惩罚系数1.5）| "return_focused"（回撤惩罚系数0.3），只影响退火搜索怎么打分选参数，不改变单次回测本身的成交/回撤结果））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid`/`InvestmentRefreshes` 计数） |
+| `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD`；另复刻网格重置逻辑（`checkGridSkew`/`maybeRebuildGrid`）：`checkGridSkew` 判断价格是否超出网格边界（upper*1.02 或 lower*0.98），`maybeResetGrid` 触发后重新计算边界、重建全部层级，并把仍持仓的层按价格就近迁移到新层（与实盘 trader/auto_trader_grid.go 的 2% 阈值保持一致）|
 | `backtest/simulate.go` | `Simulate()` 纯函数：拉历史K线跑网格模拟（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费；`Score(returnPct, maxDrawdownPct, mode)` 按「收益 - 回撤惩罚系数×最大回撤」打分（系数由 `GridParams.ScoreMode` 决定），爆仓固定给 `-1e9` 极端惩罚分（不受 ScoreMode 影响） |
 | `backtest/anneal.go` | `Anneal()` 通用模拟退火循环，`AnnealConfig.OnProgress` 回调用于流式上报迭代进度（供 SSE handler 使用），不知道传输层细节 |
 | `scripts/grid_backtest/main.go` | CLI 入口，薄封装调用 `backtest` 包，含 T字/利润回撤/小仓位平仓/手续费率/评分模式对应 flag。用法：`go run ./scripts/grid_backtest -symbol HYPEUSDT -timeframe 15m -days 60 -investment 1000 -iterations 3000 -enable-ttrade -ttrade-position-threshold-pct 30 -fee-pct 0.02 -score-mode balanced` |
@@ -238,6 +238,13 @@ HTTP 请求
 ---
 
 ## 历史修复记录
+
+### 2026-08-18
+
+| 修改 | 说明 | 提交 |
+|------|------|------|
+| **同步网格重置逻辑** — 将 `trader/auto_trader_grid.go` 的新网格重置逻辑（`maybeRebuildGrid` 边界判定 ±2%，ATR14 自适应边界重建）同步到 `backtest/grid.go`，替换旧的 checkSkew/resetGrid；移除回测中的重复/损坏行 | 实盘在 2026-08-09 重构后采用 `maybeRebuildGrid`（价格超出 [lower×0.98, upper×1.02] 即触发 ATR 边界重建），回测仍用旧逻辑（3%/5% 冲突标记），导致回测结果不代表实盘行为 | 3330a87e |
+| **移除 autoAdjustGrid 调用残留** — `trader/auto_trader_grid.go` 中 `syncExchangeState` 的 `runPostChecks` 分支仍调用已删除的 `autoAdjustGrid()`，导致编译错误 | `autoAdjustGrid` 在 3330a87e 被删除（功能合并到 `maybeRebuildGrid`），但 `syncExchangeState` 的调用点未清理 | 749acb7a |
 
 ### 2026-06-24
 
