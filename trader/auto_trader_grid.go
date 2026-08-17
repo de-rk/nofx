@@ -634,6 +634,11 @@ func (at *AutoTrader) RunGridCycle() error {
 		at.checkInvestmentRefresh()
 	}
 
+	// Price-boundary grid reset check runs every cycle regardless of whether the
+	// AI call succeeds, so a grid that has drifted outside its range is
+	// corrected even when AI is unavailable or the cycle ends early.
+	at.autoAdjustGrid()
+
 	// Build grid context
 	gridCtx, err := at.buildGridContext()
 	if err != nil {
