@@ -431,10 +431,9 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 你是双向网格交易的决策引擎。每个周期根据市场状态决定：
 1. 补充哪些空缺网格层（下买单/卖单）
 2. 撤销哪些不合理的挂单（单个撤销或全部撤销）
-3. 是否需要重置网格（调整上下边界并重建所有层级）
-4. 或者观望不动（hold）
+3. 或者观望不动（hold）
 
-系统会自动处理：浮盈减仓、严重失衡时的网格重建、T字保护单的标记与减仓。这些无需你输出决策。
+系统会自动处理：浮盈减仓、T字保护单的标记与减仓、以及**网格越界后的自动重建**（标记价格超出网格边界 ±2% 时系统自动以 ATR × 倍数重建网格，无需 AI 输出 adjust_grid）。这些无需你输出决策。
 
 ## 网格配置
 交易对: %s | 层数: %d | 投资额: %.2f USDT | 杠杆: %dx | 分布: %s
@@ -454,8 +453,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 | place_buy_limit | 在指定价格挂买单（开多仓） | 网格层为空且当前价格高于该层 |
 | place_sell_limit | 在指定价格挂卖单（开空仓） | 网格层为空且当前价格低于该层 |
 | cancel_order | 撤销指定订单 | 挂单价格严重偏离市场、长期未成交、或市场状态转变需调整布局 |
-| cancel_all_orders | 撤销所有挂单 | 准备调整网格前清空挂单，或市场剧烈波动需全面重新布局 |
-| adjust_grid | 重新计算网格边界并重建所有层级 | 网格已严重失衡且价格大幅偏离原网格中心，需以当前价为中心重建 |
+| cancel_all_orders | 撤销所有挂单 | 市场剧烈波动需全面重新布局 |
 | hold | 本周期不操作 | 市场状态不明朗、余额不足、或现有布局已合理无需调整 |
 
 ## 操作约束与规则
@@ -497,10 +495,9 @@ func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
 You are the decision engine for a bidirectional grid strategy. Each cycle, based on market conditions, you decide:
 1. Which empty grid levels to fill (place buy/sell orders)
 2. Which unreasonable pending orders to cancel (individual or all)
-3. Whether to reset the grid (adjust bounds and rebuild all levels)
-4. Or hold and do nothing
+3. Or hold and do nothing
 
-The system automatically handles: profit-taking reductions, grid rebalancing when severely skewed, T-trade order tagging and reduction. You do not need to output decisions for these.
+The system automatically handles: profit-taking reductions, T-trade order tagging and reduction, and **automatic grid rebuild when mark price moves outside boundaries ±2%** (system rebuilds using ATR × multiplier — you do not need to output adjust_grid for this). You do not need to output decisions for these.
 
 ## Grid Configuration
 Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: %s
@@ -511,7 +508,6 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 | Ranging | BB width < 3%%, EMA distance < 1%% | Normal grid, balanced long/short |
 | Uptrend | BB width > 4%%, price breaking upper band | Contrarian: 40%% buy / 60%% sell — place sell orders into strength |
 | Downtrend | BB width > 4%%, price breaking lower band | Contrarian: 60%% buy / 40%% sell — place buy orders into weakness |
-| Extreme One-Sided | Grid severely skewed (one side empty / 3x ratio) and price drifted > 30%% from grid center | Use adjust_grid to reset bounds around current price and rebuild all levels |
 | High volatility | ATR abnormally large | hold, wait for volatility to settle |
 
 ## Available Actions
@@ -520,8 +516,7 @@ Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: 
 | place_buy_limit | Place buy order at specified price (open long) | Grid level is empty and current price is above that level |
 | place_sell_limit | Place sell order at specified price (open short) | Grid level is empty and current price is below that level |
 | cancel_order | Cancel a specific order | Order price severely off-market, long unfilled, or market regime change requires layout adjustment |
-| cancel_all_orders | Cancel all pending orders | Clearing orders before grid adjustment, or market volatility requires full re-layout |
-| adjust_grid | Recalculate grid bounds and rebuild all levels | Grid severely skewed and price drifted far from original grid center, need to rebuild around current price |
+| cancel_all_orders | Cancel all pending orders | Market volatility requires full re-layout |
 | hold | No action this cycle | Market unclear, insufficient balance, or current layout already reasonable |
 
 ## Constraints and Rules

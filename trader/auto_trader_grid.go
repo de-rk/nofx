@@ -634,16 +634,15 @@ func (at *AutoTrader) RunGridCycle() error {
 		at.checkInvestmentRefresh()
 	}
 
-	// Price-boundary grid reset check runs every cycle regardless of whether the
-	// AI call succeeds, so a grid that has drifted outside its range is
-	// corrected even when AI is unavailable or the cycle ends early.
-	at.autoAdjustGrid()
-
-	// Build grid context
+	// Build grid context first — we need ATR14 and mark price for boundary check
 	gridCtx, err := at.buildGridContext()
 	if err != nil {
 		return fmt.Errorf("failed to build grid context: %w", err)
 	}
+
+	// Price-boundary reset: use mark price from context and ATR to rebuild grid.
+	// Runs every cycle regardless of AI availability.
+	at.maybeRebuildGrid(gridCtx)
 
 	// Get decisions — AI, algorithmic, or AI with algorithmic fallback,
 	// depending on gridConfig.DecisionMode (empty defaults to "ai"). source
@@ -2506,67 +2505,67 @@ func (at *AutoTrader) IsGridStrategy() bool {
 	return at.config.StrategyConfig.StrategyType == "grid_trading" && at.config.StrategyConfig.GridConfig != nil
 }
 
-// checkGridSkew checks if current price has moved significantly outside the grid range.
-// Returns: (needReset bool, buyFilledCount int, sellFilledCount int)
-// The filled counts are kept for logging purposes but no longer drive the reset decision.
-func (at *AutoTrader) checkGridSkew() (bool, int, int) {
+// maybeRebuildGrid checks if the mark price has moved outside the current grid
+// boundaries (±2%) and rebuilds the grid if so. Unlike the old autoAdjustGrid,
+// this uses data already present in gridCtx so it never makes extra REST calls
+// and produces consistent results. Bounds are always recalculated from ATR14
+// (from ctx) × gridConfig.ATRMultiplier — the "manual bounds" setting only
+// applies at initialization; once the grid drifts far enough to warrant a reset,
+// ATR-based bounds produce a sensible range around the current price.
+// cancelAllGridOrders is called internally which already protects T-trade prep/
+// reduce orders and profit-reduce orders from cancellation.
+func (at *AutoTrader) maybeRebuildGrid(ctx *kernel.GridContext) {
+	gridConfig := at.config.StrategyConfig.GridConfig
+	markPrice := ctx.CurrentPrice
+	if markPrice <= 0 {
+		return
+	}
+
 	at.gridState.mu.RLock()
 	upper := at.gridState.UpperPrice
 	lower := at.gridState.LowerPrice
 	at.gridState.mu.RUnlock()
 
-	gridConfig := at.config.StrategyConfig.GridConfig
-	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
-	if err != nil {
-		logger.Warnf("[Grid] checkGridSkew: failed to get price: %v", err)
-		return false, 0, 0
+	if upper <= 0 || lower <= 0 {
+		return
 	}
 
-	// Reset if price has moved outside the grid boundaries by more than 2%.
-	// This triggers when price exceeds upper + 2% or falls below lower - 2%.
-	upperThreshold := upper * 1.02
-	lowerThreshold := lower * 0.98
-	needReset := currentPrice > upperThreshold || currentPrice < lowerThreshold
-
-	// Still count filled levels for logging purposes
-	buyFilled := 0
-	sellFilled := 0
-	at.gridState.mu.RLock()
-	for _, level := range at.gridState.Levels {
-		if level.State == "filled" {
-			if level.Side == "buy" {
-				buyFilled++
-			} else {
-				sellFilled++
-			}
-		}
+	// Trigger when mark price moves outside boundaries by more than 2%
+	if markPrice <= upper*1.02 && markPrice >= lower*0.98 {
+		return
 	}
-	at.gridState.mu.RUnlock()
 
-	return needReset, buyFilled, sellFilled
-}
+	logger.Infof("[Grid] maybeRebuildGrid: mark price $%.4f outside grid [$%.2f, $%.2f] — rebuilding around mark price",
+		markPrice, lower, upper)
 
-// resetGrid cancels all orders, recalculates bounds around currentPrice, reinitializes levels,
-// and restores any filled positions to the nearest new level. Caller must NOT hold the lock.
-func (at *AutoTrader) resetGrid(currentPrice float64) {
-	gridConfig := at.config.StrategyConfig.GridConfig
+	// Compute new ATR-based bounds around mark price using strategy's ATR multiplier.
+	// Falls back to ±3%×(grid_count/10) if ATR is unavailable.
+	atr := ctx.ATR14
+	multiplier := gridConfig.ATRMultiplier
+	if multiplier <= 0 {
+		multiplier = 2.0
+	}
+	var newUpper, newLower float64
+	if atr > 0 {
+		newUpper = markPrice + atr*multiplier
+		newLower = markPrice - atr*multiplier
+	} else {
+		defaultMult := 0.03 * float64(gridConfig.GridCount) / 10
+		newUpper = markPrice * (1 + defaultMult)
+		newLower = markPrice * (1 - defaultMult)
+	}
 
+	// Cancel non-protected orders (T-trade and profit-reduce orders are skipped)
 	if err := at.cancelAllGridOrders(); err != nil {
-		logger.Errorf("[Grid] resetGrid: cancel orders failed: %v", err)
+		logger.Errorf("[Grid] maybeRebuildGrid: cancelAllGridOrders failed: %v", err)
 	}
 
 	at.gridState.mu.Lock()
 	defer at.gridState.mu.Unlock()
 
+	// Collect existing filled levels and still-pending T-trade prep orders
+	// so they survive the rebuild (same logic as resetGrid)
 	filledPositions := make(map[int]kernel.GridLevelInfo)
-	// Any level still "pending" at this point is, by construction, a
-	// protected T-trade prep order — cancelAllGridOrders (called above)
-	// already reset every *non*-protected pending level to "empty", and
-	// profit-reduce orders are never tied to a Levels entry at all. Without
-	// preserving these across the rebuild below, the still-resting exchange
-	// order would become invisible to Levels/OrderBook even though it's
-	// still tracked in TTradePrepOrders and can still fill — corrupting
-	// downstream position-size reconciliation and cancel-by-orderID lookups.
 	pendingTTradeLevels := make(map[int]kernel.GridLevelInfo)
 	for i, level := range at.gridState.Levels {
 		if level.State == "filled" {
@@ -2576,29 +2575,20 @@ func (at *AutoTrader) resetGrid(currentPrice float64) {
 		}
 	}
 
-	if gridConfig.UseATRBounds {
-		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
-		if err != nil {
-			logger.Warnf("[Grid] resetGrid: ATR fetch failed, using default bounds: %v", err)
-			at.calculateDefaultBoundsLocked(currentPrice, gridConfig)
-		} else {
-			at.calculateATRBoundsLocked(currentPrice, mktData, gridConfig)
-		}
-	} else {
-		at.calculateDefaultBoundsLocked(currentPrice, gridConfig)
-	}
-	at.gridState.GridSpacing = (at.gridState.UpperPrice - at.gridState.LowerPrice) / float64(gridConfig.GridCount-1)
-	logger.Infof("[Grid] New bounds: $%.2f - $%.2f, spacing: $%.2f",
-		at.gridState.LowerPrice, at.gridState.UpperPrice, at.gridState.GridSpacing)
+	at.gridState.UpperPrice = newUpper
+	at.gridState.LowerPrice = newLower
+	at.gridState.GridSpacing = (newUpper - newLower) / float64(gridConfig.GridCount-1)
+	logger.Infof("[Grid] maybeRebuildGrid: new bounds $%.2f - $%.2f (ATR=%.4f × %.1f), spacing $%.4f",
+		newLower, newUpper, atr, multiplier, at.gridState.GridSpacing)
 
-	at.initializeGridLevelsLocked(currentPrice, gridConfig)
+	at.initializeGridLevelsLocked(markPrice, gridConfig)
 
+	// Migrate filled positions to nearest new level
 	for _, filledLevel := range filledPositions {
-		closestIdx := -1
-		closestDist := math.MaxFloat64
-		for i, newLevel := range at.gridState.Levels {
-			if dist := math.Abs(newLevel.Price - filledLevel.PositionEntry); dist < closestDist {
-				closestDist = dist
+		closestIdx, closestDist := -1, math.MaxFloat64
+		for i, nl := range at.gridState.Levels {
+			if d := math.Abs(nl.Price - filledLevel.PositionEntry); d < closestDist {
+				closestDist = d
 				closestIdx = i
 			}
 		}
@@ -2609,20 +2599,15 @@ func (at *AutoTrader) resetGrid(currentPrice float64) {
 			at.gridState.Levels[closestIdx].UnrealizedPnL = filledLevel.UnrealizedPnL
 			at.gridState.Levels[closestIdx].OrderID = filledLevel.OrderID
 			at.gridState.Levels[closestIdx].OrderQuantity = filledLevel.OrderQuantity
-			logger.Infof("[Grid] Restored filled position at level %d (entry $%.2f)", closestIdx, filledLevel.PositionEntry)
 		}
 	}
 
-	// Restore still-pending T-trade prep orders the same way, matched by
-	// the order's placement price (there's no fill price yet). Keep
-	// OrderBook in sync so cancel-by-orderID lookups (e.g. the AI's
-	// cancel_order path) resolve to the level's new index, not a stale one.
+	// Migrate still-pending T-trade prep orders
 	for _, pendingLevel := range pendingTTradeLevels {
-		closestIdx := -1
-		closestDist := math.MaxFloat64
-		for i, newLevel := range at.gridState.Levels {
-			if dist := math.Abs(newLevel.Price - pendingLevel.Price); dist < closestDist {
-				closestDist = dist
+		closestIdx, closestDist := -1, math.MaxFloat64
+		for i, nl := range at.gridState.Levels {
+			if d := math.Abs(nl.Price - pendingLevel.Price); d < closestDist {
+				closestDist = d
 				closestIdx = i
 			}
 		}
@@ -2633,33 +2618,13 @@ func (at *AutoTrader) resetGrid(currentPrice float64) {
 			at.gridState.Levels[closestIdx].OrderQuantity = pendingLevel.OrderQuantity
 			at.gridState.Levels[closestIdx].OrderPlacedAt = pendingLevel.OrderPlacedAt
 			at.gridState.OrderBook[pendingLevel.OrderID] = closestIdx
-			logger.Infof("[Grid] Restored pending T-trade prep order %s at level %d (price $%.2f)",
-				pendingLevel.OrderID, closestIdx, pendingLevel.Price)
 		}
 	}
-}
 
-// autoAdjustGrid automatically adjusts grid when heavily skewed
-// autoAdjustGrid automatically adjusts grid when price moves outside the grid range
-func (at *AutoTrader) autoAdjustGrid() {
-	needReset, buyFilled, sellFilled := at.checkGridSkew()
-	if !needReset {
-		return
-	}
-
-	logger.Infof("[Grid] Price moved outside grid range (buy_filled=%d, sell_filled=%d). Auto-adjusting...",
-		buyFilled, sellFilled)
-
-	gridConfig := at.config.StrategyConfig.GridConfig
-
-	currentPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
-	if err != nil {
-		logger.Errorf("[Grid] Failed to get price for auto-adjust: %v", err)
-		return
-	}
-
-	logger.Infof("[Grid] Resetting grid around new price $%.2f", currentPrice)
-	at.resetGrid(currentPrice)
+	at.logGridTrade("system", "grid_rebuild", "", gridConfig.Symbol,
+		fmt.Sprintf("mark=%.4f atr=%.4f mult=%.1f new_range=[%.2f,%.2f]",
+			markPrice, atr, multiplier, newLower, newUpper),
+		"", 0, markPrice, 0, markPrice, 0, 0, true, "")
 }
 
 // calculateDefaultBoundsLocked calculates default bounds (caller must hold lock)
