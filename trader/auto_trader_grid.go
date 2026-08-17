@@ -2516,8 +2516,13 @@ func (at *AutoTrader) IsGridStrategy() bool {
 // reduce orders and profit-reduce orders from cancellation.
 func (at *AutoTrader) maybeRebuildGrid(ctx *kernel.GridContext) {
 	gridConfig := at.config.StrategyConfig.GridConfig
-	markPrice := ctx.CurrentPrice
-	if markPrice <= 0 {
+
+	// Use GetMarketPrice for the most current price (OKX returns WS-cached
+	// mark price when available, falling back to REST ticker). ctx.CurrentPrice
+	// is the last kline close, which can lag by up to one bar.
+	markPrice, err := at.trader.GetMarketPrice(gridConfig.Symbol)
+	if err != nil || markPrice <= 0 {
+		logger.Warnf("[Grid] maybeRebuildGrid: failed to get mark price: %v", err)
 		return
 	}
 
