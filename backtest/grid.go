@@ -139,17 +139,17 @@ func checkGridSkew(levels []simLevel, currentPrice float64) bool {
 		}
 	}
 
-	// Reset if price has moved outside the grid boundaries by more than 5%.
-	// This triggers when price exceeds upper + 5% or falls below lower - 5%.
-	upperThreshold := upper * 1.05
-	lowerThreshold := lower * 0.95
+	// Reset if price has moved outside the grid boundaries by more than 2%.
+	// This triggers when price exceeds upper + 2% or falls below lower - 2%.
+	upperThreshold := upper * 1.02
+	lowerThreshold := lower * 0.98
 	return currentPrice > upperThreshold || currentPrice < lowerThreshold
 }
 
 // maybeResetGrid checks if the grid needs to be reset based on price position.
 // Ported from trader.autoAdjustGrid after 2026-08-09 refactor: simplified to
 // rely entirely on checkGridSkew's price-boundary logic (currentPrice exceeding
-// upper*1.03 or below lower*0.97), removing the duplicate 30%-drift check that
+// upper*1.02 or below lower*0.98), removing the duplicate 30%-drift check that
 // live previously had. If reset is triggered, the grid is rebuilt around the
 // current price: bounds are recalculated (computeBounds) and levels rebuilt
 // from scratch (buildLevels), then any currently-filled level's position is

@@ -2517,10 +2517,10 @@ func (at *AutoTrader) checkGridSkew() (bool, int, int) {
 		return false, 0, 0
 	}
 
-	// Reset if price has moved outside the grid boundaries by more than 5%.
-	// This triggers when price exceeds upper + 5% or falls below lower - 5%.
-	upperThreshold := upper * 1.05
-	lowerThreshold := lower * 0.95
+	// Reset if price has moved outside the grid boundaries by more than 2%.
+	// This triggers when price exceeds upper + 2% or falls below lower - 2%.
+	upperThreshold := upper * 1.02
+	lowerThreshold := lower * 0.98
 	needReset := currentPrice > upperThreshold || currentPrice < lowerThreshold
 
 	// Still count filled levels for logging purposes
