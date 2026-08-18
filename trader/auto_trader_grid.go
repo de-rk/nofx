@@ -1910,14 +1910,14 @@ func (at *AutoTrader) activeTTradeReduceOrderIDs() map[string]bool {
 	return ids
 }
 
-// activeTTradeProtectedIDs returns the set of order IDs (prep + reduce) that must not be
-// cancelled by grid maintenance.
+// activeTTradeProtectedIDs returns the set of T-trade reduce order IDs that must not be
+// cancelled by grid maintenance. Prep orders (标记单) are NOT protected — they're regular
+// grid orders that happen to be tagged for later reduce; when grid resets, the old layout
+// is invalid anyway, so we let them be cancelled and rely on the migrated filled-level
+// state (preserving PositionEntry/PositionSize) to re-enter T-trade flow if conditions
+// still qualify post-rebuild.
 func (at *AutoTrader) activeTTradeProtectedIDs() map[string]bool {
-	protectedIDs := at.activeTTradePrepOrderIDs()
-	for id := range at.activeTTradeReduceOrderIDs() {
-		protectedIDs[id] = true
-	}
-	return protectedIDs
+	return at.activeTTradeReduceOrderIDs()
 }
 
 // activeProfitReduceOrderIDs returns reduce-only order IDs placed by
@@ -1973,11 +1973,11 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 		return fmt.Errorf("failed to get open orders: %w", err)
 	}
 
-	// Cancel orders, skipping T-trade orders
+	// Cancel orders, skipping T-trade reduce orders and profit-reduce orders
 	toCancel := make([]string, 0, len(openOrders))
 	for _, order := range openOrders {
 		if protectedIDs[order.OrderID] {
-			logger.Infof("[Grid] Skipping T-trade order %s during cancel all", order.OrderID)
+			logger.Debugf("[Grid] Skipping protected reduce order %s during cancel all", order.OrderID)
 			continue
 		}
 		toCancel = append(toCancel, order.OrderID)
@@ -1999,7 +1999,7 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 		}
 	}
 
-	// Reset all pending levels except T-trade prep orders
+	// Reset all pending levels except those with protected reduce orders
 	at.gridState.mu.Lock()
 	for i := range at.gridState.Levels {
 		if at.gridState.Levels[i].State == "pending" && !protectedIDs[at.gridState.Levels[i].OrderID] {
@@ -2009,7 +2009,7 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 			at.gridState.Levels[i].OrderPlacedAt = time.Time{}
 		}
 	}
-	// Rebuild OrderBook, keeping T-trade orders
+	// Rebuild OrderBook, keeping protected reduce orders
 	newOrderBook := make(map[string]int)
 	for i, level := range at.gridState.Levels {
 		if level.State == "pending" && level.OrderID != "" {
@@ -2019,7 +2019,7 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 	at.gridState.OrderBook = newOrderBook
 	at.gridState.mu.Unlock()
 
-	logger.Infof("[Grid] Cancelled %d orders (protected T-trade order)", cancelCount)
+	logger.Infof("[Grid] Cancelled %d orders (protected %d reduce orders)", cancelCount, len(protectedIDs))
 	return nil
 }
 
