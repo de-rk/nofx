@@ -177,9 +177,6 @@ var gridActionSynonyms = map[string]string{
 	"add_sell_orders":       "place_sell_limit",
 	"open_sell_limit":       "place_sell_limit",
 	"cancel_all":            "cancel_all_orders",
-	"rebalance":             "adjust_grid",
-	"rebalance_grid":        "adjust_grid",
-	"reset_grid":            "adjust_grid",
 }
 
 // normalizeGridAction lowercases action and, if it matches a known synonym
@@ -204,7 +201,6 @@ func isValidGridAction(action string) bool {
 		"cancel_all_orders": true,
 		"pause_grid":        false,
 		"resume_grid":       true,
-		"adjust_grid":       true,
 		"hold":              true,
 		"reduce_long":       true,
 		"reduce_short":      true,
@@ -433,7 +429,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 2. 撤销哪些不合理的挂单（单个撤销或全部撤销）
 3. 或者观望不动（hold）
 
-系统会自动处理：浮盈减仓、T字保护单的标记与减仓、以及**网格越界后的自动重建**（标记价格超出网格边界 ±2% 时系统自动以 ATR × 倍数重建网格，无需 AI 输出 adjust_grid）。这些无需你输出决策。
+系统会自动处理：浮盈减仓、T字保护单的标记与减仓、以及**网格越界后的自动重建**（标记价格超出网格边界 ±2%% 时系统自动以 ATR × 倍数重建网格）。这些无需你输出决策。
 
 ## 网格配置
 交易对: %s | 层数: %d | 投资额: %.2f USDT | 杠杆: %dx | 分布: %s
@@ -444,7 +440,6 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 | 震荡 | 布林带宽 < 3%%, EMA距离 < 1%% | 正常补单，多空均衡 |
 | 趋势上行 | 布林带宽 > 4%%, 价格持续突破上轨 | 反向布局：买单40%%，卖单60%%，逢高挂卖单吃回调 |
 | 趋势下行 | 布林带宽 > 4%%, 价格持续突破下轨 | 反向布局：买单60%%，卖单40%%，逢低挂买单吃反弹 |
-| 极端单边 | 网格已严重失衡（一侧全空/3倍差距），且价格偏离网格中心 > 30%% | 使用 adjust_grid 重置网格，以当前价为中心重建所有层级 |
 | 高波动 | ATR 异常放大 | hold，等待波动平息 |
 
 ## 可用操作
@@ -497,7 +492,7 @@ You are the decision engine for a bidirectional grid strategy. Each cycle, based
 2. Which unreasonable pending orders to cancel (individual or all)
 3. Or hold and do nothing
 
-The system automatically handles: profit-taking reductions, T-trade order tagging and reduction, and **automatic grid rebuild when mark price moves outside boundaries ±2%** (system rebuilds using ATR × multiplier — you do not need to output adjust_grid for this). You do not need to output decisions for these.
+The system automatically handles: profit-taking reductions, T-trade order tagging and reduction, and **automatic grid rebuild when mark price moves outside boundaries ±2%%** (system rebuilds using ATR × multiplier). You do not need to output decisions for these.
 
 ## Grid Configuration
 Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: %s
