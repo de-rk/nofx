@@ -431,9 +431,6 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 
 系统会自动处理：浮盈减仓、T字保护单的标记与减仓、以及**网格越界后的自动重建**（标记价格超出网格边界 ±2%% 时系统自动以 ATR × 倍数重建网格）。这些无需你输出决策。
 
-## 网格配置
-交易对: %s | 层数: %d | 投资额: %.2f USDT | 杠杆: %dx | 分布: %s
-
 ## 市场状态判断
 | 状态 | 条件 | 操作 |
 |------|------|------|
@@ -475,7 +472,7 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 ## 输出格式
 JSON 数组，每个决策一个对象：
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"order_id":"","confidence":0,"reasoning":"..."}]
-`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, ttradeNote)
+`, config.Symbol, ttradeNote)
 }
 
 func buildGridSystemPromptEn(config *store.GridStrategyConfig) string {
@@ -493,9 +490,6 @@ You are the decision engine for a bidirectional grid strategy. Each cycle, based
 3. Or hold and do nothing
 
 The system automatically handles: profit-taking reductions, T-trade order tagging and reduction, and **automatic grid rebuild when mark price moves outside boundaries ±2%%** (system rebuilds using ATR × multiplier). You do not need to output decisions for these.
-
-## Grid Configuration
-Symbol: %s | Levels: %d | Investment: %.2f USDT | Leverage: %dx | Distribution: %s
 
 ## Market State
 | State | Conditions | Action |
@@ -538,7 +532,7 @@ When available_balance ≤ $1, order placement is blocked by the system. You may
 ## Output Format
 JSON array, one object per decision:
 [{"symbol":"...","action":"...","price":0.0,"quantity":0.0,"level_index":0,"order_id":"","confidence":0,"reasoning":"..."}]
-`, config.Symbol, config.Symbol, config.GridCount, config.TotalInvestment, config.Leverage, config.Distribution, ttradeNote)
+`, config.Symbol, ttradeNote)
 }
 
 // BuildGridUserPrompt builds the user prompt for grid trading AI
