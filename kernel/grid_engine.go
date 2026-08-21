@@ -260,7 +260,10 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 						ctx.BollingerWidth = (ctx.BollingerUpper - ctx.BollingerLower) / ctx.BollingerMiddle * 100
 					}
 				}
-				ctx.ATR14 = tf5m.ATR14
+				// Grid range calculations use the 4h ATR, matching initialization.
+				if fourHour, ok := mktData.TimeframeData["4h"]; ok {
+					ctx.ATR14 = fourHour.ATR14
+				}
 				if len(tf5m.RSI14Values) > 0 {
 					ctx.RSI14 = tf5m.RSI14Values[len(tf5m.RSI14Values)-1]
 				}

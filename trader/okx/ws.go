@@ -20,12 +20,13 @@ import (
 )
 
 const (
-	okxWSPublicURL  = "wss://ws.okx.com:8443/ws/v5/public"
-	okxWSPrivateURL = "wss://ws.okx.com:8443/ws/v5/private"
+	okxWSPublicURL   = "wss://ws.okx.com:8443/ws/v5/public"
+	okxWSBusinessURL = "wss://ws.okx.com:8443/ws/v5/business"
+	okxWSPrivateURL  = "wss://ws.okx.com:8443/ws/v5/private"
 )
 
 type okxWSMsg struct {
-	Event string          `json:"event"`
+	Event string `json:"event"`
 	Arg   struct {
 		Channel string `json:"channel"`
 		InstId  string `json:"instId"`
@@ -43,10 +44,12 @@ type OKXWebSocket struct {
 	instIdsMu sync.RWMutex
 	instIds   []string
 
-	pubMu    sync.Mutex
-	pubConn  *websocket.Conn
-	privMu   sync.Mutex
-	privConn *websocket.Conn
+	pubMu        sync.Mutex
+	pubConn      *websocket.Conn
+	businessMu   sync.Mutex
+	businessConn *websocket.Conn
+	privMu       sync.Mutex
+	privConn     *websocket.Conn
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -72,28 +75,29 @@ type OKXWebSocket struct {
 
 	// Per-connection last-received timestamps for heartbeat management.
 	// OKX closes connections idle for 30s, so we ping after 20s of silence.
-	pubLastRecv  int64 // Unix nanoseconds, updated atomically via sync/atomic
-	privLastRecv int64
+	pubLastRecv      int64 // Unix nanoseconds, updated atomically via sync/atomic
+	businessLastRecv int64
+	privLastRecv     int64
 
 	// Event callbacks — called after cache is updated. Use non-blocking channel
 	// sends in callers to debounce rapid-fire pushes.
 	OnPositionUpdate func([]map[string]interface{}) // fired on every positions push, with parsed positions
-	OnOrderEvent     func() // fired on every orders push (fill, cancel, new)
-	OnKlineClose     func() // fired when a 5m candle confirms close (confirm=1)
+	OnOrderEvent     func()                         // fired on every orders push (fill, cancel, new)
+	OnKlineClose     func()                         // fired when a 5m candle confirms close (confirm=1)
 
 	// Kline (candlestick) buffers — keyed by instId → timeframe → bars.
 	// Each buffer holds up to wsKlineMaxBars closed candles plus the current forming one.
 	klineMu        sync.RWMutex
-	wsKlines        map[string]map[string][]wsKlineBar // instId → tf → bars (oldest first)
-	klineTfs        []string                            // timeframes to subscribe (e.g. ["5m", "4h"])
-	primaryKlineTf  string                              // triggers OnKlineClose on confirmed close (e.g. "5m")
+	wsKlines       map[string]map[string][]wsKlineBar // instId → tf → bars (oldest first)
+	klineTfs       []string                           // timeframes to subscribe (e.g. ["5m", "4h"])
+	primaryKlineTf string                             // triggers OnKlineClose on confirmed close (e.g. "5m")
 }
 
 const wsKlineMaxBars = 300 // rolling buffer size per timeframe
 
 // wsKlineBar is a compact OHLCV record from the OKX candle channel.
 type wsKlineBar struct {
-	Ts        int64   // open time, unix ms
+	Ts        int64 // open time, unix ms
 	Open      float64
 	High      float64
 	Low       float64
@@ -105,18 +109,18 @@ type wsKlineBar struct {
 func newOKXWebSocket(apiKey, secretKey, passphrase string, instIds []string) *OKXWebSocket {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &OKXWebSocket{
-		apiKey:    apiKey,
-		secretKey: secretKey,
+		apiKey:     apiKey,
+		secretKey:  secretKey,
 		passphrase: passphrase,
-		instIds:   instIds,
-		ctx:       ctx,
-		cancel:    cancel,
-		wsBalance: make(map[string]interface{}),
-		wsOrders:  make(map[string][]types.OpenOrder),
-		wsPrices:  make(map[string]float64),
-		pricesOk:  make(map[string]bool),
-		ctVals:    make(map[string]float64),
-		wsKlines:  make(map[string]map[string][]wsKlineBar),
+		instIds:    instIds,
+		ctx:        ctx,
+		cancel:     cancel,
+		wsBalance:  make(map[string]interface{}),
+		wsOrders:   make(map[string][]types.OpenOrder),
+		wsPrices:   make(map[string]float64),
+		pricesOk:   make(map[string]bool),
+		ctVals:     make(map[string]float64),
+		wsKlines:   make(map[string]map[string][]wsKlineBar),
 	}
 }
 
@@ -215,7 +219,7 @@ func (ws *OKXWebSocket) Start() error {
 	return nil
 }
 
-// Stop cancels the context and closes both connections.
+// Stop cancels the context and closes all connections.
 func (ws *OKXWebSocket) Stop() {
 	ws.cancel()
 	ws.pubMu.Lock()
@@ -223,6 +227,11 @@ func (ws *OKXWebSocket) Stop() {
 		ws.pubConn.Close()
 	}
 	ws.pubMu.Unlock()
+	ws.businessMu.Lock()
+	if ws.businessConn != nil {
+		ws.businessConn.Close()
+	}
+	ws.businessMu.Unlock()
 	ws.privMu.Lock()
 	if ws.privConn != nil {
 		ws.privConn.Close()
@@ -261,15 +270,26 @@ func (ws *OKXWebSocket) connect() error {
 		return fmt.Errorf("OKX public WS dial: %w", err)
 	}
 
+	business, _, err := dialer.DialContext(ws.ctx, okxWSBusinessURL, nil)
+	if err != nil {
+		pub.Close()
+		return fmt.Errorf("OKX business WS dial: %w", err)
+	}
+
 	priv, _, err := dialer.DialContext(ws.ctx, okxWSPrivateURL, nil)
 	if err != nil {
 		pub.Close()
+		business.Close()
 		return fmt.Errorf("OKX private WS dial: %w", err)
 	}
 
 	ws.pubMu.Lock()
 	ws.pubConn = pub
 	ws.pubMu.Unlock()
+
+	ws.businessMu.Lock()
+	ws.businessConn = business
+	ws.businessMu.Unlock()
 
 	ws.privMu.Lock()
 	ws.privConn = priv
@@ -278,6 +298,7 @@ func (ws *OKXWebSocket) connect() error {
 	// Reset activity timestamps so heartbeat doesn't ping immediately on a fresh connection
 	now := time.Now().UnixNano()
 	atomic.StoreInt64(&ws.pubLastRecv, now)
+	atomic.StoreInt64(&ws.businessLastRecv, now)
 	atomic.StoreInt64(&ws.privLastRecv, now)
 
 	return ws.authenticate()
@@ -344,7 +365,7 @@ func (ws *OKXWebSocket) subscribe() {
 	}
 	ws.privMu.Unlock()
 
-	// Public: tickers + candles per instId
+	// Public: tickers per instId; candles use OKX's business endpoint.
 	ws.instIdsMu.RLock()
 	ids := make([]string, len(ws.instIds))
 	copy(ids, ws.instIds)
@@ -355,10 +376,11 @@ func (ws *OKXWebSocket) subscribe() {
 	}
 
 	var pubArgs []map[string]string
+	var businessArgs []map[string]string
 	for _, id := range ids {
 		pubArgs = append(pubArgs, map[string]string{"channel": "tickers", "instId": id})
 		for _, tf := range ws.klineTfs {
-			pubArgs = append(pubArgs, map[string]string{
+			businessArgs = append(businessArgs, map[string]string{
 				"channel": marketTfToOKXChannel(tf),
 				"instId":  id,
 			})
@@ -366,9 +388,19 @@ func (ws *OKXWebSocket) subscribe() {
 	}
 	ws.pubMu.Lock()
 	if ws.pubConn != nil {
-		ws.pubConn.WriteJSON(map[string]interface{}{"op": "subscribe", "args": pubArgs})
+		if err := ws.pubConn.WriteJSON(map[string]interface{}{"op": "subscribe", "args": pubArgs}); err != nil {
+			logger.Warnf("[OKX WS] public subscribe failed: %v", err)
+		}
 	}
 	ws.pubMu.Unlock()
+
+	ws.businessMu.Lock()
+	if ws.businessConn != nil && len(businessArgs) > 0 {
+		if err := ws.businessConn.WriteJSON(map[string]interface{}{"op": "subscribe", "args": businessArgs}); err != nil {
+			logger.Warnf("[OKX WS] business subscribe failed: %v", err)
+		}
+	}
+	ws.businessMu.Unlock()
 }
 
 func (ws *OKXWebSocket) runLoop() {
@@ -383,8 +415,10 @@ func (ws *OKXWebSocket) runLoop() {
 		ws.subscribe()
 
 		pubDone := make(chan struct{})
+		businessDone := make(chan struct{})
 		privDone := make(chan struct{})
 		go ws.readPublic(pubDone)
+		go ws.readBusiness(businessDone)
 		go ws.readPrivate(privDone)
 		go ws.heartbeat()
 
@@ -393,6 +427,8 @@ func (ws *OKXWebSocket) runLoop() {
 			return
 		case <-pubDone:
 			logger.Warnf("[OKX WS] public connection dropped — reconnecting in %v", backoff)
+		case <-businessDone:
+			logger.Warnf("[OKX WS] business connection dropped — reconnecting in %v", backoff)
 		case <-privDone:
 			logger.Warnf("[OKX WS] private connection dropped — reconnecting in %v", backoff)
 		}
@@ -402,14 +438,20 @@ func (ws *OKXWebSocket) runLoop() {
 			ws.pubConn.Close()
 		}
 		ws.pubMu.Unlock()
+		ws.businessMu.Lock()
+		if ws.businessConn != nil {
+			ws.businessConn.Close()
+		}
+		ws.businessMu.Unlock()
 		ws.privMu.Lock()
 		if ws.privConn != nil {
 			ws.privConn.Close()
 		}
 		ws.privMu.Unlock()
 
-		// Drain both readers
+		// Drain all readers
 		<-pubDone
+		<-businessDone
 		<-privDone
 
 		select {
@@ -465,6 +507,19 @@ func (ws *OKXWebSocket) heartbeat() {
 				}
 			}
 
+			// Business connection check
+			businessLast := time.Unix(0, atomic.LoadInt64(&ws.businessLastRecv))
+			if now.Sub(businessLast) >= silenceThreshold {
+				ws.businessMu.Lock()
+				conn := ws.businessConn
+				ws.businessMu.Unlock()
+				if conn != nil {
+					conn.WriteMessage(websocket.TextMessage, []byte("ping"))
+					conn.SetReadDeadline(time.Now().Add(pongTimeout))
+					logger.Infof("[OKX WS] sent ping to business connection (silent for %.0fs)", now.Sub(businessLast).Seconds())
+				}
+			}
+
 			// Private connection check
 			privLast := time.Unix(0, atomic.LoadInt64(&ws.privLastRecv))
 			if now.Sub(privLast) >= silenceThreshold {
@@ -504,9 +559,43 @@ func (ws *OKXWebSocket) readPublic(done chan struct{}) {
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			continue
 		}
+		if msg.Event == "error" {
+			logger.Errorf("[OKX WS] public event error: code=%s msg=%s", msg.Code, msg.Msg)
+			continue
+		}
 		if msg.Arg.Channel == "tickers" && msg.Data != nil {
 			ws.handleTickers(msg.Arg.InstId, msg.Data)
-		} else if strings.HasPrefix(msg.Arg.Channel, "candle") && msg.Data != nil {
+		}
+	}
+}
+
+func (ws *OKXWebSocket) readBusiness(done chan struct{}) {
+	defer close(done)
+	ws.businessMu.Lock()
+	conn := ws.businessConn
+	ws.businessMu.Unlock()
+	if conn == nil {
+		return
+	}
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		atomic.StoreInt64(&ws.businessLastRecv, time.Now().UnixNano())
+		if string(raw) == "pong" {
+			conn.SetReadDeadline(time.Time{})
+			continue
+		}
+		var msg okxWSMsg
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			continue
+		}
+		if msg.Event == "error" {
+			logger.Errorf("[OKX WS] business event error: code=%s msg=%s", msg.Code, msg.Msg)
+			continue
+		}
+		if strings.HasPrefix(msg.Arg.Channel, "candle") && msg.Data != nil {
 			ws.handleCandle(msg.Arg.Channel, msg.Arg.InstId, msg.Data)
 		}
 	}

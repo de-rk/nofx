@@ -60,7 +60,7 @@
 | 文件 | 说明 |
 |------|------|
 | `trader.go` | OKX 交易所适配器（下单、查询、持仓） |
-| `ws.go` | OKX WebSocket 推送（持仓、订单事件） |
+| `ws.go` | OKX WebSocket 推送（公共 ticker、business K线、私有持仓/订单事件；含独立重连与心跳） |
 | `order_sync.go` | OKX 订单状态同步 |
 
 ### trader/binance/
