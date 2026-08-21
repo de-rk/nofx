@@ -89,7 +89,7 @@
 | `request_builder.go` | 构建 LLM 请求（含 system prompt 注入） |
 | `options.go` | 调用选项（temperature、max_tokens 等） |
 | `claude_client.go` | Anthropic Claude 客户端 |
-| `openai_client.go` | OpenAI 兼容客户端 |
+| `openai_client.go` | OpenAI Responses API 客户端（含 Codex 模型请求/响应格式） |
 | `deepseek_client.go` | DeepSeek 客户端 |
 | `gemini_client.go` | Google Gemini 客户端 |
 | `grok_client.go` | xAI Grok 客户端 |

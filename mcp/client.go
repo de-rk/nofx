@@ -436,7 +436,7 @@ func (client *Client) callWithRequest(req *Request) (string, error) {
 	client.logger.Debugf("[%s] Messages count: %d", client.String(), len(req.Messages))
 
 	// Build request body (from Request object)
-	requestBody := client.buildRequestBodyFromRequest(req)
+	requestBody := client.hooks.buildRequestBodyFromRequest(req)
 
 	// Serialize request body
 	jsonData, err := client.hooks.marshalRequestBody(requestBody)

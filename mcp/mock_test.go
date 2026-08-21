@@ -261,6 +261,10 @@ func (m *MockClientHooks) buildMCPRequestBody(systemPrompt, userPrompt string) m
 	}
 }
 
+func (m *MockClientHooks) buildRequestBodyFromRequest(req *Request) map[string]any {
+	return map[string]any{"model": req.Model, "messages": req.Messages}
+}
+
 func (m *MockClientHooks) buildUrl() string {
 	m.BuildUrlCalled++
 	if m.BuildUrlFunc != nil {

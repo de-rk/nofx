@@ -21,6 +21,7 @@ type clientHooks interface {
 	call(systemPrompt, userPrompt string) (string, error)
 
 	buildMCPRequestBody(systemPrompt, userPrompt string) map[string]any
+	buildRequestBodyFromRequest(req *Request) map[string]any
 	buildUrl() string
 	buildRequest(url string, jsonData []byte) (*http.Request, error)
 	setAuthHeader(reqHeaders http.Header)

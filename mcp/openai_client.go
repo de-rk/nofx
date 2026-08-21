@@ -1,7 +1,10 @@
 package mcp
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -68,4 +71,93 @@ func (c *OpenAIClient) SetAPIKey(apiKey string, customURL string, customModel st
 // OpenAI uses standard Bearer auth
 func (c *OpenAIClient) setAuthHeader(reqHeaders http.Header) {
 	c.Client.setAuthHeader(reqHeaders)
+}
+
+// buildUrl uses the Responses API required by current OpenAI/Codex models.
+func (c *OpenAIClient) buildUrl() string {
+	baseURL := strings.TrimRight(c.BaseURL, "/")
+	if strings.HasSuffix(baseURL, "/responses") {
+		return baseURL
+	}
+	return baseURL + "/responses"
+}
+
+func (c *OpenAIClient) buildRequestBodyFromRequest(req *Request) map[string]any {
+	input := make([]map[string]any, 0, len(req.Messages))
+	for _, message := range req.Messages {
+		role := message.Role
+		if role == "system" {
+			role = "developer"
+		}
+		input = append(input, map[string]any{
+			"role":    role,
+			"content": message.Content,
+		})
+	}
+	body := map[string]any{
+		"model":             req.Model,
+		"input":             input,
+		"max_output_tokens": c.MaxTokens,
+	}
+	if req.MaxTokens != nil {
+		body["max_output_tokens"] = *req.MaxTokens
+	}
+	if req.Temperature != nil {
+		body["temperature"] = *req.Temperature
+	}
+	if req.TopP != nil {
+		body["top_p"] = *req.TopP
+	}
+	if len(req.Tools) > 0 {
+		body["tools"] = req.Tools
+	}
+	return body
+}
+
+func (c *OpenAIClient) buildMCPRequestBody(systemPrompt, userPrompt string) map[string]any {
+	input := make([]map[string]any, 0, 2)
+	if systemPrompt != "" {
+		input = append(input, map[string]any{
+			"role":    "developer",
+			"content": systemPrompt,
+		})
+	}
+	input = append(input, map[string]any{
+		"role":    "user",
+		"content": userPrompt,
+	})
+	return map[string]any{
+		"model":             c.Model,
+		"input":             input,
+		"max_output_tokens": c.MaxTokens,
+	}
+}
+
+func (c *OpenAIClient) parseMCPResponse(body []byte) (string, error) {
+	var response struct {
+		Output []struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("failed to parse OpenAI response: %w", err)
+	}
+	if response.Error != nil {
+		return "", fmt.Errorf("OpenAI API error: %s", response.Error.Message)
+	}
+	for _, item := range response.Output {
+		for _, content := range item.Content {
+			if content.Type == "output_text" || content.Type == "text" {
+				return content.Text, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("OpenAI returned empty response")
 }
