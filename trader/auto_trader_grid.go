@@ -500,7 +500,12 @@ func (at *AutoTrader) calculateDefaultBounds(price float64, config *store.GridSt
 // calculateATRBounds calculates bounds using ATR
 func (at *AutoTrader) calculateATRBounds(price float64, mktData *market.Data, config *store.GridStrategyConfig) {
 	atr := 0.0
-	if mktData.LongerTermContext != nil {
+	if mktData.TimeframeData != nil {
+		if fourHour, ok := mktData.TimeframeData["4h"]; ok {
+			atr = fourHour.ATR14
+		}
+	}
+	if atr <= 0 && mktData.LongerTermContext != nil {
 		atr = mktData.LongerTermContext.ATR14
 	}
 
@@ -2645,7 +2650,12 @@ func (at *AutoTrader) calculateDefaultBoundsLocked(price float64, config *store.
 // calculateATRBoundsLocked calculates bounds using ATR (caller must hold lock)
 func (at *AutoTrader) calculateATRBoundsLocked(price float64, mktData *market.Data, config *store.GridStrategyConfig) {
 	atr := 0.0
-	if mktData.LongerTermContext != nil {
+	if mktData.TimeframeData != nil {
+		if fourHour, ok := mktData.TimeframeData["4h"]; ok {
+			atr = fourHour.ATR14
+		}
+	}
+	if atr <= 0 && mktData.LongerTermContext != nil {
 		atr = mktData.LongerTermContext.ATR14
 	}
 

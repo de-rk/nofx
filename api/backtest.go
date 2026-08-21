@@ -65,6 +65,7 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 	const warmupBars = 60
 	end := time.Now()
 	start := end.Add(-time.Duration(days) * 24 * time.Hour).Add(-time.Duration(warmupBars) * tfDur)
+	atrStart := start.Add(-time.Duration(warmupBars) * 4 * time.Hour)
 
 	klines, err := market.GetKlinesRange(symbol, timeframe, start, end)
 	if err != nil {
@@ -72,8 +73,19 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 		c.Writer.Flush()
 		return
 	}
+	atrKlines, err := market.GetKlinesRange(symbol, "4h", atrStart, end)
+	if err != nil {
+		c.SSEvent("error", gin.H{"error": fmt.Sprintf("failed to fetch 4h ATR klines: %v", err)})
+		c.Writer.Flush()
+		return
+	}
 	if len(klines) < warmupBars+50 {
 		c.SSEvent("error", gin.H{"error": fmt.Sprintf("not enough klines returned (%d) for a meaningful backtest", len(klines))})
+		c.Writer.Flush()
+		return
+	}
+	if len(atrKlines) <= 14 {
+		c.SSEvent("error", gin.H{"error": fmt.Sprintf("not enough 4h klines returned (%d) for ATR14", len(atrKlines))})
 		c.Writer.Flush()
 		return
 	}
@@ -95,12 +107,12 @@ func (s *Server) handleGridBacktestRun(c *gin.Context) {
 		ScoreMode:                  scoreMode,
 	}
 
-	baseline := backtest.Simulate(klines, startIdx, totalInvestment, initial)
+	baseline := backtest.SimulateWithATR(klines, atrKlines, startIdx, totalInvestment, initial)
 	c.SSEvent("baseline", gin.H{"params": initial, "result": baseline})
 	c.Writer.Flush()
 
 	eval := func(p backtest.GridParams) backtest.SimResult {
-		return backtest.Simulate(klines, startIdx, totalInvestment, p)
+		return backtest.SimulateWithATR(klines, atrKlines, startIdx, totalInvestment, p)
 	}
 
 	clientGone := c.Request.Context().Done()

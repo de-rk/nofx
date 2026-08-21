@@ -59,16 +59,24 @@ func main() {
 	warmupBars := 60
 	end := time.Now()
 	start := end.Add(-time.Duration(days) * 24 * time.Hour).Add(-time.Duration(warmupBars) * tfDur)
+	atrStart := start.Add(-time.Duration(warmupBars) * 4 * time.Hour)
 
 	fmt.Printf("📥 Fetching %s %s klines from %s to %s...\n", symbol, timeframe, start.Format(time.RFC3339), end.Format(time.RFC3339))
 	klines, err := market.GetKlinesRange(symbol, timeframe, start, end)
 	if err != nil {
 		log.Fatalf("❌ failed to fetch klines: %v", err)
 	}
+	atrKlines, err := market.GetKlinesRange(symbol, "4h", atrStart, end)
+	if err != nil {
+		log.Fatalf("❌ failed to fetch 4h ATR klines: %v", err)
+	}
 	if len(klines) < warmupBars+50 {
 		log.Fatalf("❌ not enough klines returned (%d) — need at least %d for a meaningful backtest", len(klines), warmupBars+50)
 	}
-	fmt.Printf("✅ got %d bars\n\n", len(klines))
+	if len(atrKlines) <= 14 {
+		log.Fatalf("❌ not enough 4h klines returned (%d) — need at least 15 for ATR14", len(atrKlines))
+	}
+	fmt.Printf("✅ got %d %s bars and %d 4h ATR bars\n\n", len(klines), timeframe, len(atrKlines))
 
 	startIdx := warmupBars
 
@@ -88,11 +96,11 @@ func main() {
 		ScoreMode:                  scoreMode,
 	}
 
-	baseline := backtest.Simulate(klines, startIdx, totalInvestment, initial)
+	baseline := backtest.SimulateWithATR(klines, atrKlines, startIdx, totalInvestment, initial)
 	printResult("Baseline (initial guess)", initial, baseline)
 
 	eval := func(p backtest.GridParams) backtest.SimResult {
-		return backtest.Simulate(klines, startIdx, totalInvestment, p)
+		return backtest.SimulateWithATR(klines, atrKlines, startIdx, totalInvestment, p)
 	}
 
 	cfg := backtest.AnnealConfig{

@@ -3,6 +3,7 @@ package backtest
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"nofx/market"
 )
@@ -117,6 +118,36 @@ func atrSeries(klines []market.Kline) []float64 {
 		atr[idx] = value
 	}
 	return atr
+}
+
+type atrTimeline struct {
+	closeTimes []int64
+	values     []float64
+}
+
+func newATRTimeline(klines []market.Kline) atrTimeline {
+	series := atrSeries(klines)
+	closeTimes := make([]int64, len(klines))
+	values := make([]float64, len(klines))
+	for i, kline := range klines {
+		closeTimes[i] = kline.CloseTime
+		if closeTimes[i] == 0 {
+			closeTimes[i] = kline.OpenTime
+		}
+		values[i] = series[i+1]
+	}
+	return atrTimeline{closeTimes: closeTimes, values: values}
+}
+
+// at returns the latest ATR14 from a closed 4h bar at or before ts.
+func (t atrTimeline) at(ts int64) float64 {
+	idx := sort.Search(len(t.closeTimes), func(i int) bool {
+		return t.closeTimes[i] > ts
+	})
+	if idx == 0 {
+		return 0
+	}
+	return t.values[idx-1]
 }
 
 // checkGridSkew checks if current price has moved outside the grid boundaries.
