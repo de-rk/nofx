@@ -143,7 +143,7 @@ type PromptSectionsConfig struct {
 type CoinSourceConfig struct {
 	// source type: "static" | "ai500" | "oi_top" | "oi_low" | "mixed"
 	SourceType string `json:"source_type"`
-	// static coin list (used when source_type = "static")
+	// static coins used directly by static mode, as AI500 fallback, or in mixed mode
 	StaticCoins []string `json:"static_coins,omitempty"`
 	// excluded coins list (filtered out from all sources)
 	ExcludedCoins []string `json:"excluded_coins,omitempty"`

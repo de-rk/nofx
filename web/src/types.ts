@@ -388,6 +388,7 @@ export interface GridStrategyConfig {
 
 export interface CoinSourceConfig {
   source_type: 'static' | 'ai500' | 'oi_top' | 'oi_low' | 'mixed';
+  // Used directly in static mode, as AI500 fallback, or as a mixed source.
   static_coins?: string[];
   excluded_coins?: string[];   // 排除的币种列表
   use_ai500: boolean;

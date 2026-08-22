@@ -219,12 +219,18 @@ export function CoinSourceEditor({
         </div>
       </div>
 
-      {/* Static Coins - only for static mode */}
-      {config.source_type === 'static' && (
-        <div>
+      {/* Custom coins are visible in every mode: direct static source, AI500 fallback, or mixed source. */}
+      <div>
           <label className="block text-sm font-medium mb-3 text-nofx-text">
             {t('staticCoins')}
           </label>
+          <p className="text-xs mb-3 text-nofx-text-muted">
+            {config.source_type === 'ai500'
+              ? (language === 'zh' ? 'AI500 失败或返回空结果时使用这些币种' : 'Used when AI500 fails or returns no results')
+              : config.source_type === 'mixed'
+                ? (language === 'zh' ? '作为混合数据源中的静态币种参与候选' : 'Included as a static source in mixed candidates')
+                : (language === 'zh' ? '手动指定候选币种' : 'Manually specified candidate coins')}
+          </p>
           <div className="flex flex-wrap gap-2 mb-3">
             {(config.static_coins || []).map((coin) => (
               <span
@@ -263,7 +269,6 @@ export function CoinSourceEditor({
             </div>
           )}
         </div>
-      )}
 
       {/* Excluded Coins */}
       <div>

@@ -172,6 +172,7 @@
 | `market/rolling_change.go` | 带时间戳的滚动价格窗口；按当前价格相对不晚于窗口起点的价格计算涨跌幅，供异常波动接管监控使用 |
 | `market/trend_gate.go` | 单币 AI 开仓门控：使用 K 线价格变化和成交量比过滤开多/开空，平仓动作不受限制 |
 | `market/kline_quality.go` | 统一 K 线质量清洗：排序去重、过滤未收盘 bar、校验 OHLCV，并拒绝最新已收盘零成交量数据 |
+| `web/src/components/strategy/CoinSourceEditor.tsx` | 所有候选源模式都可查看和编辑自定义币种；static 直接使用，AI500 失败时回退，mixed 作为静态来源 |
 | `web/src/components/strategy/TrendGateEditor.tsx` | Strategy Studio 的单币 K 线+成交量趋势门控配置编辑器 |
 | `manager/handoff_manager.go` | 网格异常波动接替编排：每秒采样源网格标的价格，三分钟绝对涨跌幅达到阈值后暂停/撤单/平仓、确认空仓并启动目标 AI 交易员 |
 | `store/handoff.go` | 网格到 AI 的显式接替绑定与执行状态持久化，含原子触发抢占与阶段错误记录 |

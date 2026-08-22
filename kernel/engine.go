@@ -679,12 +679,7 @@ func (e *StrategyEngine) getAI500Coins(limit int) ([]CandidateCoin, error) {
 
 	symbols, err := e.nofxosClient.GetTopRatedCoins(limit)
 	if err != nil {
-		logger.Infof("AI500 unavailable, falling back to static coins: %v", err)
-		return e.staticCandidates(), nil
-	}
-	if len(symbols) == 0 {
-		logger.Infof("AI500 returned no coins, falling back to static coins")
-		return e.staticCandidates(), nil
+		return nil, err
 	}
 
 	var candidates []CandidateCoin
