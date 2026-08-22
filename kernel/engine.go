@@ -1595,7 +1595,8 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 		timeframeOrder := []string{"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w"}
 		for _, tf := range timeframeOrder {
 			if tfData, ok := data.TimeframeData[tf]; ok {
-				sb.WriteString(fmt.Sprintf("=== %s Timeframe (oldest → latest) ===\n\n", strings.ToUpper(tf)))
+				sb.WriteString(fmt.Sprintf("=== %s Timeframe (oldest → latest completed) ===\n", strings.ToUpper(tf)))
+				sb.WriteString("Only completed candles are included; the latest row is the latest completed candle. Zero-volume data is not used for trend confirmation.\n\n")
 				e.formatTimeframeSeriesData(&sb, tfData, indicators)
 			}
 		}
@@ -1674,7 +1675,7 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 			timeStr := t.Format("01-02 15:04")
 			marker := ""
 			if i == len(data.Klines)-1 {
-				marker = "  <- current"
+				marker = "  <- latest completed"
 			}
 			sb.WriteString(fmt.Sprintf("%-14s %-9.4f %-9.4f %-9.4f %-9.4f %-12.2f%s\n",
 				timeStr, k.Open, k.High, k.Low, k.Close, k.Volume, marker))

@@ -10,6 +10,7 @@ import (
 	"nofx/provider/coinank/coinank_api"
 	"nofx/provider/coinank/coinank_enum"
 	"nofx/provider/hyperliquid"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,7 +122,7 @@ func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline
 		}
 	}
 
-	return klines, nil
+	return cleanKlines(klines, interval, time.Now())
 }
 
 // getKlinesFromHyperliquid fetches kline data from Hyperliquid API for xyz dex assets
@@ -162,7 +163,7 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 		}
 	}
 
-	return klines, nil
+	return cleanKlines(klines, interval, time.Now())
 }
 
 // Get retrieves market data for the specified token (uses Binance data by default)

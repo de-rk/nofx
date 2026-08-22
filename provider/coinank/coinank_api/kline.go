@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"nofx/provider/coinank"
@@ -39,6 +40,14 @@ func Kline(ctx context.Context, symbol string, exchange coinank_enum.Exchange, t
 	}
 	klines := make([]coinank.KlineResult, len(result.Data))
 	for i, k := range result.Data {
+		if len(k) < 9 {
+			return nil, fmt.Errorf("invalid CoinAnk kline at index %d: expected 9 fields, got %d", i, len(k))
+		}
+		for field, value := range k[:9] {
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, fmt.Errorf("invalid CoinAnk kline at index %d field %d", i, field)
+			}
+		}
 		klines[i].StartTime = int64(k[0] + 0.001)
 		klines[i].EndTime = int64(k[1] + 0.001)
 		klines[i].Open = k[2]
