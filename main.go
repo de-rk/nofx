@@ -109,6 +109,7 @@ func main() {
 	if err := traderManager.LoadTradersFromStore(st); err != nil {
 		logger.Fatalf("❌ Failed to load traders: %v", err)
 	}
+	traderManager.StartHandoffMonitoring(st)
 
 	// Display loaded trader information
 	traders, err := st.Trader().List("default")

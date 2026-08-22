@@ -28,6 +28,7 @@ type Store struct {
 	equity   *EquityStore
 	order    *OrderStore
 	grid     *GridStore
+	handoff  *HandoffStore
 
 	mu sync.RWMutex
 }
@@ -156,6 +157,9 @@ func (s *Store) initTables() error {
 	if err := s.Grid().InitTables(); err != nil {
 		return fmt.Errorf("failed to initialize grid tables: %w", err)
 	}
+	if err := s.Handoff().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize handoff tables: %w", err)
+	}
 	return nil
 }
 
@@ -277,6 +281,16 @@ func (s *Store) Grid() *GridStore {
 		s.grid = NewGridStore(s.gdb)
 	}
 	return s.grid
+}
+
+// Handoff gets trader handoff storage
+func (s *Store) Handoff() *HandoffStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.handoff == nil {
+		s.handoff = NewHandoffStore(s.gdb)
+	}
+	return s.handoff
 }
 
 // Close closes database connection

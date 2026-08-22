@@ -169,6 +169,12 @@
 | `config/config.go` | 全局配置加载（环境变量/文件） |
 | `logger/logger.go` | 日志初始化（zerolog） |
 | `logger/config.go` | 日志级别/输出配置 |
+| `market/rolling_change.go` | 带时间戳的滚动价格窗口；按当前价格相对不晚于窗口起点的价格计算涨跌幅，供异常波动接管监控使用 |
+| `market/trend_gate.go` | 单币 AI 开仓门控：使用 K 线价格变化和成交量比过滤开多/开空，平仓动作不受限制 |
+| `web/src/components/strategy/TrendGateEditor.tsx` | Strategy Studio 的单币 K 线+成交量趋势门控配置编辑器 |
+| `manager/handoff_manager.go` | 网格异常波动接替编排：每秒采样源网格标的价格，三分钟绝对涨跌幅达到阈值后暂停/撤单/平仓、确认空仓并启动目标 AI 交易员 |
+| `store/handoff.go` | 网格到 AI 的显式接替绑定与执行状态持久化，含原子触发抢占与阶段错误记录 |
+| `api/handoff.go` | 接替绑定 CRUD API，校验源为网格、目标为 AI 且使用相同交易所账户 |
 | `experience/experience.go` | AI 经验积累（历史决策反馈） |
 | `llm/qwen_agent.go` | 千问 Agent 独立封装 |
 
@@ -176,6 +182,10 @@
 
 | 文件 | 说明 |
 |------|------|
+| `kernel/engine.go` | AI 策略引擎：候选币源（AI500 失败/空结果回退静态币）、多周期行情上下文、LLM 决策解析与风险校验 |
+| `trader/auto_trader.go` | 普通 AI 交易周期、持仓管理、开仓执行层硬风控（趋势门控、最低置信度、最大保证金占用）和策略热更新 |
+| `store/strategy.go` | AI/网格策略 JSON 配置，含 `TrendGateConfig` 单币 K 线+成交量开仓门控 |
+| `market/data.go` | 多周期 OHLCV 与指标数据构建；保留完整盘中序列供可配置趋势门控使用 |
 | `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`InvestmentRefreshDays`（每隔N天从权益重算投资额，0=禁用，复刻 trader.checkInvestmentRefresh）、`ScoreMode`（"balanced"（默认，回撤惩罚系数1.5）| "return_focused"（回撤惩罚系数0.3），只影响退火搜索怎么打分选参数，不改变单次回测本身的成交/回撤结果））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid`/`InvestmentRefreshes` 计数） |
 | `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界（回测使用原生 4h K 线的 Wilder ATR14 并按交易 bar 时间对齐）、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD`；另复刻网格重置逻辑（`checkGridSkew`/`maybeRebuildGrid`）：`checkGridSkew` 判断价格是否超出网格边界（upper*1.02 或 lower*0.98），`maybeResetGrid` 触发后重新计算边界、重建全部层级，并把仍持仓的层按价格就近迁移到新层（与实盘 trader/auto_trader_grid.go 的 2% 阈值保持一致）|
 | `backtest/simulate.go` | `Simulate()`/`SimulateWithATR()` 纯函数：拉历史K线跑网格模拟，后者使用原生 4h ATR14 按时间对齐（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费；`Score(returnPct, maxDrawdownPct, mode)` 按「收益 - 回撤惩罚系数×最大回撤」打分（系数由 `GridParams.ScoreMode` 决定），爆仓固定给 `-1e9` 极端惩罚分（不受 ScoreMode 影响） |
@@ -238,6 +248,12 @@ HTTP 请求
 ---
 
 ## 历史修复记录
+
+### 2026-08-22
+
+| 修改 | 说明 | 提交 |
+|------|------|------|
+| **异常波动网格接替** | 交易员支持标签与显式网格->AI 接替绑定；每秒按实时价计算三分钟滚动涨跌幅，绝对值达到阈值后仅撤销/平掉源网格标的，确认空仓后停止源交易员并启动同账户目标 AI | 未提交 |
 
 ### 2026-08-21
 

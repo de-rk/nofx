@@ -464,6 +464,12 @@ export function TraderDashboardPage({
                                 <span>Cycles: <span className="text-nofx-text-main">{decisions?.[0]?.cycle_number ?? 0}</span></span>
                                 <span className="w-px h-3 bg-white/10" />
                                 <span>Runtime: <span className="text-nofx-text-main">{status.runtime_minutes} min</span></span>
+                                {selectedTrader.strategy_type === 'ai_trading' && (
+                                    <>
+                                        <span className="w-px h-3 bg-white/10" />
+                                        <span className="text-nofx-text-muted">AI {status.is_running ? 'ACTIVE' : 'STOPPED'}</span>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>

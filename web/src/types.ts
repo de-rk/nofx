@@ -99,6 +99,8 @@ export interface TraderInfo {
   is_running?: boolean
   strategy_id?: string
   strategy_name?: string
+  strategy_type?: string
+  tags?: string[]
   custom_prompt?: string
   use_ai500?: boolean
   use_oi_top?: boolean
@@ -173,8 +175,31 @@ export interface CreateTraderRequest {
   custom_prompt?: string
   override_base_prompt?: boolean
   system_prompt_template?: string
+  tags?: string[]
   use_ai500?: boolean
   use_oi_top?: boolean
+}
+
+export interface HandoffBinding {
+  id: string
+  source_trader_id: string
+  target_trader_id: string
+  enabled: boolean
+  window_seconds: number
+  threshold_pct: number
+  cooldown_seconds: number
+  state: string
+  last_triggered_at?: string
+  last_error?: string
+}
+
+export interface HandoffRequest {
+  source_trader_id: string
+  target_trader_id: string
+  enabled: boolean
+  window_seconds?: number
+  threshold_pct?: number
+  cooldown_seconds?: number
 }
 
 export interface UpdateModelConfigRequest {
@@ -238,6 +263,8 @@ export interface TraderConfigData {
   exchange_id: string
   strategy_id?: string  // 策略ID
   strategy_name?: string  // 策略名称
+  strategy_type?: string
+  trend_gate?: TrendGateConfig
   is_cross_margin: boolean
   scan_interval_minutes: number
   initial_balance: number
@@ -249,6 +276,7 @@ export interface TraderConfigData {
   custom_prompt?: string
   override_base_prompt?: boolean
   system_prompt_template?: string
+  tags?: string[]
   use_ai500?: boolean
   use_oi_top?: boolean
 }
@@ -306,6 +334,7 @@ export interface StrategyConfig {
   prompt_sections?: PromptSectionsConfig;
   // Grid trading configuration (only used when strategy_type is 'grid_trading')
   grid_config?: GridStrategyConfig;
+  trend_gate?: TrendGateConfig;
 }
 
 // Grid trading specific configuration
@@ -432,6 +461,14 @@ export interface ExternalDataSource {
   headers?: Record<string, string>;
   data_path?: string;
   refresh_secs?: number;
+}
+
+export interface TrendGateConfig {
+  enabled: boolean
+  timeframe?: string
+  lookback?: number
+  min_price_change_pct?: number
+  min_volume_ratio?: number
 }
 
 export interface RiskControlConfig {

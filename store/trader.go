@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -22,6 +23,7 @@ type Trader struct {
 	ID                  string    `gorm:"primaryKey" json:"id"`
 	UserID              string    `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
 	Name                string    `gorm:"column:name;not null" json:"name"`
+	Tags                []string  `gorm:"column:tags;serializer:json;type:text" json:"tags"`
 	AIModelID           string    `gorm:"column:ai_model_id;not null" json:"ai_model_id"`
 	ExchangeID          string    `gorm:"column:exchange_id;not null" json:"exchange_id"`
 	StrategyID          string    `gorm:"column:strategy_id;default:''" json:"strategy_id"`
@@ -62,7 +64,7 @@ func (s *TraderStore) initTables() error {
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'traders'`).Scan(&tableExists)
 		if tableExists > 0 {
-			return nil
+			return s.db.Exec(`ALTER TABLE traders ADD COLUMN IF NOT EXISTS tags TEXT`).Error
 		}
 	}
 	// Use GORM AutoMigrate
@@ -101,11 +103,16 @@ func (s *TraderStore) Update(trader *Trader) error {
 	fmt.Printf("📝 TraderStore.Update: ID=%s, Name=%s, AIModelID=%s, StrategyID=%s\n",
 		trader.ID, trader.Name, trader.AIModelID, trader.StrategyID)
 
+	tags, err := json.Marshal(trader.Tags)
+	if err != nil {
+		return fmt.Errorf("marshal trader tags: %w", err)
+	}
 	updates := map[string]interface{}{
-		"name":           trader.Name,
-		"ai_model_id":    trader.AIModelID,
-		"exchange_id":    trader.ExchangeID,
-		"strategy_id":    trader.StrategyID,
+		"name":            trader.Name,
+		"tags":            string(tags),
+		"ai_model_id":     trader.AIModelID,
+		"exchange_id":     trader.ExchangeID,
+		"strategy_id":     trader.StrategyID,
 		"is_cross_margin": trader.IsCrossMargin,
 	}
 
@@ -144,6 +151,7 @@ func (s *TraderStore) UpdateCustomPrompt(userID, id string, customPrompt string,
 func (s *TraderStore) Delete(userID, id string) error {
 	// Delete associated equity snapshots first
 	s.db.Where("trader_id = ?", id).Delete(&EquitySnapshot{})
+	s.db.Where("user_id = ? AND (source_trader_id = ? OR target_trader_id = ?)", userID, id, id).Delete(&HandoffBinding{})
 
 	// Delete the trader
 	return s.db.Where("id = ? AND user_id = ?", id, userID).Delete(&Trader{}).Error

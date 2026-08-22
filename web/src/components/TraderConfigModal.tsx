@@ -34,6 +34,7 @@ interface FormState {
   is_cross_margin: boolean
   scan_interval_minutes: number
   initial_balance?: number
+  tags?: string[]
 }
 
 interface TraderConfigModalProps {
@@ -101,6 +102,7 @@ export function TraderConfigModal({
       setFormData({
         ...traderData,
         strategy_id: traderData.strategy_id || '',
+        tags: traderData.tags || [],
       })
     } else if (!isEditMode) {
       setFormData({
@@ -110,6 +112,7 @@ export function TraderConfigModal({
         strategy_id: '',
         is_cross_margin: true,
         scan_interval_minutes: 3,
+        tags: [],
       })
     }
   }, [traderData, isEditMode, availableModels, availableExchanges])
@@ -163,6 +166,7 @@ export function TraderConfigModal({
         strategy_id: formData.strategy_id,
         is_cross_margin: formData.is_cross_margin,
         scan_interval_minutes: formData.scan_interval_minutes,
+        tags: formData.tags,
       }
 
       // 只在编辑模式时包含initial_balance
@@ -309,6 +313,16 @@ export function TraderConfigModal({
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="bg-[#0B0E11] border border-[#2B3139] rounded-lg p-5">
+            <label className="text-sm text-[#EAECEF] block mb-2">Tags</label>
+            <input
+              type="text"
+              value={(formData.tags || []).join(', ')}
+              onChange={(e) => handleInputChange('tags', e.target.value.split(',').map((tag) => tag.trim()).filter(Boolean))}
+              className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
+            />
           </div>
 
           {/* Strategy Selection */}

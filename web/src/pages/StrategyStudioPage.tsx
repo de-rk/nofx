@@ -29,6 +29,7 @@ import { RiskControlEditor } from '../components/strategy/RiskControlEditor'
 import { PromptSectionsEditor } from '../components/strategy/PromptSectionsEditor'
 import { PublishSettingsEditor } from '../components/strategy/PublishSettingsEditor'
 import { GridConfigEditor, defaultGridConfig } from '../components/strategy/GridConfigEditor'
+import { TrendGateEditor } from '../components/strategy/TrendGateEditor'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
@@ -50,6 +51,7 @@ export function StrategyStudioPage() {
     gridConfig: true,
     coinSource: true,
     indicators: false,
+    trendGate: false,
     riskControl: false,
     promptSections: false,
     customPrompt: false,
@@ -471,6 +473,21 @@ export function StrategyStudioPage() {
         <IndicatorEditor
           config={editingConfig.indicators}
           onChange={(indicators) => updateConfig('indicators', indicators)}
+          disabled={selectedStrategy?.is_default}
+          language={language}
+        />
+      ),
+    },
+    {
+      key: 'trendGate' as const,
+      icon: Activity,
+      color: '#60a5fa',
+      title: language === 'zh' ? '趋势门控' : 'Trend Gate',
+      forStrategyType: 'ai_trading' as const,
+      content: editingConfig && (
+        <TrendGateEditor
+          config={editingConfig.trend_gate}
+          onChange={(trendGate) => updateConfig('trend_gate', trendGate)}
           disabled={selectedStrategy?.is_default}
           language={language}
         />

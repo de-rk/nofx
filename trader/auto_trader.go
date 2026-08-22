@@ -45,13 +45,13 @@ type AutoTraderConfig struct {
 	BybitSecretKey string
 
 	// OKX API configuration
-	OKXAPIKey    string
-	OKXSecretKey string
+	OKXAPIKey     string
+	OKXSecretKey  string
 	OKXPassphrase string
 
 	// Bitget API configuration
-	BitgetAPIKey    string
-	BitgetSecretKey string
+	BitgetAPIKey     string
+	BitgetSecretKey  string
 	BitgetPassphrase string
 
 	// Gate API configuration
@@ -59,8 +59,8 @@ type AutoTraderConfig struct {
 	GateSecretKey string
 
 	// KuCoin API configuration
-	KuCoinAPIKey    string
-	KuCoinSecretKey string
+	KuCoinAPIKey     string
+	KuCoinSecretKey  string
 	KuCoinPassphrase string
 
 	// Hyperliquid configuration
@@ -119,9 +119,9 @@ type AutoTrader struct {
 	config                AutoTraderConfig
 	trader                Trader // Use Trader interface (supports multiple platforms)
 	mcpClient             mcp.AIClient
-	store                 *store.Store             // Data storage (decision records, etc.)
+	store                 *store.Store           // Data storage (decision records, etc.)
 	strategyEngine        *kernel.StrategyEngine // Strategy engine (uses strategy configuration)
-	cycleNumber           int                      // Current cycle number
+	cycleNumber           int                    // Current cycle number
 	initialBalance        float64
 	dailyPnL              float64
 	customPrompt          string // Custom trading strategy prompt
@@ -129,26 +129,26 @@ type AutoTrader struct {
 	lastResetTime         time.Time
 	stopUntil             time.Time
 	isRunning             bool
-	isRunningMutex        sync.RWMutex       // Mutex to protect isRunning flag
-	mu                    sync.RWMutex       // General purpose mutex
-	startTime             time.Time          // System start time
-	callCount             int                // AI call count
-	positionFirstSeenTime map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
-	stopMonitorCh         chan struct{}      // Used to stop monitoring goroutine
-	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
-	wsScanCh              chan struct{}                   // Receives WS order/fill events to trigger T-trade scan
-	wsPosUpdateCh         chan []map[string]interface{}   // Receives WS position pushes for immediate profit-reduce check
-	wsGridCycleCh         chan struct{}                   // Receives 5m kline-close events to trigger grid AI cycle
-	wsLastKlineClose      int64             // Unix nanoseconds of last kline-close event (atomic)
-	OnOrderUpdate         func()            // Called when OKX WS fires an order event; set by API for SSE broadcast
-	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
-	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
-	peakEquity            float64            // Peak equity for profit drawdown tracking
-	lastBalanceSyncTime   time.Time          // Last balance sync time
-	userID                string             // User ID
-	strategyID            string             // Strategy ID this trader is using
-	gridState             *GridState         // Grid trading state (only used when StrategyType == "grid_trading")
-	tpManager             *TPManager         // Take profit manager for partial TP
+	isRunningMutex        sync.RWMutex                  // Mutex to protect isRunning flag
+	mu                    sync.RWMutex                  // General purpose mutex
+	startTime             time.Time                     // System start time
+	callCount             int                           // AI call count
+	positionFirstSeenTime map[string]int64              // Position first seen time (symbol_side -> timestamp in milliseconds)
+	stopMonitorCh         chan struct{}                 // Used to stop monitoring goroutine
+	monitorWg             sync.WaitGroup                // Used to wait for monitoring goroutine to finish
+	wsScanCh              chan struct{}                 // Receives WS order/fill events to trigger T-trade scan
+	wsPosUpdateCh         chan []map[string]interface{} // Receives WS position pushes for immediate profit-reduce check
+	wsGridCycleCh         chan struct{}                 // Receives 5m kline-close events to trigger grid AI cycle
+	wsLastKlineClose      int64                         // Unix nanoseconds of last kline-close event (atomic)
+	OnOrderUpdate         func()                        // Called when OKX WS fires an order event; set by API for SSE broadcast
+	peakPnLCache          map[string]float64            // Peak profit cache (symbol -> peak P&L percentage)
+	peakPnLCacheMutex     sync.RWMutex                  // Cache read-write lock
+	peakEquity            float64                       // Peak equity for profit drawdown tracking
+	lastBalanceSyncTime   time.Time                     // Last balance sync time
+	userID                string                        // User ID
+	strategyID            string                        // Strategy ID this trader is using
+	gridState             *GridState                    // Grid trading state (only used when StrategyType == "grid_trading")
+	tpManager             *TPManager                    // Take profit manager for partial TP
 }
 
 // NewAutoTrader creates an automatic trader
@@ -560,14 +560,14 @@ func (at *AutoTrader) Run() error {
 					triggerPeriod = d
 				}
 			}
-			
+
 			// Create fallback ticker for when WS is not working
 			fallbackTicker := time.NewTicker(triggerPeriod)
 			defer fallbackTicker.Stop()
-			
+
 			logger.Infof("[Grid] AI cycle monitor started: WS trigger=%s, fallback timer=%s",
 				gridCfg.AITriggerTf, triggerPeriod)
-			
+
 			for {
 				select {
 				case <-at.wsGridCycleCh:
@@ -582,7 +582,7 @@ func (at *AutoTrader) Run() error {
 					if err := at.RunGridCycle(); err != nil {
 						logger.Infof("❌ Grid execution failed: %v", err)
 					}
-					
+
 				case <-fallbackTicker.C:
 					// Fallback timer: triggers when WS is not working or failed to start
 					at.isRunningMutex.RLock()
@@ -591,7 +591,7 @@ func (at *AutoTrader) Run() error {
 					if !running {
 						return
 					}
-					
+
 					// Check if WS is actually working by looking at last kline time.
 					// wsLastKlineClose is 0 until the first WS event arrives — check the raw
 					// value directly rather than converting to time.Time first: time.Unix(0, 0)
@@ -616,7 +616,7 @@ func (at *AutoTrader) Run() error {
 							logger.Infof("❌ Grid execution failed: %v", err)
 						}
 					}
-					
+
 				case <-at.stopMonitorCh:
 					logger.Infof("[Grid] AI cycle monitor stopped")
 					return
@@ -750,11 +750,11 @@ func (at *AutoTrader) runCycle() error {
 	// NOTE: Must be called BEFORE candidate coins check to ensure equity is always recorded
 	at.saveEquitySnapshot(ctx)
 
-	// 如果没有候选币种，记录但不报错
-	if len(ctx.CandidateCoins) == 0 {
-		logger.Infof("ℹ️  No candidate coins available, skipping this cycle")
-		record.Success = true // 不是错误，只是没有候选币
-		record.ExecutionLog = append(record.ExecutionLog, "No candidate coins available, cycle skipped")
+	// An empty candidate pool can still be a valid position-management cycle.
+	if len(ctx.CandidateCoins) == 0 && len(ctx.Positions) == 0 {
+		logger.Infof("ℹ️ No candidate coins and no positions, skipping this cycle")
+		record.Success = true
+		record.ExecutionLog = append(record.ExecutionLog, "No candidates or positions available, cycle skipped")
 		record.AccountState = store.AccountSnapshot{
 			TotalBalance:          ctx.Account.TotalEquity,
 			AvailableBalance:      ctx.Account.AvailableBalance,
@@ -1283,6 +1283,13 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 		return err
 	}
 
+	if err := at.enforceEntryGate(decision.Symbol, decision.Action, marketData); err != nil {
+		return err
+	}
+	if err := at.enforceMinConfidence(decision); err != nil {
+		return err
+	}
+
 	// Get balance (needed for multiple checks)
 	balance, err := at.trader.GetBalance()
 	if err != nil {
@@ -1327,6 +1334,9 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 
 	// [CODE ENFORCED] Minimum position size check
 	if err := at.enforceMinPositionSize(decision.PositionSizeUSD); err != nil {
+		return err
+	}
+	if err := at.enforceMaxMarginUsage(positions, equity, actualPositionSize, decision.Leverage); err != nil {
 		return err
 	}
 
@@ -1400,6 +1410,13 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 		return err
 	}
 
+	if err := at.enforceEntryGate(decision.Symbol, decision.Action, marketData); err != nil {
+		return err
+	}
+	if err := at.enforceMinConfidence(decision); err != nil {
+		return err
+	}
+
 	// Get balance (needed for multiple checks)
 	balance, err := at.trader.GetBalance()
 	if err != nil {
@@ -1444,6 +1461,9 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 
 	// [CODE ENFORCED] Minimum position size check
 	if err := at.enforceMinPositionSize(decision.PositionSizeUSD); err != nil {
+		return err
+	}
+	if err := at.enforceMaxMarginUsage(positions, equity, actualPositionSize, decision.Leverage); err != nil {
 		return err
 	}
 
@@ -1633,8 +1653,12 @@ func (at *AutoTrader) SetStrategyID(id string) {
 // UpdateStrategyConfig hot-reloads the strategy config on a running trader.
 // Safe to call concurrently; also updates gridState.Config if grid is active.
 func (at *AutoTrader) UpdateStrategyConfig(newConfig *store.StrategyConfig) {
+	if newConfig == nil {
+		return
+	}
 	at.mu.Lock()
 	at.config.StrategyConfig = newConfig
+	at.strategyEngine.UpdateConfig(newConfig)
 	at.mu.Unlock()
 
 	if newConfig != nil && newConfig.GridConfig != nil && at.gridState != nil {
@@ -1653,6 +1677,47 @@ func (at *AutoTrader) UpdateStrategyConfig(newConfig *store.StrategyConfig) {
 // This is used by grid trading and other components that need direct exchange access
 func (at *AutoTrader) GetUnderlyingTrader() Trader {
 	return at.trader
+}
+
+// EmergencyCloseSymbol stops this trader from placing new orders, removes all
+// orders for one symbol, and closes both possible position directions.
+func (at *AutoTrader) EmergencyCloseSymbol(symbol string) error {
+	if at.IsGridStrategy() {
+		if err := at.pauseGrid("emergency volatility handoff"); err != nil {
+			return err
+		}
+	}
+	if err := at.trader.CancelAllOrders(symbol); err != nil {
+		return fmt.Errorf("cancel orders for %s: %w", symbol, err)
+	}
+	if err := at.trader.CancelStopOrders(symbol); err != nil {
+		return fmt.Errorf("cancel stop orders for %s: %w", symbol, err)
+	}
+	if _, err := at.trader.CloseLong(symbol, 0); err != nil {
+		return fmt.Errorf("close long for %s: %w", symbol, err)
+	}
+	if _, err := at.trader.CloseShort(symbol, 0); err != nil {
+		return fmt.Errorf("close short for %s: %w", symbol, err)
+	}
+	return nil
+}
+
+// IsSymbolFlat reports whether the exchange has no position for symbol.
+func (at *AutoTrader) IsSymbolFlat(symbol string) (bool, error) {
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return false, err
+	}
+	for _, position := range positions {
+		if positionSymbol, ok := position["symbol"].(string); ok && positionSymbol == symbol {
+			for _, key := range []string{"positionAmt", "quantity", "qty", "size"} {
+				if value, ok := position[key].(float64); ok && value != 0 {
+					return false, nil
+				}
+			}
+		}
+	}
+	return true, nil
 }
 
 // GetName gets trader name
@@ -2414,22 +2479,22 @@ func (at *AutoTrader) recordOrderFill(orderRecordID int64, exchangeOrderID, symb
 	normalizedSymbol := market.Normalize(symbol)
 
 	fill := &store.TraderFill{
-		TraderID:         at.id,
-		ExchangeID:       at.exchangeID,
-		ExchangeType:     at.exchange,
-		OrderID:          orderRecordID,
-		ExchangeOrderID:  exchangeOrderID,
-		ExchangeTradeID:  tradeID,
-		Symbol:           normalizedSymbol,
-		Side:             side,
-		Price:            price,
-		Quantity:         quantity,
-		QuoteQuantity:    price * quantity,
-		Commission:       fee,
-		CommissionAsset:  "USDT",
-		RealizedPnL:      0, // Will be calculated for close orders
-		IsMaker:          false, // Market orders are usually taker
-		CreatedAt:        time.Now().UTC().UnixMilli(),
+		TraderID:        at.id,
+		ExchangeID:      at.exchangeID,
+		ExchangeType:    at.exchange,
+		OrderID:         orderRecordID,
+		ExchangeOrderID: exchangeOrderID,
+		ExchangeTradeID: tradeID,
+		Symbol:          normalizedSymbol,
+		Side:            side,
+		Price:           price,
+		Quantity:        quantity,
+		QuoteQuantity:   price * quantity,
+		Commission:      fee,
+		CommissionAsset: "USDT",
+		RealizedPnL:     0,     // Will be calculated for close orders
+		IsMaker:         false, // Market orders are usually taker
+		CreatedAt:       time.Now().UTC().UnixMilli(),
 	}
 
 	// Calculate realized PnL for close orders
@@ -2505,6 +2570,120 @@ func (at *AutoTrader) enforcePositionValueRatio(positionSizeUSD float64, equity 
 	}
 
 	return positionSizeUSD, false
+}
+
+func (at *AutoTrader) enforceEntryGate(symbol, action string, data *market.Data) error {
+	at.mu.RLock()
+	config := at.config.StrategyConfig
+	at.mu.RUnlock()
+	if config == nil || config.TrendGate == nil || !config.TrendGate.Enabled {
+		return nil
+	}
+	if data == nil || data.IntradaySeries == nil {
+		return fmt.Errorf("[TREND GATE] market data unavailable for %s", symbol)
+	}
+	gate := config.TrendGate
+	closes := data.IntradaySeries.MidPrices
+	volumes := data.IntradaySeries.Volume
+	if gate.Timeframe != "" && gate.Timeframe != "3m" {
+		count := gate.Lookback + 1
+		if count < 21 {
+			count = 21
+		}
+		trendData, err := market.GetWithTimeframes(symbol, []string{gate.Timeframe}, gate.Timeframe, count)
+		if err != nil {
+			return fmt.Errorf("[TREND GATE] failed to load %s data: %w", gate.Timeframe, err)
+		}
+		series := trendData.TimeframeData[gate.Timeframe]
+		if series == nil {
+			return fmt.Errorf("[TREND GATE] %s data unavailable", gate.Timeframe)
+		}
+		closes = make([]float64, 0, len(series.Klines))
+		volumes = make([]float64, 0, len(series.Klines))
+		for _, kline := range series.Klines {
+			closes = append(closes, kline.Close)
+			volumes = append(volumes, kline.Volume)
+		}
+	}
+	result := market.EvaluateTrendGate(closes, volumes, action, gate.Enabled, gate.Lookback, gate.MinPriceChangePct, gate.MinVolumeRatio)
+	if !result.Allowed {
+		return fmt.Errorf("[TREND GATE] %s: price_change=%.2f%% volume_ratio=%.2fx", result.Reason, result.PriceChangePct, result.VolumeRatio)
+	}
+	return nil
+}
+
+func (at *AutoTrader) enforceMinConfidence(decision *kernel.Decision) error {
+	at.mu.RLock()
+	config := at.config.StrategyConfig
+	at.mu.RUnlock()
+	if config == nil || decision == nil || (decision.Action != "open_long" && decision.Action != "open_short") {
+		return nil
+	}
+	minimum := config.RiskControl.MinConfidence
+	if minimum > 0 && int(decision.Confidence) < minimum {
+		return fmt.Errorf("[RISK CONTROL][MIN_CONFIDENCE] confidence %d below minimum %d", decision.Confidence, minimum)
+	}
+	return nil
+}
+
+func (at *AutoTrader) enforceMaxMarginUsage(positions []map[string]interface{}, equity, newPositionValue float64, leverage int) error {
+	at.mu.RLock()
+	config := at.config.StrategyConfig
+	at.mu.RUnlock()
+	if config == nil || equity <= 0 || newPositionValue <= 0 || leverage <= 0 {
+		return nil
+	}
+	limit := config.RiskControl.MaxMarginUsage
+	if limit <= 0 {
+		limit = 0.9
+	}
+	if limit > 1 {
+		return fmt.Errorf("[RISK CONTROL][MAX_MARGIN_USAGE] invalid limit %.2f", limit)
+	}
+	currentMargin := 0.0
+	for _, position := range positions {
+		value := firstFloat(position, "notional", "notionalValue", "positionValue", "positionAmt")
+		if value <= 0 {
+			quantity := firstFloat(position, "quantity", "qty", "size")
+			price := firstFloat(position, "markPrice", "mark_price", "entryPrice", "entry_price")
+			value = quantity * price
+		}
+		positionLeverage := firstFloat(position, "leverage")
+		if positionLeverage <= 0 {
+			positionLeverage = float64(leverage)
+		}
+		if value > 0 {
+			currentMargin += value / positionLeverage
+		}
+	}
+	projected := (currentMargin + newPositionValue/float64(leverage)) / equity
+	if projected > limit {
+		return fmt.Errorf("[RISK CONTROL][MAX_MARGIN_USAGE] projected %.1f%% exceeds %.1f%%", projected*100, limit*100)
+	}
+	return nil
+}
+
+func firstFloat(values map[string]interface{}, keys ...string) float64 {
+	for _, key := range keys {
+		switch value := values[key].(type) {
+		case float64:
+			return absFloat(value)
+		case float32:
+			return absFloat(float64(value))
+		case int:
+			return absFloat(float64(value))
+		case int64:
+			return absFloat(float64(value))
+		}
+	}
+	return 0
+}
+
+func absFloat(value float64) float64 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 // enforceMinPositionSize checks minimum position size (CODE ENFORCED)
@@ -2662,4 +2841,3 @@ func getSideFromAction(action string) string {
 func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	return at.trader.GetOpenOrders(symbol)
 }
-

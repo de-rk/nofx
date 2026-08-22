@@ -108,25 +108,25 @@ type RecentOrder struct {
 
 // Context trading context (complete information passed to AI)
 type Context struct {
-	CurrentTime     string                             `json:"current_time"`
-	RuntimeMinutes  int                                `json:"runtime_minutes"`
-	CallCount       int                                `json:"call_count"`
-	Account         AccountInfo                        `json:"account"`
-	Positions       []PositionInfo                     `json:"positions"`
-	CandidateCoins  []CandidateCoin                    `json:"candidate_coins"`
-	PromptVariant   string                             `json:"prompt_variant,omitempty"`
-	TradingStats    *TradingStats                      `json:"trading_stats,omitempty"`
-	RecentOrders    []RecentOrder                      `json:"recent_orders,omitempty"`
-	MarketDataMap   map[string]*market.Data            `json:"-"`
-	MultiTFMarket   map[string]map[string]*market.Data `json:"-"`
-	OITopDataMap    map[string]*OITopData              `json:"-"`
-	QuantDataMap    map[string]*QuantData              `json:"-"`
-	OIRankingData      *nofxos.OIRankingData      `json:"-"` // Market-wide OI ranking data
-	NetFlowRankingData *nofxos.NetFlowRankingData `json:"-"` // Market-wide fund flow ranking data
-	PriceRankingData   *nofxos.PriceRankingData   `json:"-"` // Market-wide price gainers/losers
-	BTCETHLeverage     int                          `json:"-"`
-	AltcoinLeverage int                                `json:"-"`
-	Timeframes      []string                           `json:"-"`
+	CurrentTime        string                             `json:"current_time"`
+	RuntimeMinutes     int                                `json:"runtime_minutes"`
+	CallCount          int                                `json:"call_count"`
+	Account            AccountInfo                        `json:"account"`
+	Positions          []PositionInfo                     `json:"positions"`
+	CandidateCoins     []CandidateCoin                    `json:"candidate_coins"`
+	PromptVariant      string                             `json:"prompt_variant,omitempty"`
+	TradingStats       *TradingStats                      `json:"trading_stats,omitempty"`
+	RecentOrders       []RecentOrder                      `json:"recent_orders,omitempty"`
+	MarketDataMap      map[string]*market.Data            `json:"-"`
+	MultiTFMarket      map[string]map[string]*market.Data `json:"-"`
+	OITopDataMap       map[string]*OITopData              `json:"-"`
+	QuantDataMap       map[string]*QuantData              `json:"-"`
+	OIRankingData      *nofxos.OIRankingData              `json:"-"` // Market-wide OI ranking data
+	NetFlowRankingData *nofxos.NetFlowRankingData         `json:"-"` // Market-wide fund flow ranking data
+	PriceRankingData   *nofxos.PriceRankingData           `json:"-"` // Market-wide price gainers/losers
+	BTCETHLeverage     int                                `json:"-"`
+	AltcoinLeverage    int                                `json:"-"`
+	Timeframes         []string                           `json:"-"`
 }
 
 // Decision AI trading decision
@@ -210,6 +210,19 @@ type OIDeltaData struct {
 type StrategyEngine struct {
 	config       *store.StrategyConfig
 	nofxosClient *nofxos.Client
+}
+
+// UpdateConfig replaces the strategy configuration used by future cycles.
+func (e *StrategyEngine) UpdateConfig(config *store.StrategyConfig) {
+	if config == nil {
+		return
+	}
+	e.config = config
+	apiKey := config.Indicators.NofxOSAPIKey
+	if apiKey == "" {
+		apiKey = nofxos.DefaultAuthKey
+	}
+	e.nofxosClient = nofxos.NewClient(nofxos.DefaultBaseURL, apiKey)
 }
 
 // NewStrategyEngine creates strategy execution engine
@@ -428,6 +441,17 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 // ============================================================================
 
 // GetCandidateCoins gets candidate coins based on strategy configuration
+func (e *StrategyEngine) staticCandidates() []CandidateCoin {
+	candidates := make([]CandidateCoin, 0, len(e.config.CoinSource.StaticCoins))
+	for _, symbol := range e.config.CoinSource.StaticCoins {
+		candidates = append(candidates, CandidateCoin{
+			Symbol:  market.Normalize(symbol),
+			Sources: []string{"static"},
+		})
+	}
+	return e.filterExcludedCoins(candidates)
+}
+
 func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 	var candidates []CandidateCoin
 	symbolSources := make(map[string][]string)
@@ -655,7 +679,12 @@ func (e *StrategyEngine) getAI500Coins(limit int) ([]CandidateCoin, error) {
 
 	symbols, err := e.nofxosClient.GetTopRatedCoins(limit)
 	if err != nil {
-		return nil, err
+		logger.Infof("AI500 unavailable, falling back to static coins: %v", err)
+		return e.staticCandidates(), nil
+	}
+	if len(symbols) == 0 {
+		logger.Infof("AI500 returned no coins, falling back to static coins")
+		return e.staticCandidates(), nil
 	}
 
 	var candidates []CandidateCoin

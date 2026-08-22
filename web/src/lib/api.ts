@@ -17,6 +17,8 @@ import type {
   StrategyConfig,
   PositionHistoryResponse,
   GridTradeLog,
+  HandoffBinding,
+  HandoffRequest,
 } from '../types'
 import { CryptoService } from './crypto'
 import { httpClient } from './httpClient'
@@ -51,6 +53,29 @@ export const api = {
   async deleteTrader(traderId: string): Promise<void> {
     const result = await httpClient.delete(`${API_BASE}/traders/${traderId}`)
     if (!result.success) throw new Error('删除交易员失败')
+  },
+
+  async getHandoffs(): Promise<HandoffBinding[]> {
+    const result = await httpClient.get<HandoffBinding[]>(`${API_BASE}/handoffs`)
+    if (!result.success) throw new Error('获取接替配置失败')
+    return result.data ?? []
+  },
+
+  async createHandoff(request: HandoffRequest): Promise<HandoffBinding> {
+    const result = await httpClient.post<HandoffBinding>(`${API_BASE}/handoffs`, request)
+    if (!result.success) throw new Error('创建接替配置失败')
+    return result.data!
+  },
+
+  async updateHandoff(id: string, request: HandoffRequest): Promise<HandoffBinding> {
+    const result = await httpClient.put<HandoffBinding>(`${API_BASE}/handoffs/${id}`, request)
+    if (!result.success) throw new Error('更新接替配置失败')
+    return result.data!
+  },
+
+  async deleteHandoff(id: string): Promise<void> {
+    const result = await httpClient.delete(`${API_BASE}/handoffs/${id}`)
+    if (!result.success) throw new Error('删除接替配置失败')
   },
 
   async startTrader(traderId: string): Promise<void> {

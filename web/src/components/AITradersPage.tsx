@@ -395,6 +395,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         initial_balance: data.initial_balance,
         scan_interval_minutes: data.scan_interval_minutes,
         is_cross_margin: data.is_cross_margin,
+        tags: data.tags,
       }
 
       console.log('🔥 handleSaveEditTrader - data:', data)
@@ -1077,6 +1078,15 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                       >
                         {trader.trader_name}
                       </div>
+                      {trader.tags && trader.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {trader.tags.map((tag) => (
+                            <span key={tag} className="px-1.5 py-0.5 text-[10px] border border-zinc-700 text-zinc-400 rounded">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       <div
                         className="text-xs md:text-sm truncate"
                         style={{
@@ -1085,10 +1095,9 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                             : '#c084fc',
                         }}
                       >
-                        {getModelDisplayName(
-                          trader.ai_model.split('_').pop() || trader.ai_model
-                        )}{' '}
-                        Model • {getExchangeDisplayName(trader.exchange_id, allExchanges)}
+                        {trader.strategy_type === 'grid_trading' ? 'GRID' : 'AI'}{' '}
+                        • {getModelDisplayName(trader.ai_model.split('_').pop() || trader.ai_model)}{' '}
+                        • {getExchangeDisplayName(trader.exchange_id, allExchanges)}
                       </div>
                     </div>
                   </div>

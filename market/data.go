@@ -370,7 +370,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentRSI7 := calculateRSI(primaryKlines, 7)
 
 	// Calculate price changes
-	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60) // 1 hour
+	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60)  // 1 hour
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
 
 	// Get OI data
@@ -740,19 +740,16 @@ func calculateBOLL(klines []Kline, period int, multiplier float64) (upper, middl
 // calculateIntradaySeries calculates intraday series data
 func calculateIntradaySeries(klines []Kline) *IntradayData {
 	data := &IntradayData{
-		MidPrices:   make([]float64, 0, 10),
-		EMA20Values: make([]float64, 0, 10),
-		MACDValues:  make([]float64, 0, 10),
-		RSI7Values:  make([]float64, 0, 10),
-		RSI14Values: make([]float64, 0, 10),
-		Volume:      make([]float64, 0, 10),
+		MidPrices:   make([]float64, 0, len(klines)),
+		EMA20Values: make([]float64, 0, len(klines)),
+		MACDValues:  make([]float64, 0, len(klines)),
+		RSI7Values:  make([]float64, 0, len(klines)),
+		RSI14Values: make([]float64, 0, len(klines)),
+		Volume:      make([]float64, 0, len(klines)),
 	}
 
-	// Get latest 10 data points
-	start := len(klines) - 10
-	if start < 0 {
-		start = 0
-	}
+	// Keep the full intraday series so execution-layer gates can use a configurable lookback.
+	start := 0
 
 	for i := start; i < len(klines); i++ {
 		data.MidPrices = append(data.MidPrices, klines[i].Close)
@@ -790,8 +787,8 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 // calculateLongerTermData calculates longer-term data
 func calculateLongerTermData(klines []Kline) *LongerTermData {
 	data := &LongerTermData{
-		MACDValues:  make([]float64, 0, 10),
-		RSI14Values: make([]float64, 0, 10),
+		MACDValues:  make([]float64, 0, len(klines)),
+		RSI14Values: make([]float64, 0, len(klines)),
 	}
 
 	// Calculate EMA

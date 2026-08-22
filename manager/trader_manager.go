@@ -28,6 +28,8 @@ type TraderManager struct {
 	// Order event pub-sub: SSE clients subscribe per trader ID
 	orderEventsMu   sync.Mutex
 	orderEventsSubs map[string][]chan struct{} // traderID → list of subscriber channels
+	handoffMu       sync.Mutex
+	handoffMonitors map[string]struct{}
 }
 
 // NewTraderManager creates a trader manager
@@ -36,6 +38,7 @@ func NewTraderManager() *TraderManager {
 		traders:         make(map[string]*trader.AutoTrader),
 		loadErrors:      make(map[string]error),
 		orderEventsSubs: make(map[string][]chan struct{}),
+		handoffMonitors: make(map[string]struct{}),
 		competitionCache: &CompetitionCache{
 			data: make(map[string]interface{}),
 		},
@@ -420,7 +423,6 @@ func (tm *TraderManager) GetTopTradersData() (map[string]interface{}, error) {
 	return result, nil
 }
 
-
 // RemoveTrader removes a trader from memory (does not affect database)
 // Used to force reload when updating trader configuration
 // If the trader is running, it will be stopped first
@@ -677,10 +679,10 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		QwenKey:               "",
 		CustomAPIURL:          aiModelCfg.CustomAPIURL,
 		CustomModelName:       aiModelCfg.CustomModelName,
-		ScanInterval:         time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
-		InitialBalance:       traderCfg.InitialBalance,
-		IsCrossMargin:        traderCfg.IsCrossMargin,
-		StrategyConfig:       strategyConfig,
+		ScanInterval:          time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
+		InitialBalance:        traderCfg.InitialBalance,
+		IsCrossMargin:         traderCfg.IsCrossMargin,
+		StrategyConfig:        strategyConfig,
 	}
 
 	logger.Infof("📊 Loading trader %s: ScanIntervalMinutes=%d (from DB), ScanInterval=%v",

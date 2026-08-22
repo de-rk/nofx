@@ -38,12 +38,12 @@ import (
 
 // Server HTTP API server
 type Server struct {
-	router          *gin.Engine
-	traderManager   *manager.TraderManager
-	store           *store.Store
-	cryptoHandler   *CryptoHandler
-	httpServer      *http.Server
-	port            int
+	router        *gin.Engine
+	traderManager *manager.TraderManager
+	store         *store.Store
+	cryptoHandler *CryptoHandler
+	httpServer    *http.Server
+	port          int
 }
 
 // NewServer Creates API server
@@ -60,11 +60,11 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	cryptoHandler := NewCryptoHandler(cryptoService)
 
 	s := &Server{
-		router:          router,
-		traderManager:   traderManager,
-		store:           st,
-		cryptoHandler:   cryptoHandler,
-		port:            port,
+		router:        router,
+		traderManager: traderManager,
+		store:         st,
+		cryptoHandler: cryptoHandler,
+		port:          port,
 	}
 
 	// Setup routes
@@ -156,6 +156,10 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/grid-risk/reset-profit-tracker", s.handleResetProfitTracker)
 			protected.GET("/traders/:id/events", s.handleTraderEvents)
 			protected.GET("/traders/:id/trade-logs", s.handleGetGridTradeLogs)
+			protected.GET("/handoffs", s.handleListHandoffs)
+			protected.POST("/handoffs", s.handleCreateHandoff)
+			protected.PUT("/handoffs/:id", s.handleUpdateHandoff)
+			protected.DELETE("/handoffs/:id", s.handleDeleteHandoff)
 
 			// AI model configuration
 			protected.GET("/models", s.handleGetModelConfigs)
@@ -385,16 +389,17 @@ type CreateTraderRequest struct {
 	StrategyID          string  `json:"strategy_id"` // Strategy ID (new version)
 	InitialBalance      float64 `json:"initial_balance"`
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
-	IsCrossMargin       *bool   `json:"is_cross_margin"`     // Pointer type, nil means use default value true
+	IsCrossMargin       *bool   `json:"is_cross_margin"` // Pointer type, nil means use default value true
 	// The following fields are kept for backward compatibility, new version uses strategy config
-	BTCETHLeverage       int    `json:"btc_eth_leverage"`
-	AltcoinLeverage      int    `json:"altcoin_leverage"`
-	TradingSymbols       string `json:"trading_symbols"`
-	CustomPrompt         string `json:"custom_prompt"`
-	OverrideBasePrompt   bool   `json:"override_base_prompt"`
-	SystemPromptTemplate string `json:"system_prompt_template"` // System prompt template name
-	UseAI500             bool   `json:"use_ai500"`
-	UseOITop             bool   `json:"use_oi_top"`
+	BTCETHLeverage       int      `json:"btc_eth_leverage"`
+	AltcoinLeverage      int      `json:"altcoin_leverage"`
+	TradingSymbols       string   `json:"trading_symbols"`
+	CustomPrompt         string   `json:"custom_prompt"`
+	OverrideBasePrompt   bool     `json:"override_base_prompt"`
+	SystemPromptTemplate string   `json:"system_prompt_template"` // System prompt template name
+	Tags                 []string `json:"tags"`
+	UseAI500             bool     `json:"use_ai500"`
+	UseOITop             bool     `json:"use_oi_top"`
 }
 
 type ModelConfig struct {
@@ -655,6 +660,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		ID:                   traderID,
 		UserID:               userID,
 		Name:                 req.Name,
+		Tags:                 req.Tags,
 		AIModelID:            req.AIModelID,
 		ExchangeID:           req.ExchangeID,
 		StrategyID:           req.StrategyID, // Associated strategy ID (new version)
@@ -711,12 +717,13 @@ type UpdateTraderRequest struct {
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`
 	// The following fields are kept for backward compatibility, new version uses strategy config
-	BTCETHLeverage       int    `json:"btc_eth_leverage"`
-	AltcoinLeverage      int    `json:"altcoin_leverage"`
-	TradingSymbols       string `json:"trading_symbols"`
-	CustomPrompt         string `json:"custom_prompt"`
-	OverrideBasePrompt   bool   `json:"override_base_prompt"`
-	SystemPromptTemplate string `json:"system_prompt_template"`
+	BTCETHLeverage       int      `json:"btc_eth_leverage"`
+	AltcoinLeverage      int      `json:"altcoin_leverage"`
+	TradingSymbols       string   `json:"trading_symbols"`
+	CustomPrompt         string   `json:"custom_prompt"`
+	OverrideBasePrompt   bool     `json:"override_base_prompt"`
+	SystemPromptTemplate string   `json:"system_prompt_template"`
+	Tags                 []string `json:"tags"`
 }
 
 // handleUpdateTrader Update trader configuration
@@ -794,6 +801,7 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		ID:                   traderID,
 		UserID:               userID,
 		Name:                 req.Name,
+		Tags:                 req.Tags,
 		AIModelID:            req.AIModelID,
 		ExchangeID:           req.ExchangeID,
 		StrategyID:           strategyID, // Associated strategy ID
@@ -2099,26 +2107,32 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			}
 		}
 
-		// Get strategy name if strategy_id is set
-		var strategyName string
+		// Get strategy name and type if strategy_id is set
+		var strategyName, strategyType string
 		if trader.StrategyID != "" {
 			if strategy, err := s.store.Strategy().Get(userID, trader.StrategyID); err == nil {
 				strategyName = strategy.Name
+				var config store.StrategyConfig
+				if json.Unmarshal([]byte(strategy.Config), &config) == nil {
+					strategyType = config.StrategyType
+				}
 			}
 		}
 
 		// Return complete AIModelID (e.g. "admin_deepseek"), don't truncate
 		// Frontend needs complete ID to verify model exists (consistent with handleGetTraderConfig)
 		result = append(result, map[string]interface{}{
-			"trader_id":           trader.ID,
-			"trader_name":         trader.Name,
-			"ai_model":            trader.AIModelID, // Use complete ID
-			"exchange_id":         trader.ExchangeID,
-			"is_running":          isRunning,
-			"initial_balance":     trader.InitialBalance,
-			"strategy_id":         trader.StrategyID,
-			"strategy_name":       strategyName,
-			"created_at":          trader.CreatedAt,
+			"trader_id":       trader.ID,
+			"trader_name":     trader.Name,
+			"ai_model":        trader.AIModelID, // Use complete ID
+			"exchange_id":     trader.ExchangeID,
+			"is_running":      isRunning,
+			"initial_balance": trader.InitialBalance,
+			"strategy_id":     trader.StrategyID,
+			"strategy_name":   strategyName,
+			"strategy_type":   strategyType,
+			"tags":            trader.Tags,
+			"created_at":      trader.CreatedAt,
 		})
 	}
 
@@ -2157,9 +2171,12 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 	result := map[string]interface{}{
 		"trader_id":             traderConfig.ID,
 		"trader_name":           traderConfig.Name,
+		"tags":                  traderConfig.Tags,
 		"ai_model":              aiModelID,
 		"exchange_id":           traderConfig.ExchangeID,
 		"strategy_id":           traderConfig.StrategyID,
+		"strategy_name":         strategyNameFromConfig(fullCfg.Strategy),
+		"strategy_type":         strategyTypeFromConfig(fullCfg.Strategy),
 		"initial_balance":       traderConfig.InitialBalance,
 		"scan_interval_minutes": traderConfig.ScanIntervalMinutes,
 		"btc_eth_leverage":      traderConfig.BTCETHLeverage,
@@ -2177,6 +2194,24 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 }
 
 // handleStatus System status
+func strategyNameFromConfig(strategy *store.Strategy) string {
+	if strategy == nil {
+		return ""
+	}
+	return strategy.Name
+}
+
+func strategyTypeFromConfig(strategy *store.Strategy) string {
+	if strategy == nil {
+		return "ai_trading"
+	}
+	var config store.StrategyConfig
+	if json.Unmarshal([]byte(strategy.Config), &config) != nil || config.StrategyType == "" {
+		return "ai_trading"
+	}
+	return config.StrategyType
+}
+
 func (s *Server) handleStatus(c *gin.Context) {
 	_, traderID, err := s.getTraderFromQuery(c)
 	if err != nil {
@@ -2712,14 +2747,19 @@ func (s *Server) getKlinesFromOKX(symbol, interval string, limit int) ([]market.
 		}
 		ts := parseI(row[0])
 		klines = append(klines, market.Kline{
-			OpenTime:    ts,
-			Open:        parseF(row[1]),
-			High:        parseF(row[2]),
-			Low:         parseF(row[3]),
-			Close:       parseF(row[4]),
-			Volume:      parseF(row[5]),
-			QuoteVolume: func() float64 { if len(row) > 6 { return parseF(row[6]) }; return 0 }(),
-			CloseTime:   ts + 1,
+			OpenTime: ts,
+			Open:     parseF(row[1]),
+			High:     parseF(row[2]),
+			Low:      parseF(row[3]),
+			Close:    parseF(row[4]),
+			Volume:   parseF(row[5]),
+			QuoteVolume: func() float64 {
+				if len(row) > 6 {
+					return parseF(row[6])
+				}
+				return 0
+			}(),
+			CloseTime: ts + 1,
 		})
 	}
 	return klines, nil
