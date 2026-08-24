@@ -33,8 +33,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
-| `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
+| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；开仓决策支持 OKX 移动止盈止损激活/回撤百分比字段；风险收益比校验含显示精度容差；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
+| `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；已移除趋势上/下行反向布局、余额不足处理和 reduce 操作禁用文案；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
 | `prompt_builder.go` | 根据市场状态动态调整 prompt 的逻辑（识别趋势/震荡、计算技术指标、生成实时风险提示） |
 | `formatter.go` | 决策输出格式化 |
 | `schema.go` | AI 输出 JSON schema 定义 |
@@ -45,11 +45,11 @@
 
 | 文件 | 说明 |
 |------|------|
-| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
-| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路，交易日志 source 按实际来源标为 `"ai"` 或 `"algo"` |
+| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；开仓后按 AI 参数调用交易所原生移动止盈止损；支持接替时按方向撤销对侧网格普通挂单并保留减仓单；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
+| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、T-trade（T字操作）、减仓、syncExchangeState、resetGrid、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；支持接替时暂停网格周期、按方向撤销对侧普通入口单并保护减仓单；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路，交易日志 source 按实际来源标为 `"ai"` 或 `"algo"` |
 | `position_rebuild.go` | 持仓重建逻辑：从交易所读取持仓，匹配到网格层级，重建本地状态 |
 | `position_snapshot.go` | 持仓快照定时存储（用于绩效分析） |
-| `interface.go` | `GridTrader` 接口定义 |
+| `interface.go` | `GridTrader` 与可选 `TrailingStopTrader` 接口定义 |
 | `helpers.go` | 通用工具函数（数量计算、价格格式化等） |
 | `tp_manager.go` | 止盈管理器：`TPManager` 后台监控循环（每个 trader 实例共用，网格/非网格均会启动），但分批止盈的外部写入入口（`SetTPLevels`）已删除——目前无任何调用方会真正喂数据进去，循环本身是活的、`activeLevels` 永远为空 |
 | `position_rebuild.go` | 重启后持仓状态恢复 |
@@ -59,7 +59,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `trader.go` | OKX 交易所适配器（下单、查询、持仓） |
+| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；支持原生 `move_order_stop` 移动止盈止损及挂单查询/撤销 |
 | `ws.go` | OKX WebSocket 推送（公共 ticker、business K线、私有持仓/订单事件；含独立重连与心跳） |
 | `order_sync.go` | OKX 订单状态同步 |
 
@@ -109,7 +109,7 @@
 | `driver.go` | 数据库驱动选择（SQLite/PostgreSQL） |
 | `strategy.go` | 策略配置表（`StrategyConfig`） |
 | `grid.go` | 网格配置表（`GridStrategyConfig`），含 T-trade、投资额刷新等字段 |
-| `decision.go` | AI 决策记录表 |
+| `decision.go` | AI 决策记录表，保存移动止盈止损参数 |
 | `trader.go` | Trader 实例配置表 |
 | `order.go` | 订单记录表 |
 | `position.go` | 持仓记录表 |
@@ -174,7 +174,7 @@
 | `market/kline_quality.go` | 统一 K 线质量清洗：排序去重、过滤未收盘 bar、校验 OHLCV，并拒绝最新已收盘零成交量数据 |
 | `web/src/components/strategy/CoinSourceEditor.tsx` | 所有候选源模式都可查看和编辑自定义币种；static 直接使用，AI500 失败时回退，mixed 作为静态来源 |
 | `web/src/components/strategy/TrendGateEditor.tsx` | Strategy Studio 的单币 K 线+成交量趋势门控配置编辑器 |
-| `manager/handoff_manager.go` | 网格异常波动接替编排：每秒采样源网格标的价格，三分钟绝对涨跌幅达到阈值后暂停/撤单/平仓、确认空仓并启动目标 AI 交易员 |
+| `manager/handoff_manager.go` | 网格异常波动接替编排：每秒采样源网格标的价格，三分钟绝对涨跌幅达到阈值后暂停网格、按涨跌方向撤销对侧普通挂单（保留减仓单）并启动目标 AI 交易员，不平仓或停止源交易员 |
 | `store/handoff.go` | 网格到 AI 的显式接替绑定与执行状态持久化，含原子触发抢占与阶段错误记录 |
 | `api/handoff.go` | 接替绑定 CRUD API，校验源为网格、目标为 AI 且使用相同交易所账户 |
 | `experience/experience.go` | AI 经验积累（历史决策反馈） |
@@ -255,7 +255,7 @@ HTTP 请求
 
 | 修改 | 说明 | 提交 |
 |------|------|------|
-| **异常波动网格接替** | 交易员支持标签与显式网格->AI 接替绑定；每秒按实时价计算三分钟滚动涨跌幅，绝对值达到阈值后仅撤销/平掉源网格标的，确认空仓后停止源交易员并启动同账户目标 AI | f67358ef |
+| **异常波动网格接替** | 交易员支持标签与显式网格->AI 接替绑定；每秒按实时价计算三分钟滚动涨跌幅，绝对值达到阈值后暂停源网格，按涨跌方向撤销对侧普通入口单（排除 T-trade/止盈减仓单），保留仓位和源交易员并启动同账户目标 AI | f67358ef |
 | **AI K线质量修复** | 统一排序去重并过滤未收盘 K 线，校验 OHLCV 与 CoinAnk 数组字段；最新已收盘 K 线成交量为 0 时拒绝该周期数据，Prompt 仅标记最新已完成 K 线 | 未提交 |
 
 ### 2026-08-21

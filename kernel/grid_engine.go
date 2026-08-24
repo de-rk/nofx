@@ -438,8 +438,6 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 | 状态 | 条件 | 操作 |
 |------|------|------|
 | 震荡 | 布林带宽 < 3%%, EMA距离 < 1%% | 正常补单，多空均衡 |
-| 趋势上行 | 布林带宽 > 4%%, 价格持续突破上轨 | 反向布局：买单40%%，卖单60%%，逢高挂卖单吃回调 |
-| 趋势下行 | 布林带宽 > 4%%, 价格持续突破下轨 | 反向布局：买单60%%，卖单40%%，逢低挂买单吃反弹 |
 | 高波动 | ATR 异常放大 | hold，等待波动平息 |
 
 ## 可用操作
@@ -463,12 +461,6 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - cancel_order：填写 order_id（网格层级表中的订单ID），quantity 填 0
 - **每周期最多撤 3 个订单**（cancel_order 合计，不含 cancel_all_orders）
 - **T字保护订单**：如果 User Prompt 列出「T字保护订单」，这些订单是系统为反向减仓预留的，绝对禁止撤销%s
-
-### 禁止操作
-- ⚠️ 禁止执行 reduce_long / reduce_short（系统自动处理浮盈减仓）
-
-### 余额不足处理
-当 available_balance ≤ $1 时，下单会被系统拦截。此时可以使用 hold、cancel_order、cancel_all_orders，禁止下单。在 reasoning 中简要说明下一步可能释放余额的条件（例如现有网格单成交）。
 
 **reasoning 字段保持简洁，不超过 2 句话。**
 
@@ -498,8 +490,6 @@ The system automatically handles: profit-taking reductions, T-trade order taggin
 | State | Conditions | Action |
 |-------|-----------|--------|
 | Ranging | BB width < 3%%, EMA distance < 1%% | Normal grid, balanced long/short |
-| Uptrend | BB width > 4%%, price breaking upper band | Contrarian: 40%% buy / 60%% sell — place sell orders into strength |
-| Downtrend | BB width > 4%%, price breaking lower band | Contrarian: 60%% buy / 40%% sell — place buy orders into weakness |
 | High volatility | ATR abnormally large | hold, wait for volatility to settle |
 
 ## Available Actions
@@ -523,12 +513,6 @@ The system automatically handles: profit-taking reductions, T-trade order taggin
 - cancel_order: set order_id to the Order ID from the grid level table, quantity to 0
 - **Maximum 3 cancel_order decisions per cycle** (excluding cancel_all_orders)
 - **T-Trade Protected Orders**: if User Prompt lists "T-Trade Protected Orders", these are reserved by the system for contra-side reductions — never cancel them%s
-
-### Prohibited Actions
-- ⚠️ Do NOT use reduce_long or reduce_short (system handles profit-taking automatically)
-
-### Zero-Balance Handling
-When available_balance ≤ $1, order placement is blocked by the system. You may still use hold, cancel_order, or cancel_all_orders. Do NOT attempt to place orders. In reasoning, briefly analyze what would unlock capital next (e.g. an existing order fill).
 
 **Keep reasoning concise — 2 sentences max.**
 

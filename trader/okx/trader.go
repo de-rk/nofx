@@ -13,11 +13,11 @@ import (
 	"net/http"
 	"nofx/logger"
 	"nofx/market"
+	"nofx/trader/types"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"nofx/trader/types"
 )
 
 // OKX API endpoints
@@ -443,8 +443,8 @@ func (t *OKXTrader) GetBalance() (map[string]interface{}, error) {
 	totalEq, _ := strconv.ParseFloat(balance.TotalEq, 64)
 
 	result := map[string]interface{}{
-		"totalEquity":           totalEq,        // 总权益（已包含未实现盈亏）
-		"totalWalletBalance":    usdtCashBal,    // 钱包余额（不含未实现盈亏）
+		"totalEquity":           totalEq,     // 总权益（已包含未实现盈亏）
+		"totalWalletBalance":    usdtCashBal, // 钱包余额（不含未实现盈亏）
 		"availableBalance":      usdtAvail,
 		"totalUnrealizedProfit": usdtUPL,
 	}
@@ -1213,6 +1213,72 @@ func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, 
 	return nil
 }
 
+// SetTrailingStop places an OKX native trailing-stop algo order. callbackPct
+// is a price percentage (for example 1.5 means a 1.5% callback), while
+// activationPrice is an optional absolute price. A zero activation price makes
+// OKX start trailing immediately.
+func (t *OKXTrader) SetTrailingStop(symbol string, positionSide string, quantity, activationPrice, callbackPct float64) error {
+	if quantity <= 0 {
+		return fmt.Errorf("trailing stop quantity must be greater than zero")
+	}
+	if callbackPct < 0.1 || callbackPct > 5.0 {
+		return fmt.Errorf("OKX trailing stop callback must be between 0.1%% and 5.0%%, got %.4f%%", callbackPct)
+	}
+
+	instId := t.convertSymbol(symbol)
+	inst, err := t.getInstrument(symbol)
+	if err != nil {
+		return fmt.Errorf("failed to get instrument info: %w", err)
+	}
+	sz := quantity / inst.CtVal
+	szStr := t.formatSize(sz, inst)
+
+	side := "sell"
+	posSide := "long"
+	if strings.EqualFold(positionSide, "SHORT") {
+		side = "buy"
+		posSide = "short"
+	}
+
+	body := map[string]interface{}{
+		"instId":        instId,
+		"tdMode":        t.tdMode(),
+		"side":          side,
+		"posSide":       posSide,
+		"ordType":       "move_order_stop",
+		"sz":            szStr,
+		"callbackRatio": fmt.Sprintf("%.8f", callbackPct/100),
+		"tag":           okxTag,
+	}
+	if activationPrice > 0 {
+		body["activePx"] = fmt.Sprintf("%.8f", activationPrice)
+	}
+
+	data, err := t.doRequest("POST", okxAlgoOrderPath, body)
+	if err != nil {
+		return fmt.Errorf("failed to set trailing stop: %w", err)
+	}
+
+	// The top-level OKX response can be successful while an individual order
+	// in data is rejected. Surface that rejection to the caller.
+	var orders []struct {
+		SCode  string `json:"sCode"`
+		SMsg   string `json:"sMsg"`
+		AlgoID string `json:"algoId"`
+	}
+	if len(data) > 0 && json.Unmarshal(data, &orders) == nil && len(orders) > 0 && orders[0].SCode != "" && orders[0].SCode != "0" {
+		return fmt.Errorf("failed to set trailing stop: code=%s, message=%s", orders[0].SCode, orders[0].SMsg)
+	}
+
+	logger.Infof("  Trailing stop set: %s activation=%.8f callback=%.4f%% algo=%s", symbol, activationPrice, callbackPct, func() string {
+		if len(orders) > 0 {
+			return orders[0].AlgoID
+		}
+		return ""
+	}())
+	return nil
+}
+
 // CancelStopLossOrders cancels stop loss orders
 func (t *OKXTrader) CancelStopLossOrders(symbol string) error {
 	return t.cancelAlgoOrders(symbol, "sl")
@@ -1227,7 +1293,8 @@ func (t *OKXTrader) CancelTakeProfitOrders(symbol string) error {
 func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
 	instId := t.convertSymbol(symbol)
 
-	// Get pending algo orders
+	// Get pending conditional algo orders. A blank orderType means callers are
+	// cancelling all protective algos, including native trailing stops.
 	path := fmt.Sprintf("%s?instType=SWAP&instId=%s&ordType=conditional", okxAlgoPendingPath, instId)
 	data, err := t.doRequest("GET", path, nil)
 	if err != nil {
@@ -1241,6 +1308,26 @@ func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
 
 	if err := json.Unmarshal(data, &orders); err != nil {
 		return err
+	}
+	if orderType == "" {
+		trailingPath := fmt.Sprintf("%s?instType=SWAP&instId=%s&ordType=move_order_stop", okxAlgoPendingPath, instId)
+		trailingData, trailingErr := t.doRequest("GET", trailingPath, nil)
+		if trailingErr != nil {
+			logger.Infof("  ⚠️ Failed to get trailing-stop orders: %v", trailingErr)
+		} else {
+			var trailingOrders []struct {
+				AlgoId string `json:"algoId"`
+				InstId string `json:"instId"`
+			}
+			if err := json.Unmarshal(trailingData, &trailingOrders); err == nil {
+				for _, order := range trailingOrders {
+					orders = append(orders, struct {
+						AlgoId string `json:"algoId"`
+						InstId string `json:"instId"`
+					}{AlgoId: order.AlgoId, InstId: order.InstId})
+				}
+			}
+		}
 	}
 
 	canceledCount := 0
@@ -1449,19 +1536,19 @@ func (t *OKXTrader) GetClosedPnL(startTime time.Time, limit int) ([]types.Closed
 		Code string `json:"code"`
 		Msg  string `json:"msg"`
 		Data []struct {
-			InstID      string `json:"instId"`      // Instrument ID (e.g., "BTC-USDT-SWAP")
-			Direction   string `json:"direction"`   // Position direction: "long" or "short"
-			OpenAvgPx   string `json:"openAvgPx"`   // Average open price
-			CloseAvgPx  string `json:"closeAvgPx"`  // Average close price
+			InstID        string `json:"instId"`        // Instrument ID (e.g., "BTC-USDT-SWAP")
+			Direction     string `json:"direction"`     // Position direction: "long" or "short"
+			OpenAvgPx     string `json:"openAvgPx"`     // Average open price
+			CloseAvgPx    string `json:"closeAvgPx"`    // Average close price
 			CloseTotalPos string `json:"closeTotalPos"` // Closed position quantity
-			RealizedPnl string `json:"realizedPnl"` // Realized PnL
-			Fee         string `json:"fee"`         // Total fee
-			FundingFee  string `json:"fundingFee"`  // Funding fee
-			Lever       string `json:"lever"`       // Leverage
-			CTime       string `json:"cTime"`       // Position open time
-			UTime       string `json:"uTime"`       // Position close time
-			Type        string `json:"type"`        // Close type: 1=close position, 2=partial close, 3=liquidation, 4=partial liquidation
-			PosId       string `json:"posId"`       // Position ID
+			RealizedPnl   string `json:"realizedPnl"`   // Realized PnL
+			Fee           string `json:"fee"`           // Total fee
+			FundingFee    string `json:"fundingFee"`    // Funding fee
+			Lever         string `json:"lever"`         // Leverage
+			CTime         string `json:"cTime"`         // Position open time
+			UTime         string `json:"uTime"`         // Position close time
+			Type          string `json:"type"`          // Close type: 1=close position, 2=partial close, 3=liquidation, 4=partial liquidation
+			PosId         string `json:"posId"`         // Position ID
 		} `json:"data"`
 	}
 
@@ -1671,6 +1758,48 @@ func (t *OKXTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 						})
 					}
 				}
+			}
+		}
+	}
+
+	// 3. Get native trailing-stop algo orders. OKX exposes these under a
+	// separate ordType and does not include them in conditional results.
+	trailingPath := fmt.Sprintf("%s?instId=%s&instType=SWAP&ordType=move_order_stop", okxAlgoPendingPath, instId)
+	trailingData, trailingErr := t.doRequest("GET", trailingPath, nil)
+	if trailingErr != nil {
+		logger.Warnf("[OKX] Failed to get trailing-stop orders: %v", trailingErr)
+	} else if trailingData != nil {
+		var trailingOrders []struct {
+			AlgoId    string `json:"algoId"`
+			Side      string `json:"side"`
+			PosSide   string `json:"posSide"`
+			ActivePx  string `json:"activePx"`
+			TriggerPx string `json:"triggerPx"`
+			Sz        string `json:"sz"`
+			State     string `json:"state"`
+		}
+		if json.Unmarshal(trailingData, &trailingOrders) == nil {
+			for _, order := range trailingOrders {
+				quantity, _ := strconv.ParseFloat(order.Sz, 64)
+				quantity *= ctVal
+				activePrice, _ := strconv.ParseFloat(order.ActivePx, 64)
+				if activePrice == 0 {
+					activePrice, _ = strconv.ParseFloat(order.TriggerPx, 64)
+				}
+				positionSide := strings.ToUpper(order.PosSide)
+				if positionSide == "NET" {
+					positionSide = "BOTH"
+				}
+				result = append(result, types.OpenOrder{
+					OrderID:      order.AlgoId,
+					Symbol:       symbol,
+					Side:         strings.ToUpper(order.Side),
+					PositionSide: positionSide,
+					Type:         "TRAILING_STOP_MARKET",
+					StopPrice:    activePrice,
+					Quantity:     quantity,
+					Status:       "NEW",
+				})
 			}
 		}
 	}

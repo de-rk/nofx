@@ -8,19 +8,19 @@ import (
 
 // ClosedPnLRecord represents a single closed position record from exchange
 type ClosedPnLRecord struct {
-	Symbol       string    // Trading pair (e.g., "BTCUSDT")
-	Side         string    // "long" or "short"
-	EntryPrice   float64   // Entry price
-	ExitPrice    float64   // Exit/close price
-	Quantity     float64   // Position size
-	RealizedPnL  float64   // Realized profit/loss
-	Fee          float64   // Trading fee/commission
-	Leverage     int       // Leverage used
-	EntryTime    time.Time // Position open time
-	ExitTime     time.Time // Position close time
-	OrderID      string    // Close order ID
-	CloseType    string    // "manual", "stop_loss", "take_profit", "liquidation", "unknown"
-	ExchangeID   string    // Exchange-specific position ID
+	Symbol      string    // Trading pair (e.g., "BTCUSDT")
+	Side        string    // "long" or "short"
+	EntryPrice  float64   // Entry price
+	ExitPrice   float64   // Exit/close price
+	Quantity    float64   // Position size
+	RealizedPnL float64   // Realized profit/loss
+	Fee         float64   // Trading fee/commission
+	Leverage    int       // Leverage used
+	EntryTime   time.Time // Position open time
+	ExitTime    time.Time // Position close time
+	OrderID     string    // Close order ID
+	CloseType   string    // "manual", "stop_loss", "take_profit", "liquidation", "unknown"
+	ExchangeID  string    // Exchange-specific position ID
 }
 
 // TradeRecord represents a single trade/fill from exchange
@@ -104,6 +104,14 @@ type Trader interface {
 	GetOpenOrders(symbol string) ([]OpenOrder, error)
 }
 
+// TrailingStopTrader is implemented by exchanges with a native trailing-stop
+// algo order. callbackPct is a price percentage (1.5 means 1.5%); activationPrice
+// is an absolute price. It is separate from Trader so existing adapters remain
+// compatible without implementing an unsupported feature.
+type TrailingStopTrader interface {
+	SetTrailingStop(symbol string, positionSide string, quantity, activationPrice, callbackPct float64) error
+}
+
 // OpenOrder represents a pending order on the exchange
 type OpenOrder struct {
 	OrderID      string  `json:"order_id"`
@@ -125,9 +133,9 @@ type LimitOrderRequest struct {
 	Price        float64 `json:"price"`         // Limit price
 	Quantity     float64 `json:"quantity"`
 	Leverage     int     `json:"leverage"`
-	PostOnly     bool    `json:"post_only"`     // Maker only order
-	ReduceOnly   bool    `json:"reduce_only"`   // Reduce position only
-	ClientID     string  `json:"client_id"`     // Client order ID for tracking
+	PostOnly     bool    `json:"post_only"`   // Maker only order
+	ReduceOnly   bool    `json:"reduce_only"` // Reduce position only
+	ClientID     string  `json:"client_id"`   // Client order ID for tracking
 }
 
 // LimitOrderResult represents the result of placing a limit order

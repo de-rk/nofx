@@ -88,6 +88,8 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
     "position_size_usd": 1000,
     "stop_loss": 42000,
     "take_profit": 48000,
+    "trailing_stop_activation_pct": 3,
+    "trailing_stop_callback_pct": 1.5,
     "confidence": 85,
     "reasoning": "详细的推理过程，说明为什么做出这个决策"
   }
@@ -108,6 +110,8 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - **position_size_usd**: 仓位大小（USDT，开新仓时必需）
 - **stop_loss**: 止损价格（开新仓时建议提供）
 - **take_profit**: 止盈价格（开新仓时建议提供）
+- **trailing_stop_activation_pct**: OKX移动止损激活幅度（相对开仓价的百分比，0表示立即激活，可选）
+- **trailing_stop_callback_pct**: OKX移动止损回撤百分比（0.1-5.0，可选；使用移动止损时必须提供）
 - **confidence**: 信心度（0-100）
 - **reasoning**: 推理过程（必需，必须详细说明决策依据）
 
@@ -223,6 +227,8 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
     "position_size_usd": 1000,
     "stop_loss": 42000,
     "take_profit": 48000,
+    "trailing_stop_activation_pct": 3,
+    "trailing_stop_callback_pct": 1.5,
     "confidence": 85,
     "reasoning": "Detailed reasoning explaining why this decision was made"
   }
@@ -243,6 +249,8 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 - **position_size_usd**: Position size in USDT (required for new positions)
 - **stop_loss**: Stop-loss price (recommended for new positions)
 - **take_profit**: Take-profit price (recommended for new positions)
+- **trailing_stop_activation_pct**: OKX trailing-stop activation move from entry in percent (0 = immediate, optional)
+- **trailing_stop_callback_pct**: OKX trailing-stop callback in percent (0.1-5.0, required when using trailing stop)
 - **confidence**: Confidence level (0-100)
 - **reasoning**: Detailed reasoning (required, must explain decision basis)
 

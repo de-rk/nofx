@@ -100,6 +100,33 @@ func TestLeverageFallback(t *testing.T) {
 	}
 }
 
+func TestRiskRewardBoundaryTolerance(t *testing.T) {
+	tests := []struct {
+		name       string
+		takeProfit float64
+		wantError  bool
+	}{
+		{name: "exact boundary survives float noise", takeProfit: 2675.0, wantError: false},
+		{name: "clearly below boundary is rejected", takeProfit: 2674.0, wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decision := Decision{
+				Symbol:          "ETHUSDT",
+				Action:          "open_long",
+				Leverage:        3,
+				PositionSizeUSD: 100,
+				StopLoss:        2380,
+				TakeProfit:      tt.takeProfit,
+			}
+			err := validateDecision(&decision, 1000, 10, 5, 10, 1.5, map[string]float64{"ETHUSDT": 2453.75}, 3.0)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("validateDecision() error = %v, wantError %v", err, tt.wantError)
+			}
+		})
+	}
+}
 
 // contains checks if string contains substring (helper function)
 func contains(s, substr string) bool {

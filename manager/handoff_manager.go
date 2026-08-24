@@ -127,33 +127,18 @@ func (tm *TraderManager) executeHandoff(st *store.Store, binding *store.HandoffB
 	if !setPhase(store.HandoffPausingSource, nil) {
 		return
 	}
-	if err := source.EmergencyCloseSymbol(symbol); err != nil {
+	if err := source.PauseGridForHandoff("emergency volatility handoff"); err != nil {
 		setPhase(store.HandoffFailed, err)
 		return
 	}
-	if !setPhase(store.HandoffWaitingFlat, nil) {
+	if !setPhase(store.HandoffCancelingOrders, nil) {
 		return
 	}
-	for attempt := 0; attempt < 10; attempt++ {
-		flat, flatErr := source.IsSymbolFlat(symbol)
-		if flatErr != nil {
-			setPhase(store.HandoffFailed, flatErr)
-			return
-		}
-		if flat {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-		if attempt == 9 {
-			setPhase(store.HandoffManualIntervention, fmt.Errorf("position for %s did not become flat", symbol))
-			return
-		}
+	direction := "long"
+	if change < 0 {
+		direction = "short"
 	}
-	if !setPhase(store.HandoffStoppingSource, nil) {
-		return
-	}
-	source.Stop()
-	if err := st.Trader().UpdateStatus(binding.UserID, binding.SourceTraderID, false); err != nil {
+	if err := source.CancelGridOrdersByDirection(direction); err != nil {
 		setPhase(store.HandoffFailed, err)
 		return
 	}

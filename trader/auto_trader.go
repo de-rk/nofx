@@ -880,17 +880,19 @@ func (at *AutoTrader) runCycle() error {
 		}
 
 		actionRecord := store.DecisionAction{
-			Action:     d.Action,
-			Symbol:     d.Symbol,
-			Quantity:   0,
-			Leverage:   d.Leverage,
-			Price:      0,
-			StopLoss:   d.StopLoss,
-			TakeProfit: d.TakeProfit,
-			Confidence: int(d.Confidence),
-			Reasoning:  d.Reasoning,
-			Timestamp:  time.Now().UTC(),
-			Success:    false,
+			Action:                    d.Action,
+			Symbol:                    d.Symbol,
+			Quantity:                  0,
+			Leverage:                  d.Leverage,
+			Price:                     0,
+			StopLoss:                  d.StopLoss,
+			TakeProfit:                d.TakeProfit,
+			TrailingStopActivationPct: d.TrailingStopActivationPct,
+			TrailingStopCallbackPct:   d.TrailingStopCallbackPct,
+			Confidence:                int(d.Confidence),
+			Reasoning:                 d.Reasoning,
+			Timestamp:                 time.Now().UTC(),
+			Success:                   false,
 		}
 
 		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
@@ -1235,13 +1237,15 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 
 	// Create a minimal action record for tracking
 	actionRecord := &store.DecisionAction{
-		Symbol:     d.Symbol,
-		Action:     d.Action,
-		Leverage:   d.Leverage,
-		StopLoss:   d.StopLoss,
-		TakeProfit: d.TakeProfit,
-		Confidence: int(d.Confidence),
-		Reasoning:  d.Reasoning,
+		Symbol:                    d.Symbol,
+		Action:                    d.Action,
+		Leverage:                  d.Leverage,
+		StopLoss:                  d.StopLoss,
+		TakeProfit:                d.TakeProfit,
+		TrailingStopActivationPct: d.TrailingStopActivationPct,
+		TrailingStopCallbackPct:   d.TrailingStopCallbackPct,
+		Confidence:                int(d.Confidence),
+		Reasoning:                 d.Reasoning,
 	}
 
 	// Execute the decision
@@ -1378,6 +1382,9 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
 		logger.Infof("  ⚠ Failed to set take profit: %v", err)
 	}
+	if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
+		logger.Infof("  ⚠ Failed to set trailing stop: %v", err)
+	}
 
 	return nil
 }
@@ -1505,8 +1512,43 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
 		logger.Infof("  ⚠ Failed to set take profit: %v", err)
 	}
+	if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
+		logger.Infof("  ⚠ Failed to set trailing stop: %v", err)
+	}
 
 	return nil
+}
+
+// setTrailingStop submits the optional native trailing stop after an entry.
+// The AI supplies percentages; OKX requires an absolute activation price.
+func (at *AutoTrader) setTrailingStop(decision *kernel.Decision, quantity, entryPrice float64) error {
+	callbackPct := decision.TrailingStopCallbackPct
+	activationPct := decision.TrailingStopActivationPct
+	if callbackPct <= 0 {
+		return nil
+	}
+
+	trailingTrader, ok := at.trader.(interface {
+		SetTrailingStop(symbol string, positionSide string, quantity, activationPrice, callbackPct float64) error
+	})
+	if !ok {
+		return fmt.Errorf("exchange %s does not support native trailing stops", at.exchange)
+	}
+
+	activationPrice := 0.0
+	if activationPct > 0 && entryPrice > 0 {
+		if decision.Action == "open_short" {
+			activationPrice = entryPrice * (1 - activationPct/100)
+		} else {
+			activationPrice = entryPrice * (1 + activationPct/100)
+		}
+	}
+
+	positionSide := "LONG"
+	if decision.Action == "open_short" {
+		positionSide = "SHORT"
+	}
+	return trailingTrader.SetTrailingStop(decision.Symbol, positionSide, quantity, activationPrice, callbackPct)
 }
 
 // executeCloseLongWithRecord executes close long position and records detailed information

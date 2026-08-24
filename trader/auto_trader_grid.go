@@ -2028,6 +2028,116 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 	return nil
 }
 
+// PauseGridForHandoff pauses future grid cycles without touching existing
+// orders. Handoff uses this before selectively cancelling the grid side that
+// conflicts with the market direction.
+func (at *AutoTrader) PauseGridForHandoff(reason string) error {
+	if !at.IsGridStrategy() || at.gridState == nil {
+		return fmt.Errorf("trader is not a grid strategy")
+	}
+	at.gridState.mu.Lock()
+	at.gridState.IsPaused = true
+	at.gridState.mu.Unlock()
+	logger.Infof("[Grid] Paused for handoff: %s", reason)
+	return nil
+}
+
+// CancelGridOrdersByDirection cancels only ordinary grid entry orders on the
+// side opposite to direction. A long market direction cancels short entries;
+// a short market direction cancels long entries. Reduce-only orders are
+// excluded structurally (BUY+SHORT / SELL+LONG) and by protected order IDs.
+func (at *AutoTrader) CancelGridOrdersByDirection(direction string) error {
+	if !at.IsGridStrategy() || at.gridState == nil || at.config.StrategyConfig == nil || at.config.StrategyConfig.GridConfig == nil {
+		return fmt.Errorf("trader is not a grid strategy")
+	}
+	direction = strings.ToLower(strings.TrimSpace(direction))
+	if direction != "long" && direction != "short" {
+		return fmt.Errorf("invalid handoff direction %q", direction)
+	}
+
+	// Do not race an in-flight reduce placement: its ID is needed to protect it.
+	deadline := time.Now().Add(30 * time.Second)
+	for atomic.LoadInt32(&at.gridState.PendingReducePlacements) > 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	protectedIDs := at.activeTTradeProtectedIDs()
+	for id := range at.activeProfitReduceOrderIDs() {
+		protectedIDs[id] = true
+	}
+
+	openOrders, err := at.trader.GetOpenOrders(at.config.StrategyConfig.GridConfig.Symbol)
+	if err != nil {
+		return fmt.Errorf("failed to get open orders: %w", err)
+	}
+	cancelPositionSide := "LONG"
+	if direction == "long" {
+		cancelPositionSide = "SHORT"
+	}
+	toCancel := make([]string, 0, len(openOrders))
+	for _, order := range openOrders {
+		if protectedIDs[order.OrderID] {
+			continue
+		}
+		positionSide := strings.ToUpper(order.PositionSide)
+		side := strings.ToUpper(order.Side)
+		// Only grid entry orders are eligible. This deliberately excludes
+		// reduce-only orders even if they were not restored into memory yet.
+		isEntry := (side == "BUY" && positionSide == "LONG") || (side == "SELL" && positionSide == "SHORT")
+		if isEntry && positionSide == cancelPositionSide {
+			toCancel = append(toCancel, order.OrderID)
+		}
+	}
+
+	type batchCanceler interface {
+		CancelOrdersBatch(symbol string, orderIDs []string) int
+	}
+	cancelCount := 0
+	symbol := at.config.StrategyConfig.GridConfig.Symbol
+	if bc, ok := at.trader.(batchCanceler); ok {
+		cancelCount = bc.CancelOrdersBatch(symbol, toCancel)
+	} else if gridTrader, ok := at.trader.(GridTrader); ok {
+		for _, orderID := range toCancel {
+			if err := gridTrader.CancelOrder(symbol, orderID); err != nil {
+				logger.Warnf("[Grid] Failed to cancel opposing order %s: %v", orderID, err)
+			} else {
+				cancelCount++
+			}
+		}
+	} else if len(toCancel) > 0 {
+		return fmt.Errorf("exchange does not support individual grid order cancellation")
+	}
+
+	// Clear only the cancelled pending levels; filled levels and protected
+	// reduce orders remain intact in local state.
+	at.gridState.mu.Lock()
+	for i := range at.gridState.Levels {
+		level := &at.gridState.Levels[i]
+		if level.State == "pending" && containsString(toCancel, level.OrderID) {
+			level.State = "empty"
+			level.OrderID = ""
+			level.OrderQuantity = 0
+			level.OrderPlacedAt = time.Time{}
+		}
+	}
+	for _, orderID := range toCancel {
+		delete(at.gridState.OrderBook, orderID)
+	}
+	at.gridState.mu.Unlock()
+
+	logger.Infof("[Grid] Handoff direction=%s: cancelled %d opposing entry orders; protected %d reduce orders",
+		direction, cancelCount, len(protectedIDs))
+	return nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 // pauseGrid pauses grid trading
 func (at *AutoTrader) pauseGrid(reason string) error {
 	at.cancelAllGridOrders()

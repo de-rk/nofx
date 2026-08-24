@@ -140,6 +140,9 @@ type Decision struct {
 	PositionSizeUSD float64 `json:"position_size_usd,omitempty"`
 	StopLoss        float64 `json:"stop_loss,omitempty"`
 	TakeProfit      float64 `json:"take_profit,omitempty"`
+	// Percentages are expressed as price percentages (1.5 means 1.5%).
+	TrailingStopActivationPct float64 `json:"trailing_stop_activation_pct,omitempty"`
+	TrailingStopCallbackPct   float64 `json:"trailing_stop_callback_pct,omitempty"`
 
 	// Grid trading parameters
 	Price      float64 `json:"price,omitempty"`       // Limit order price (for grid)
@@ -1181,7 +1184,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("```json\n[\n")
 	// Use the actual configured position value ratio for BTC/ETH in the example
 	examplePositionSize := accountEquity * btcEthPosValueRatio
-	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300},\n",
+	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"trailing_stop_activation_pct\": 3, \"trailing_stop_callback_pct\": 1.5, \"confidence\": 85, \"risk_usd\": 300},\n",
 		riskControl.BTCETHMaxLeverage, examplePositionSize))
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\"}\n")
 	sb.WriteString("]\n```\n")
@@ -1190,6 +1193,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 	sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
 	sb.WriteString("- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd\n")
+	sb.WriteString("- OKX optional trailing stop when opening: `trailing_stop_activation_pct` (price move from entry before activation, 0 = immediate) and `trailing_stop_callback_pct` (callback percentage, 0.1-5.0). Set both together when using it.\n")
+	sb.WriteString("- The trailing stop is submitted after the market entry for the full opened quantity and coexists with the fixed stop-loss/take-profit.\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n\n")
 
 	// 8. Custom Prompt
@@ -2081,6 +2086,15 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
 			return fmt.Errorf("stop loss and take profit must be greater than 0")
 		}
+		if d.TrailingStopActivationPct < 0 || d.TrailingStopCallbackPct < 0 {
+			return fmt.Errorf("trailing stop percentages cannot be negative")
+		}
+		if d.TrailingStopActivationPct > 0 && d.TrailingStopCallbackPct <= 0 {
+			return fmt.Errorf("trailing_stop_callback_pct is required when trailing_stop_activation_pct is set")
+		}
+		if d.TrailingStopCallbackPct > 0 && (d.TrailingStopCallbackPct < 0.1 || d.TrailingStopCallbackPct > 5.0) {
+			return fmt.Errorf("trailing_stop_callback_pct must be between 0.1 and 5.0")
+		}
 
 		if d.Action == "open_long" {
 			if d.StopLoss >= d.TakeProfit {
@@ -2116,8 +2130,13 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			}
 		}
 
-		if riskRewardRatio < minRiskRewardRatio {
-			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
+		// The ratio is derived from decimal prices and can land a few ulps
+		// below an exact boundary (for example 3.000000 -> 2.9999999998).
+		// Keep a half-cent of the displayed two-decimal ratio as tolerance so a
+		// decision shown as 3.00:1 is not rejected due to binary float noise.
+		const riskRewardDisplayTolerance = 0.005
+		if riskRewardRatio+riskRewardDisplayTolerance < minRiskRewardRatio {
+			return fmt.Errorf("risk/reward ratio too low (%.4f:1), must be ≥%.1f:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
 				riskRewardRatio, minRiskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
 		}
 	}

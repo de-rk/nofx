@@ -8,13 +8,14 @@ import (
 
 // Re-export types for backward compatibility
 type (
-	ClosedPnLRecord   = types.ClosedPnLRecord
-	TradeRecord       = types.TradeRecord
-	Trader            = types.Trader
-	OpenOrder         = types.OpenOrder
-	LimitOrderRequest = types.LimitOrderRequest
-	LimitOrderResult  = types.LimitOrderResult
-	GridTrader        = types.GridTrader
+	ClosedPnLRecord    = types.ClosedPnLRecord
+	TradeRecord        = types.TradeRecord
+	Trader             = types.Trader
+	OpenOrder          = types.OpenOrder
+	LimitOrderRequest  = types.LimitOrderRequest
+	LimitOrderResult   = types.LimitOrderResult
+	GridTrader         = types.GridTrader
+	TrailingStopTrader = types.TrailingStopTrader
 )
 
 // GridTraderAdapter wraps a basic Trader to provide GridTrader interface
