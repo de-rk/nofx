@@ -436,8 +436,6 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 2. 撤销哪些不合理的挂单（单个撤销或全部撤销）
 3. 或者观望不动（hold）
 
-系统会自动处理：浮盈减仓、T字保护单的标记与减仓、以及网格越界后的自动重建。自动重建的具体规则见下方「重置网格」。这些无需你输出决策。
-
 ## 市场状态判断
 | 状态 | 条件 | 操作 |
 |------|------|------|
@@ -494,8 +492,6 @@ You are the decision engine for a bidirectional grid strategy. Each cycle, based
 1. Which empty grid levels to fill (place buy/sell orders)
 2. Which unreasonable pending orders to cancel (individual or all)
 3. Or hold and do nothing
-
-The system automatically handles profit-taking reductions, T-trade order tagging and reduction, and automatic grid rebuild. See "Grid Reset" below for the exact rebuild rules; you do not need to output decisions for automatic rebuilds.
 
 ## Market State
 | State | Conditions | Action |
