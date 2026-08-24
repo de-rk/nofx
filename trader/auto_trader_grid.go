@@ -639,14 +639,14 @@ func (at *AutoTrader) RunGridCycle() error {
 		at.checkInvestmentRefresh()
 	}
 
-	// Build grid context first — we need ATR14 and mark price for boundary check
+	// Build grid context for the AI decision and the automatic boundary check.
 	gridCtx, err := at.buildGridContext()
 	if err != nil {
 		return fmt.Errorf("failed to build grid context: %w", err)
 	}
 
-	// Price-boundary reset: use mark price from context and ATR to rebuild grid.
-	// Runs every cycle regardless of AI availability.
+	// Keep the safety net independent from AI: an out-of-bounds mark price
+	// triggers an automatic rebuild before the AI decision is requested.
 	at.maybeRebuildGrid(gridCtx)
 
 	// Get decisions — AI, algorithmic, or AI with algorithmic fallback,
@@ -2163,7 +2163,9 @@ func (at *AutoTrader) resumeGrid() error {
 // adjustGrid adjusts grid parameters
 func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
 	// Cancel existing orders first
-	at.cancelAllGridOrders()
+	if err := at.cancelAllGridOrders(); err != nil {
+		logger.Warnf("[Grid] adjust_grid: failed to cancel existing orders: %v", err)
+	}
 
 	gridConfig := at.config.StrategyConfig.GridConfig
 
@@ -2173,8 +2175,21 @@ func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
 		return fmt.Errorf("failed to get market price: %w", err)
 	}
 
-	// Recalculate bounds centered on current price (same logic as autoAdjustGrid)
+	// Preserve filled levels so an AI-requested rebuild does not lose local
+	// position bookkeeping. Protected reduce orders are retained by
+	// cancelAllGridOrders; filled positions are migrated after new levels exist.
+	at.gridState.mu.RLock()
+	filledPositions := make([]kernel.GridLevelInfo, 0)
+	for _, level := range at.gridState.Levels {
+		if level.State == "filled" {
+			filledPositions = append(filledPositions, level)
+		}
+	}
+	at.gridState.mu.RUnlock()
+
+	// Recalculate bounds, recreate levels, and migrate positions atomically.
 	at.gridState.mu.Lock()
+	defer at.gridState.mu.Unlock()
 	if gridConfig.UseATRBounds {
 		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
 		if err != nil {
@@ -2187,10 +2202,25 @@ func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
 		at.calculateDefaultBoundsLocked(price, gridConfig)
 	}
 	at.gridState.GridSpacing = (at.gridState.UpperPrice - at.gridState.LowerPrice) / float64(gridConfig.GridCount-1)
-	at.gridState.mu.Unlock()
-
-	at.initializeGridLevels(price, gridConfig)
-
+	at.initializeGridLevelsLocked(price, gridConfig)
+	for _, filledLevel := range filledPositions {
+		closestIdx, closestDist := -1, math.MaxFloat64
+		for i, newLevel := range at.gridState.Levels {
+			if dist := math.Abs(newLevel.Price - filledLevel.PositionEntry); dist < closestDist {
+				closestDist = dist
+				closestIdx = i
+			}
+		}
+		if closestIdx >= 0 {
+			migrated := &at.gridState.Levels[closestIdx]
+			migrated.State = "filled"
+			migrated.PositionEntry = filledLevel.PositionEntry
+			migrated.PositionSize = filledLevel.PositionSize
+			migrated.UnrealizedPnL = filledLevel.UnrealizedPnL
+			migrated.OrderID = filledLevel.OrderID
+			migrated.OrderQuantity = filledLevel.OrderQuantity
+		}
+	}
 	logger.Infof("[Grid] Adjusted grid bounds around price $%.2f: $%.2f - $%.2f",
 		price, at.gridState.LowerPrice, at.gridState.UpperPrice)
 	return nil

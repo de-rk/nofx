@@ -453,10 +453,10 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 | hold | 本周期不操作 | 市场状态不明朗、余额不足、或现有布局已合理无需调整 |
 
 ## 重置网格
-- **AI 主动重置**：需要重置时输出 {"action":"adjust_grid","symbol":"...","reasoning":"..."}。price、quantity、level_index、order_id 可填 0 或空字符串，系统会读取最新价格并计算参数。
+- **AI 主动重置**：你负责判断是否需要重置。需要重置时输出 {"action":"adjust_grid","symbol":"...","reasoning":"..."}。price、quantity、level_index、order_id 可填 0 或空字符串，系统会读取最新价格并计算参数。
 - **手动重置步骤**：系统先撤销普通网格挂单；读取最新市场价格作为中心；启用 ATR 边界时用 4h ATR14 × ATRMultiplier 作为上下半幅（倍数未设置时使用 2.0），否则使用默认上下 ±3%% ×（网格层数/10）；随后按新的边界、间距和分布重建全部网格层。
 - **持仓与保护单**：已有成交持仓会迁移到新网格中距离最近的层级并保留入场价、数量和盈亏状态；T字减仓单和浮盈减仓单属于保护单，不会被撤销。T字标记单是普通网格挂单，重置时可以被撤销。
-- **系统自动重置**：每个网格周期、调用 AI 前检查标记价格；当 markPrice > upperPrice × 1.02 或 markPrice < lowerPrice × 0.98 时，系统自动以标记价格为中心重建，优先使用当前行情上下文的 ATR14 × ATRMultiplier，ATR 不可用时使用上述默认范围。此时无需输出 adjust_grid。
+- **重置时机**：当价格持续偏离网格中心、当前边界已失真，或波动率变化使现有网格不再合理时，主动输出 adjust_grid。系统也会在 markPrice > upperPrice × 1.02 或 markPrice < lowerPrice × 0.98 时自动重置，两种方式并行。
 
 ## 操作约束与规则
 
@@ -510,10 +510,10 @@ You are the decision engine for a bidirectional grid strategy. Each cycle, based
 | hold | No action this cycle | Market unclear, insufficient balance, or current layout already reasonable |
 
 ## Grid Reset
-- **AI-requested reset**: output {"action":"adjust_grid","symbol":"...","reasoning":"..."} when a reset is warranted. price, quantity, level_index, and order_id may be 0 or empty; the system reads the latest price and calculates the parameters.
+- **AI-requested reset**: you decide whether a reset is warranted. Output {"action":"adjust_grid","symbol":"...","reasoning":"..."} when needed. price, quantity, level_index, and order_id may be 0 or empty; the system reads the latest price and calculates the parameters.
 - **Manual reset procedure**: cancel ordinary grid orders, read the latest market price as the center, then use 4h ATR14 × ATRMultiplier as the half-range when ATR bounds are enabled (default multiplier 2.0). Otherwise use the default ±3%% × (grid count/10) range, and rebuild all levels with the new bounds, spacing, and distribution.
 - **Positions and protected orders**: filled positions migrate to the nearest new level with entry price, size, and PnL state preserved. T-trade reduce orders and profit-reduce orders are protected and are not cancelled; T-trade prep orders are ordinary grid orders and may be cancelled during a reset.
-- **Automatic reset**: before each AI cycle, the system checks mark price. If markPrice > upperPrice × 1.02 or markPrice < lowerPrice × 0.98, it automatically rebuilds around mark price, preferring the current-context ATR14 × ATRMultiplier and falling back to the default range when ATR is unavailable. Do not output adjust_grid for this automatic reset.
+- **When to reset**: output adjust_grid when price persistently drifts from the grid center, bounds are stale, or volatility changes make the current layout unreasonable. The system also automatically resets when markPrice > upperPrice × 1.02 or markPrice < lowerPrice × 0.98; both paths operate independently.
 
 ## Constraints and Rules
 
