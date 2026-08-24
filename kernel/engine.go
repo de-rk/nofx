@@ -1172,6 +1172,13 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	}
 
 	// 7. Output format
+	sb.WriteString("# OKX Native Trailing Stop\n\n")
+	sb.WriteString("For a new open_long or open_short decision, you may configure an OKX native trailing stop with both fields below when you want to protect a trend's profits:\n")
+	sb.WriteString("- `trailing_stop_activation_pct`: favorable price move from entry before the trailing stop activates. Use 0 for immediate activation; otherwise use a non-negative percentage. For a long, activation is above entry; for a short, activation is below entry.\n")
+	sb.WriteString("- `trailing_stop_callback_pct`: permitted pullback from the best price after activation. Must be 0.1-5.0. A smaller value protects profit sooner; a larger value gives the trend more room.\n")
+	sb.WriteString("- Set both fields together when using the trailing stop. Omit both fields when it is not appropriate. The backend submits it after the market entry for the full opened quantity.\n")
+	sb.WriteString("- Always provide fixed `stop_loss` and `take_profit` as well: the OKX trailing stop is an additional native protection order, not a replacement for either field.\n\n")
+
 	sb.WriteString("# Output Format (Strictly Follow)\n\n")
 	sb.WriteString("**Must use XML tags <reasoning> and <decision> to separate chain of thought and decision JSON, avoiding parsing errors**\n\n")
 	sb.WriteString("## Format Requirements\n\n")
@@ -1193,8 +1200,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 	sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
 	sb.WriteString("- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd\n")
-	sb.WriteString("- OKX optional trailing stop when opening: `trailing_stop_activation_pct` (price move from entry before activation, 0 = immediate) and `trailing_stop_callback_pct` (callback percentage, 0.1-5.0). Set both together when using it.\n")
-	sb.WriteString("- The trailing stop is submitted after the market entry for the full opened quantity and coexists with the fixed stop-loss/take-profit.\n")
+	sb.WriteString("- For OKX native trailing-stop settings, follow the `trailing_stop_activation_pct` and `trailing_stop_callback_pct` rules above.\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n\n")
 
 	// 8. Custom Prompt
