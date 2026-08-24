@@ -25,6 +25,10 @@ var tokenBlacklist = struct {
 // maxBlacklistEntries is the maximum capacity threshold for blacklist
 const maxBlacklistEntries = 100_000
 
+// jwtValidity is the lifetime of a user session issued at login, OTP
+// verification, or registration completion.
+const jwtValidity = 7 * 24 * time.Hour
+
 // OTPIssuer is the OTP issuer name
 const OTPIssuer = "nofxAI"
 
@@ -117,7 +121,7 @@ func GenerateJWT(userID, email string) (string, error) {
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(3 * 24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtValidity)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "nofxAI",

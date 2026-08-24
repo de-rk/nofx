@@ -34,7 +34,7 @@
 | 文件 | 说明 |
 |------|------|
 | `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；开仓决策支持 OKX 移动止盈止损激活/回撤百分比字段；风险收益比校验含显示精度容差；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
-| `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；已移除趋势上/下行反向布局、余额不足处理和 reduce 操作禁用文案；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
+| `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；prompt 明确 `adjust_grid` 的 AI 主动重置方法、ATR/默认边界、保护减仓单和越界自动重建规则；已移除趋势上/下行反向布局、余额不足处理和 reduce 操作禁用文案；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
 | `prompt_builder.go` | 根据市场状态动态调整 prompt 的逻辑（识别趋势/震荡、计算技术指标、生成实时风险提示） |
 | `formatter.go` | 决策输出格式化 |
 | `schema.go` | AI 输出 JSON schema 定义 |
@@ -145,7 +145,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `auth/auth.go` | JWT 鉴权、登录逻辑 |
+| `auth/auth.go` | JWT 鉴权、登录逻辑；用户登录会话有效期为 7 天 |
 | `security/url_validator.go` | 请求 URL 白名单校验 |
 | `crypto/crypto.go` | AES 加密/解密（API Key 存储） |
 
