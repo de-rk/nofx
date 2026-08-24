@@ -89,39 +89,50 @@ func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline
 		coinankExchange = coinank_enum.Binance
 	}
 
-	// Call CoinAnk free/open API (no authentication required)
+	// Call CoinAnk free/open API (no authentication required). CoinAnk can
+	// return an empty or otherwise unusable response with a nil HTTP error, so
+	// validate the converted candles before deciding that the request succeeded.
 	ctx := context.Background()
 	ts := time.Now().UnixMilli()
-	// Use "To" side to search backward from current time (get historical klines)
-	coinankKlines, err := coinank_api.Kline(ctx, symbol, coinankExchange, ts, coinank_enum.To, limit, coinankInterval)
-	if err != nil {
-		// If exchange-specific data fails, fallback to Binance
-		if coinankExchange != coinank_enum.Binance {
-			logger.Warnf("⚠️ CoinAnk %s data failed, falling back to Binance: %v", exchange, err)
-			coinankKlines, err = coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, limit, coinankInterval)
-			if err != nil {
-				return nil, fmt.Errorf("CoinAnk API error (fallback): %w", err)
+	fetch := func(apiExchange coinank_enum.Exchange) ([]Kline, error) {
+		coinankKlines, err := coinank_api.Kline(ctx, symbol, apiExchange, ts, coinank_enum.To, limit, coinankInterval)
+		if err != nil {
+			return nil, err
+		}
+
+		klines := make([]Kline, len(coinankKlines))
+		for i, ck := range coinankKlines {
+			klines[i] = Kline{
+				OpenTime:  ck.StartTime,
+				Open:      ck.Open,
+				High:      ck.High,
+				Low:       ck.Low,
+				Close:     ck.Close,
+				Volume:    ck.Volume,
+				CloseTime: ck.EndTime,
 			}
-		} else {
-			return nil, fmt.Errorf("CoinAnk API error: %w", err)
 		}
+		return cleanKlines(klines, interval, time.Now())
 	}
 
-	// Convert coinank kline format to market.Kline format
-	klines := make([]Kline, len(coinankKlines))
-	for i, ck := range coinankKlines {
-		klines[i] = Kline{
-			OpenTime:  ck.StartTime,
-			Open:      ck.Open,
-			High:      ck.High,
-			Low:       ck.Low,
-			Close:     ck.Close,
-			Volume:    ck.Volume,
-			CloseTime: ck.EndTime,
-		}
+	klines, err := fetch(coinankExchange)
+	if err == nil {
+		return klines, nil
+	}
+	if coinankExchange == coinank_enum.Binance {
+		return nil, fmt.Errorf("CoinAnk API error: %w", err)
 	}
 
-	return cleanKlines(klines, interval, time.Now())
+	// If exchange-specific data fails at either the HTTP or validation stage,
+	// use Binance as a market-data fallback. This keeps OKX/other exchange
+	// order execution from failing solely because CoinAnk has no usable candle
+	// for that exchange at the moment.
+	logger.Warnf("⚠️ CoinAnk %s data failed validation, falling back to Binance: %v", exchange, err)
+	klines, fallbackErr := fetch(coinank_enum.Binance)
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("CoinAnk API error (fallback): %w", fallbackErr)
+	}
+	return klines, nil
 }
 
 // getKlinesFromHyperliquid fetches kline data from Hyperliquid API for xyz dex assets
