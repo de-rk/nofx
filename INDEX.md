@@ -33,7 +33,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；system prompt 明确 AI 可在 OKX 开仓时成对设置原生移动止盈止损的激活/回撤百分比（含多空方向、取值范围及与固定止盈止损共存规则）；风险收益比校验含显示精度容差；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
+| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；system prompt 明确 AI 可在 OKX 开仓时成对设置原生移动止盈止损的激活/回撤百分比（含多空方向、取值范围及与固定止盈止损共存规则）；AI user prompt 不再注入历史交易统计；风险收益比校验含显示精度容差；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
 | `engine_prompt_test.go` | `StrategyEngine.BuildSystemPrompt` 的 OKX 原生移动止盈止损 prompt 回归测试 |
 | `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；prompt 支持 AI 主动 `adjust_grid`，并说明与价格越界自动重建并行的 ATR/默认边界和保护减仓单规则；已移除浮盈减仓等系统处理豁免文案、趋势上/下行反向布局、余额不足处理和 reduce 操作禁用文案；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
 | `prompt_builder.go` | 根据市场状态动态调整 prompt 的逻辑（识别趋势/震荡、计算技术指标、生成实时风险提示） |
@@ -47,7 +47,7 @@
 | 文件 | 说明 |
 |------|------|
 | `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；开仓后按 AI 参数调用交易所原生移动止盈止损；平空与利润回撤全平均按标准化后的持仓方向执行，避免依赖仓位数量正负；支持接替时按方向撤销对侧网格普通挂单并保留减仓单；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
-| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、AI 主动 `adjust_grid` 与价格越界自动重建并行、T-trade（T字操作）、减仓、syncExchangeState、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；AI 重建会保留保护订单并将已成交持仓迁移到新网格最近层；支持接替时暂停网格周期、按方向撤销对侧普通入口单并保护减仓单；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路，交易日志 source 按实际来源标为 `"ai"` 或 `"algo"` |
+| `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、AI 主动 `adjust_grid` 与价格越界自动重建并行、定期刷新投资额后复用 `adjust_grid`（保留 T 字/浮盈减仓保护单并迁移持仓）、T-trade（T字操作）、减仓、syncExchangeState、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；支持接替时暂停网格周期、按方向撤销对侧普通入口单并保护减仓单；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路，交易日志 source 按实际来源标为 `"ai"` 或 `"algo"` |
 | `position_rebuild.go` | 持仓重建逻辑：从交易所读取持仓，匹配到网格层级，重建本地状态 |
 | `position_snapshot.go` | 持仓快照定时存储（用于绩效分析） |
 | `interface.go` | `GridTrader` 与可选 `TrailingStopTrader` 接口定义 |

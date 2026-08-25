@@ -1615,7 +1615,8 @@ func (at *AutoTrader) investmentFromBalance(bal map[string]interface{}) float64 
 	return 0
 }
 
-// checkInvestmentRefresh refreshes TotalInvestment from wallet balance on a configurable interval.
+// checkInvestmentRefresh refreshes TotalInvestment from wallet balance on a configurable interval,
+// then rebuilds the grid with the refreshed per-level allocation.
 func (at *AutoTrader) checkInvestmentRefresh() {
 	gridConfig := at.config.StrategyConfig.GridConfig
 	days := gridConfig.InvestmentRefreshDays
@@ -1648,16 +1649,22 @@ func (at *AutoTrader) checkInvestmentRefresh() {
 	old := gridConfig.TotalInvestment
 	gridConfig.TotalInvestment = inv
 
+	// Reuse adjustGrid: it preserves T-trade/profit-reduce orders and migrates
+	// filled positions while rebuilding levels with the updated investment.
+	if err := at.adjustGrid(&kernel.Decision{
+		Symbol:    gridConfig.Symbol,
+		Action:    "adjust_grid",
+		Reasoning: "periodic investment refresh",
+	}); err != nil {
+		logger.Warnf("[Grid] Investment refresh: grid rebuild failed after %.2f -> %.2f USDT: %v", old, inv, err)
+		return
+	}
+
 	at.gridState.mu.Lock()
 	at.gridState.LastInvestmentRefreshAt = time.Now()
 	at.gridState.mu.Unlock()
 
-	logger.Infof("[Grid] Periodic investment refresh: %.2f -> %.2f USDT (interval=%dd)", old, inv, days)
-
-	// Investment refresh no longer triggers automatic grid reset.
-	// Grid will naturally adjust through autoAdjustGrid when price moves
-	// far enough from the current grid center (triggered after AI decisions).
-	// This prevents unnecessary disruption to active positions and open orders.
+	logger.Infof("[Grid] Periodic investment refresh and grid rebuild: %.2f -> %.2f USDT (interval=%dd)", old, inv, days)
 }
 
 // placeGridLimitOrder places a limit order for grid trading
