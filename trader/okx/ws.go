@@ -822,6 +822,7 @@ func (ws *OKXWebSocket) handlePositions(raw json.RawMessage) {
 		if contracts == 0 {
 			continue
 		}
+		side := positionSideFromOKX(pos.PosSide, contracts)
 		if contracts < 0 {
 			contracts = -contracts
 		}
@@ -837,10 +838,6 @@ func (ws *OKXWebSocket) handlePositions(raw json.RawMessage) {
 		cTime, _ := strconv.ParseInt(pos.CTime, 10, 64)
 		uTime, _ := strconv.ParseInt(pos.UTime, 10, 64)
 
-		side := "long"
-		if pos.PosSide == "short" {
-			side = "short"
-		}
 		mgnMode := pos.MgnMode
 		if mgnMode == "" {
 			mgnMode = "cross"
@@ -856,6 +853,7 @@ func (ws *OKXWebSocket) handlePositions(raw json.RawMessage) {
 			"leverage":         lever,
 			"liquidationPrice": liqPx,
 			"side":             side,
+			"posSide":          pos.PosSide,
 			"mgnMode":          mgnMode,
 			"createdTime":      cTime,
 			"updatedTime":      uTime,

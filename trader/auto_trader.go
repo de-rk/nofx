@@ -1652,7 +1652,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 						entryPrice = ep
 					}
 					if amt, ok := pos["positionAmt"].(float64); ok {
-						quantity = -amt // positionAmt is negative for short
+						quantity = amt
 					}
 					break
 				}
@@ -2835,13 +2835,17 @@ func (at *AutoTrader) handleProfitDrawdownTrigger() {
 	for _, pos := range positions {
 		symbol, _ := pos["symbol"].(string)
 		size, _ := pos["positionAmt"].(float64)
+		side, _ := pos["side"].(string)
 		if size == 0 {
 			continue
 		}
-		if size > 0 {
+		if strings.EqualFold(side, "long") {
 			at.trader.CloseLong(symbol, size)
+		} else if strings.EqualFold(side, "short") {
+			at.trader.CloseShort(symbol, size)
 		} else {
-			at.trader.CloseShort(symbol, -size)
+			logger.Warnf("[PROFIT DRAWDOWN] Skipping %s with unknown position side %q", symbol, side)
+			continue
 		}
 		logger.Infof("🔴 [PROFIT DRAWDOWN] Closed position: %s (size: %.4f)", symbol, size)
 	}

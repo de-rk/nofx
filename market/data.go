@@ -129,10 +129,23 @@ func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline
 	// for that exchange at the moment.
 	logger.Warnf("⚠️ CoinAnk %s data failed validation, falling back to Binance: %v", exchange, err)
 	klines, fallbackErr := fetch(coinank_enum.Binance)
-	if fallbackErr != nil {
-		return nil, fmt.Errorf("CoinAnk API error (fallback): %w", fallbackErr)
+	if fallbackErr == nil {
+		return klines, nil
 	}
-	return klines, nil
+
+	// CoinAnk can return malformed candles for both the requested exchange and
+	// its Binance feed. Use the existing Binance Futures REST client as a final
+	// source so transient provider quality issues do not block trading cycles.
+	logger.Warnf("⚠️ CoinAnk Binance fallback failed, using Binance Futures REST: %v", fallbackErr)
+	directKlines, directErr := NewAPIClient().GetKlines(symbol, interval, limit)
+	if directErr != nil {
+		return nil, fmt.Errorf("CoinAnk API error (fallback): %w; Binance Futures REST fallback: %v", fallbackErr, directErr)
+	}
+	directKlines, directErr = cleanKlines(directKlines, interval, time.Now())
+	if directErr != nil {
+		return nil, fmt.Errorf("CoinAnk API error (fallback): %w; Binance Futures REST fallback: %v", fallbackErr, directErr)
+	}
+	return directKlines, nil
 }
 
 // getKlinesFromHyperliquid fetches kline data from Hyperliquid API for xyz dex assets

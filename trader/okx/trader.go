@@ -289,14 +289,43 @@ func (t *OKXTrader) setPositionMode() error {
 	if err != nil {
 		// Ignore error if already in dual position mode
 		if strings.Contains(err.Error(), "already") || strings.Contains(err.Error(), "Position mode is not modified") {
+			t.positionMode = "long_short_mode"
 			logger.Infof("  ✓ OKX account is already in dual position mode")
 			return nil
 		}
 		return err
 	}
 
+	t.positionMode = "long_short_mode"
 	logger.Infof("  ✓ OKX account switched to dual position mode")
 	return nil
+}
+
+// positionSideFromOKX derives direction from OKX's explicit hedge-mode side or,
+// in net mode, from the signed contract position.
+func positionSideFromOKX(posSide string, contracts float64) string {
+	switch strings.ToLower(posSide) {
+	case "short":
+		return "short"
+	case "long":
+		return "long"
+	default: // net mode has a signed pos value: positive=long, negative=short
+		if contracts < 0 {
+			return "short"
+		}
+		return "long"
+	}
+}
+
+// orderPosSide returns the position-side value required by the account mode.
+func (t *OKXTrader) orderPosSide(positionSide string) string {
+	if t.positionMode == "net_mode" {
+		return "net"
+	}
+	if strings.EqualFold(positionSide, "short") {
+		return "short"
+	}
+	return "long"
 }
 
 // sign generates OKX API signature
@@ -528,12 +557,9 @@ func (t *OKXTrader) GetPositions() ([]map[string]interface{}, error) {
 		symbol := t.convertSymbolBack(pos.InstId)
 		logger.Infof("🔍 OKX symbol conversion: %s → %s", pos.InstId, symbol)
 
-		// Determine direction and ensure contractCount is positive
-		side := "long"
-		if pos.PosSide == "short" {
-			side = "short"
-		}
-		// OKX short position's pos is negative, need to take absolute value
+		// In net mode, posSide is "net" and the signed position determines
+		// direction. Preserve that direction before normalizing size.
+		side := positionSideFromOKX(pos.PosSide, contractCount)
 		if contractCount < 0 {
 			contractCount = -contractCount
 		}
@@ -569,6 +595,7 @@ func (t *OKXTrader) GetPositions() ([]map[string]interface{}, error) {
 			"leverage":         leverage,
 			"liquidationPrice": liqPrice,
 			"side":             side,
+			"posSide":          pos.PosSide,
 			"mgnMode":          mgnMode,
 			"createdTime":      cTime,
 			"updatedTime":      uTime,
@@ -685,8 +712,11 @@ func (t *OKXTrader) SetLeverage(symbol string, leverage int) error {
 		mgnMode = "cross"
 	}
 
-	// Set leverage for both long and short
-	for _, posSide := range []string{"long", "short"} {
+	posSides := []string{"long", "short"}
+	if t.positionMode == "net_mode" {
+		posSides = []string{"net"}
+	}
+	for _, posSide := range posSides {
 		body := map[string]interface{}{
 			"instId":  instId,
 			"lever":   strconv.Itoa(leverage),
@@ -744,7 +774,7 @@ func (t *OKXTrader) OpenLong(symbol string, quantity float64, leverage int) (map
 		"instId":  instId,
 		"tdMode":  t.tdMode(),
 		"side":    "buy",
-		"posSide": "long",
+		"posSide": t.orderPosSide("long"),
 		"ordType": "market",
 		"sz":      szStr,
 		"clOrdId": genOkxClOrdID(),
@@ -821,7 +851,7 @@ func (t *OKXTrader) OpenShort(symbol string, quantity float64, leverage int) (ma
 		"instId":  instId,
 		"tdMode":  t.tdMode(),
 		"side":    "sell",
-		"posSide": "short",
+		"posSide": t.orderPosSide("short"),
 		"ordType": "market",
 		"sz":      szStr,
 		"clOrdId": genOkxClOrdID(),
@@ -883,16 +913,22 @@ func (t *OKXTrader) CloseLong(symbol string, quantity float64) (map[string]inter
 	var actualQty float64
 	var posFound bool
 	var posMgnMode string = "cross" // Default to cross margin
+	positionMode := t.positionMode
 	logger.Infof("🔍 OKX CloseLong: searching for symbol=%s in %d positions", symbol, len(positions))
 	for _, pos := range positions {
 		logger.Infof("🔍 OKX position: symbol=%v, side=%v, positionAmt=%v, mgnMode=%v", pos["symbol"], pos["side"], pos["positionAmt"], pos["mgnMode"])
 		if pos["symbol"] == symbol {
 			side := pos["side"].(string)
-			// In net_mode, "long" means positive position
-			// In dual mode, check explicit "long" side
-			if side == "long" || (t.positionMode == "net_mode" && side == "long") {
+			if side == "long" {
 				actualQty = pos["positionAmt"].(float64)
 				posFound = true
+				if rawPosSide, ok := pos["posSide"].(string); ok {
+					if strings.EqualFold(rawPosSide, "net") {
+						positionMode = "net_mode"
+					} else if strings.EqualFold(rawPosSide, "long") || strings.EqualFold(rawPosSide, "short") {
+						positionMode = "long_short_mode"
+					}
+				}
 				if mgnMode, ok := pos["mgnMode"].(string); ok && mgnMode != "" {
 					posMgnMode = mgnMode
 				}
@@ -934,7 +970,7 @@ func (t *OKXTrader) CloseLong(symbol string, quantity float64) (map[string]inter
 	}
 
 	// Only add posSide in dual mode (long_short_mode)
-	if t.positionMode == "long_short_mode" {
+	if positionMode == "long_short_mode" {
 		body["posSide"] = "long"
 	}
 
@@ -994,6 +1030,7 @@ func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]inte
 	var actualQty float64
 	var posFound bool
 	var posMgnMode string = "cross" // Default to cross margin
+	positionMode := t.positionMode
 	logger.Infof("🔍 OKX CloseShort searching positions: symbol=%s, current position count=%d", symbol, len(positions))
 	for _, pos := range positions {
 		logger.Infof("🔍 OKX position: symbol=%v, side=%v, positionAmt=%v, mgnMode=%v",
@@ -1001,6 +1038,13 @@ func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]inte
 		if pos["symbol"] == symbol && pos["side"] == "short" {
 			actualQty = pos["positionAmt"].(float64)
 			posFound = true
+			if rawPosSide, ok := pos["posSide"].(string); ok {
+				if strings.EqualFold(rawPosSide, "net") {
+					positionMode = "net_mode"
+				} else if strings.EqualFold(rawPosSide, "long") || strings.EqualFold(rawPosSide, "short") {
+					positionMode = "long_short_mode"
+				}
+			}
 			if mgnMode, ok := pos["mgnMode"].(string); ok && mgnMode != "" {
 				posMgnMode = mgnMode
 			}
@@ -1045,7 +1089,7 @@ func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]inte
 	}
 
 	// Only add posSide in dual mode (long_short_mode)
-	if t.positionMode == "long_short_mode" {
+	if positionMode == "long_short_mode" {
 		body["posSide"] = "short"
 	}
 
@@ -1143,10 +1187,10 @@ func (t *OKXTrader) SetStopLoss(symbol string, positionSide string, quantity, st
 
 	// Determine direction
 	side := "sell"
-	posSide := "long"
+	posSide := t.orderPosSide("long")
 	if strings.ToUpper(positionSide) == "SHORT" {
 		side = "buy"
-		posSide = "short"
+		posSide = t.orderPosSide("short")
 	}
 
 	body := map[string]interface{}{
@@ -1186,10 +1230,10 @@ func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, 
 
 	// Determine direction
 	side := "sell"
-	posSide := "long"
+	posSide := t.orderPosSide("long")
 	if strings.ToUpper(positionSide) == "SHORT" {
 		side = "buy"
-		posSide = "short"
+		posSide = t.orderPosSide("short")
 	}
 
 	body := map[string]interface{}{
@@ -1234,10 +1278,10 @@ func (t *OKXTrader) SetTrailingStop(symbol string, positionSide string, quantity
 	szStr := t.formatSize(sz, inst)
 
 	side := "sell"
-	posSide := "long"
+	posSide := t.orderPosSide("long")
 	if strings.EqualFold(positionSide, "SHORT") {
 		side = "buy"
-		posSide = "short"
+		posSide = t.orderPosSide("short")
 	}
 
 	body := map[string]interface{}{
@@ -1856,6 +1900,9 @@ func (t *OKXTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitO
 		} else {
 			posSide = "long"
 		}
+	}
+	if t.positionMode == "net_mode" {
+		posSide = "net"
 	}
 
 	body := map[string]interface{}{
