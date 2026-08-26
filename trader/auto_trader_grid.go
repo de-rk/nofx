@@ -1557,25 +1557,17 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 		}
 		return err
 	case "reduce_long":
-		// Block if T-trade is active — reduces are auto-placed when prep orders fill
-		at.gridState.mu.RLock()
-		tTradeActive := len(at.gridState.TTradePrepOrders) > 0 || len(at.gridState.TTradeReduceOrders) > 0
-		at.gridState.mu.RUnlock()
-		if tTradeActive {
-			logger.Infof("[Grid] reduce_long skipped: T-trade is active, reduces are auto-placed")
-			return nil
+		if d.Quantity <= 0 {
+			return fmt.Errorf("reduce_long requires quantity greater than 0")
 		}
-		return fmt.Errorf("reduce_long not available: T-trade is not active")
+		_, err := at.trader.CloseLong(d.Symbol, d.Quantity)
+		return err
 	case "reduce_short":
-		// Block if T-trade is active — reduces are auto-placed when prep orders fill
-		at.gridState.mu.RLock()
-		tTradeActive2 := len(at.gridState.TTradePrepOrders) > 0 || len(at.gridState.TTradeReduceOrders) > 0
-		at.gridState.mu.RUnlock()
-		if tTradeActive2 {
-			logger.Infof("[Grid] reduce_short skipped: T-trade is active, reduces are auto-placed")
-			return nil
+		if d.Quantity <= 0 {
+			return fmt.Errorf("reduce_short requires quantity greater than 0")
 		}
-		return fmt.Errorf("reduce_short not available: T-trade is not active")
+		_, err := at.trader.CloseShort(d.Symbol, d.Quantity)
+		return err
 	default:
 		logger.Warnf("[Grid] Unknown action: %s", d.Action)
 		return nil

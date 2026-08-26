@@ -450,6 +450,10 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 | cancel_order | 撤销指定订单 | 挂单价格严重偏离市场、长期未成交、或市场状态转变需调整布局 |
 | cancel_all_orders | 撤销所有挂单 | 市场剧烈波动需全面重新布局 |
 | adjust_grid | 以当前价格为中心重置网格边界和层级 | 当前网格已明显失真、价格持续偏离中心，或需要按最新波动率重新锚定 |
+| reduce_long | 市价部分平多仓 | 多头风险需要主动降低，但不需要全部平仓 |
+| reduce_short | 市价部分平空仓 | 空头风险需要主动降低，但不需要全部平仓 |
+| close_long | 市价全平多仓 | 多头风险失控或需要完全退出 |
+| close_short | 市价全平空仓 | 空头风险失控或需要完全退出 |
 | hold | 本周期不操作 | 市场状态不明朗、余额不足、或现有布局已合理无需调整 |
 
 ## 重置网格
@@ -459,6 +463,12 @@ func buildGridSystemPromptZh(config *store.GridStrategyConfig) string {
 - **重置时机**：当价格持续偏离网格中心、当前边界已失真，或波动率变化使现有网格不再合理时，主动输出 adjust_grid。系统也会在 markPrice > upperPrice × 1.02 或 markPrice < lowerPrice × 0.98 时自动重置，两种方式并行。
 
 ## 操作约束与规则
+
+### 主动减仓规则
+- reduce_long / reduce_short 是普通市价部分平仓动作。quantity 必须填写实际要减掉的标的数量，且大于 0、不得超过对应方向当前持仓；price、level_index、order_id 填 0 或空字符串。
+- reduce_long 仅减少多头，reduce_short 仅减少空头；需要全部平仓时使用 close_long / close_short。
+- 如果 User Prompt 中出现「T字保护订单」，这些订单已代表系统正在执行反向减仓。不得撤销、替换或重复覆盖它们；优先等待其成交，除非风险需要额外的普通减仓。
+- 浮盈阶梯减仓也由系统自动下 reduce-only 保护单。主动减仓只用于你基于市场风险作出的额外部分平仓决定。
 
 ### 下单规则
 - quantity 必须使用层级表中的「建议数量」
@@ -507,6 +517,10 @@ You are the decision engine for a bidirectional grid strategy. Each cycle, based
 | cancel_order | Cancel a specific order | Order price severely off-market, long unfilled, or market regime change requires layout adjustment |
 | cancel_all_orders | Cancel all pending orders | Market volatility requires full re-layout |
 | adjust_grid | Recenter the grid and rebuild its bounds and levels | The current grid is materially stale, price keeps drifting from its center, or volatility requires a new anchor |
+| reduce_long | Partially close a long position at market | Long-side risk warrants a reduction but not a full exit |
+| reduce_short | Partially close a short position at market | Short-side risk warrants a reduction but not a full exit |
+| close_long | Fully close a long position at market | Long-side risk is invalidated or requires a complete exit |
+| close_short | Fully close a short position at market | Short-side risk is invalidated or requires a complete exit |
 | hold | No action this cycle | Market unclear, insufficient balance, or current layout already reasonable |
 
 ## Grid Reset
@@ -516,6 +530,12 @@ You are the decision engine for a bidirectional grid strategy. Each cycle, based
 - **When to reset**: output adjust_grid when price persistently drifts from the grid center, bounds are stale, or volatility changes make the current layout unreasonable. The system also automatically resets when markPrice > upperPrice × 1.02 or markPrice < lowerPrice × 0.98; both paths operate independently.
 
 ## Constraints and Rules
+
+### Active Reduction Rules
+- reduce_long / reduce_short are ordinary partial market-close actions. Set quantity to the base-asset quantity to reduce; it must be greater than 0 and no larger than the current position on that side. Set price and level_index to 0, and order_id to an empty string.
+- reduce_long reduces only longs; reduce_short reduces only shorts. Use close_long / close_short for a full exit.
+- If the User Prompt lists T-Trade Protected Orders, the system is already carrying out contra-side reductions. Never cancel, replace, or duplicate those orders; wait for them unless risk warrants an additional ordinary reduction.
+- Profit-step reductions are also placed automatically by the system as reduce-only protection orders. Use active reductions only for an additional partial exit justified by market risk.
 
 ### Order Placement Rules
 - quantity must use "Suggested Qty" from the level table
