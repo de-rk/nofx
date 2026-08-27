@@ -774,11 +774,15 @@ func (t *OKXTrader) OpenLong(symbol string, quantity float64, leverage int) (map
 		"instId":  instId,
 		"tdMode":  t.tdMode(),
 		"side":    "buy",
-		"posSide": t.orderPosSide("long"),
 		"ordType": "market",
 		"sz":      szStr,
 		"clOrdId": genOkxClOrdID(),
 		"tag":     okxTag,
+	}
+	// OKX requires posSide only in hedge mode. In one-way/net mode the
+	// explicit value "net" is rejected by the trade order endpoint.
+	if t.positionMode == "long_short_mode" {
+		body["posSide"] = "long"
 	}
 
 	data, err := t.doRequest("POST", okxOrderPath, body)
@@ -851,11 +855,13 @@ func (t *OKXTrader) OpenShort(symbol string, quantity float64, leverage int) (ma
 		"instId":  instId,
 		"tdMode":  t.tdMode(),
 		"side":    "sell",
-		"posSide": t.orderPosSide("short"),
 		"ordType": "market",
 		"sz":      szStr,
 		"clOrdId": genOkxClOrdID(),
 		"tag":     okxTag,
+	}
+	if t.positionMode == "long_short_mode" {
+		body["posSide"] = "short"
 	}
 
 	data, err := t.doRequest("POST", okxOrderPath, body)

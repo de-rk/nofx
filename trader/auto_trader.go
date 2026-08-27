@@ -1378,7 +1378,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 
 	// A native trailing stop is the single protection order when configured.
 	// Fixed TP/SL are only a fallback if the trailing order cannot be created.
-	if decision.TrailingStopCallbackPct > 0 {
+	if at.trailingStopEnabled() && decision.TrailingStopCallbackPct > 0 {
 		if err := at.trader.CancelStopOrders(decision.Symbol); err != nil {
 			logger.Infof("  ⚠ Failed to clear previous protection orders: %v", err)
 		}
@@ -1511,7 +1511,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 
 	// A native trailing stop is the single protection order when configured.
 	// Fixed TP/SL are only a fallback if the trailing order cannot be created.
-	if decision.TrailingStopCallbackPct > 0 {
+	if at.trailingStopEnabled() && decision.TrailingStopCallbackPct > 0 {
 		if err := at.trader.CancelStopOrders(decision.Symbol); err != nil {
 			logger.Infof("  ⚠ Failed to clear previous protection orders: %v", err)
 		}
@@ -1547,6 +1547,14 @@ func (at *AutoTrader) setFixedProtection(decision *kernel.Decision, quantity flo
 	if err := at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit); err != nil {
 		logger.Infof("  ⚠ Failed to set take profit: %v", err)
 	}
+}
+
+func (at *AutoTrader) trailingStopEnabled() bool {
+	if at.strategyEngine == nil {
+		return false
+	}
+	config := at.strategyEngine.GetConfig()
+	return config != nil && config.RiskControl.EnableTrailingStop
 }
 
 // setTrailingStop submits the optional native trailing stop after an entry.

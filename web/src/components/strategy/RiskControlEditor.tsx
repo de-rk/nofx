@@ -46,6 +46,8 @@ export function RiskControlEditor({
       profitDrawdownDesc: { zh: '盈利回撤超过此值时自动平仓', en: 'Auto close when profit drawdown exceeds this' },
       profitThreshold: { zh: '利润触发阈值 (%)', en: 'Profit Threshold (%)' },
       profitThresholdDesc: { zh: '利润超过此值后才启用回撤保护', en: 'Enable drawdown protection when profit exceeds this' },
+      trailingStop: { zh: '允许 AI 设置移动止盈止损', en: 'Allow AI Trailing Stop' },
+      trailingStopDesc: { zh: '开启后，AI 可在支持的交易所设置原生移动止盈止损；关闭后仅使用固定止盈止损', en: 'When enabled, AI may set native trailing stops on supported exchanges; when disabled, fixed TP/SL are used only' },
     }
     return translations[key]?.[language] || key
   }
@@ -61,6 +63,37 @@ export function RiskControlEditor({
 
   return (
     <div className="space-y-6">
+      <div
+        className="p-4 rounded-lg"
+        style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('trailingStop')}
+            </label>
+            <p className="text-xs" style={{ color: '#848E9C' }}>
+              {t('trailingStopDesc')}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.enable_trailing_stop ?? true}
+            aria-label={t('trailingStop')}
+            onClick={() => updateField('enable_trailing_stop', !(config.enable_trailing_stop ?? true))}
+            disabled={disabled}
+            className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-50"
+            style={{ background: (config.enable_trailing_stop ?? true) ? '#0ECB81' : '#474D57' }}
+          >
+            <span
+              className="absolute top-1 w-4 h-4 rounded-full bg-white transition-transform"
+              style={{ left: (config.enable_trailing_stop ?? true) ? '24px' : '4px' }}
+            />
+          </button>
+        </div>
+      </div>
+
       {/* Position Limits */}
       <div>
         <div className="flex items-center gap-2 mb-4">

@@ -473,6 +473,8 @@ export interface TrendGateConfig {
 }
 
 export interface RiskControlConfig {
+  // Allow AI to configure a native exchange trailing stop when supported
+  enable_trailing_stop?: boolean;
   // Max number of coins held simultaneously (CODE ENFORCED)
   max_positions: number;
 

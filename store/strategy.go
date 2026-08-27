@@ -248,6 +248,8 @@ type ExternalDataSource struct {
 
 // RiskControlConfig risk control configuration
 type RiskControlConfig struct {
+	// Enable native exchange trailing stop when AI supplies trailing parameters.
+	EnableTrailingStop bool `json:"enable_trailing_stop"`
 	// Max number of coins held simultaneously (CODE ENFORCED)
 	MaxPositions int `json:"max_positions"`
 
@@ -360,15 +362,16 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinVolumeRatio:    1.2,
 		},
 		RiskControl: RiskControlConfig{
-			MaxPositions:                 3,   // Max 3 coins simultaneously (CODE ENFORCED)
-			BTCETHMaxLeverage:            5,   // BTC/ETH exchange leverage (AI guided)
-			AltcoinMaxLeverage:           5,   // Altcoin exchange leverage (AI guided)
-			BTCETHMaxPositionValueRatio:  5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
-			AltcoinMaxPositionValueRatio: 1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
-			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
-			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
-			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
-			MinConfidence:                75,  // Min 75% confidence (AI guided)
+			EnableTrailingStop:           true, // Preserve existing AI trailing-stop behavior
+			MaxPositions:                 3,    // Max 3 coins simultaneously (CODE ENFORCED)
+			BTCETHMaxLeverage:            5,    // BTC/ETH exchange leverage (AI guided)
+			AltcoinMaxLeverage:           5,    // Altcoin exchange leverage (AI guided)
+			BTCETHMaxPositionValueRatio:  5.0,  // BTC/ETH: max position = 5x equity (CODE ENFORCED)
+			AltcoinMaxPositionValueRatio: 1.0,  // Altcoin: max position = 1x equity (CODE ENFORCED)
+			MaxMarginUsage:               0.9,  // Max 90% margin usage (CODE ENFORCED)
+			MinPositionSize:              12,   // Min 12 USDT per position (CODE ENFORCED)
+			MinRiskRewardRatio:           3.0,  // Min 3:1 profit/loss ratio (AI guided)
+			MinConfidence:                75,   // Min 75% confidence (AI guided)
 		},
 	}
 

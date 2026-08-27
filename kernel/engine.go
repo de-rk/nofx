@@ -1184,11 +1184,20 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 
 	// 7. Output format
 	sb.WriteString("# OKX Native Trailing Stop\n\n")
-	sb.WriteString("For a new open_long or open_short decision, you may configure an OKX native trailing stop with both fields below when you want to protect a trend's profits:\n")
+	if riskControl.EnableTrailingStop {
+		sb.WriteString("For a new open_long or open_short decision, you may configure an OKX native trailing stop with both fields below when you want to protect a trend's profits:\n")
+	} else {
+		sb.WriteString("Native trailing stops are disabled in this strategy. Do not set trailing-stop fields; use fixed stop_loss and take_profit only.\n")
+	}
+	sb.WriteString(fmt.Sprintf("- Risk/reward is validated against the live entry reference. Keep a buffer above the configured minimum %.1f:1 (target at least %.1f:1) rather than relying on rounded display values.\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio+0.1))
 	sb.WriteString("- `trailing_stop_activation_pct`: favorable price move from entry before the trailing stop activates. Use 0 for immediate activation; otherwise use a non-negative percentage. For a long, activation is above entry; for a short, activation is below entry.\n")
 	sb.WriteString("- `trailing_stop_callback_pct`: permitted pullback from the best price after activation. Must be 0.1-5.0. A smaller value protects profit sooner; a larger value gives the trend more room.\n")
 	sb.WriteString("- Set both fields together when using the trailing stop. Omit both fields when it is not appropriate. The backend submits it after the market entry for the full opened quantity.\n")
-	sb.WriteString("- `stop_loss` and `take_profit` remain required numeric fallback fields. When trailing-stop fields are set successfully, the backend creates one native trailing protection order and does not create separate fixed TP/SL orders; fixed TP/SL are used only if the trailing order fails.\n\n")
+	if riskControl.EnableTrailingStop {
+		sb.WriteString("- `stop_loss` and `take_profit` remain required numeric fallback fields. When trailing-stop fields are set successfully, the backend creates one native trailing protection order and does not create separate fixed TP/SL orders; fixed TP/SL are used only if the trailing order fails.\n\n")
+	} else {
+		sb.WriteString("- `stop_loss` and `take_profit` are the only protection fields used while this switch is off.\n\n")
+	}
 
 	sb.WriteString("# Output Format (Strictly Follow)\n\n")
 	sb.WriteString("**Must use XML tags <reasoning> and <decision> to separate chain of thought and decision JSON, avoiding parsing errors**\n\n")
