@@ -8,7 +8,7 @@ interface DeepVoidBackgroundProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export function DeepVoidBackground({ children, className = '', disableAnimation = false, ...props }: DeepVoidBackgroundProps) {
     return (
-        <div className={`relative w-full min-h-screen bg-nofx-bg text-nofx-text overflow-hidden flex flex-col ${className}`} {...props}>
+        <div className={`relative w-full min-h-screen bg-nofx-bg text-nofx-text overflow-x-hidden flex flex-col ${className}`} {...props}>
             {/* BACKGROUND LAYERS */}
 
             {/* 1. Grain/Noise Texture */}

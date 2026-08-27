@@ -38,7 +38,7 @@
 | `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；prompt 支持 AI 主动 `adjust_grid`、`reduce_long` 和 `reduce_short`，并说明与价格越界自动重建并行的 ATR/默认边界、主动部分减仓和保护减仓单规则；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
 | `grid_engine_prompt_test.go` | 网格 system prompt 中普通多空部分减仓动作与规则的回归测试 |
 | `prompt_builder.go` | 根据市场状态动态调整 prompt 的逻辑（识别趋势/震荡、计算技术指标、生成实时风险提示） |
-| `formatter.go` | 决策输出格式化 |
+| `formatter.go` | 决策输出格式化；持仓提示区分交易所标记价与 ticker/K 线价格 |
 | `schema.go` | AI 输出 JSON schema 定义 |
 
 ---
@@ -209,7 +209,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `pages/TraderDashboardPage.tsx` | Trader 主看板（持仓、决策历史、图表） |
+| `pages/TraderDashboardPage.tsx` | Trader 主看板（持仓、决策历史、图表）；统一使用页面纵向滚动，避免嵌套滚动容器导致返回顶部失效 |
 | `pages/StrategyStudioPage.tsx` | 策略配置编辑页 |
 | `pages/StrategyMarketPage.tsx` | 策略市场页 |
 | `pages/LandingPage.tsx` | 落地页 |

@@ -720,7 +720,7 @@ export function TraderDashboardPage({
 
                     {/* Right Column: Decisions / Trade Log */}
                     <div
-                        className="nofx-glass p-6 animate-slide-in h-fit lg:sticky lg:top-24 lg:max-h-[calc(100vh-120px)] flex flex-col"
+                        className="nofx-glass p-6 animate-slide-in h-fit flex flex-col"
                         style={{ animationDelay: '0.2s' }}
                     >
                         {/* Tab Header */}
@@ -766,11 +766,8 @@ export function TraderDashboardPage({
                             )}
                         </div>
 
-                        {/* Scrollable Content */}
-                        <div
-                            className="overflow-y-auto pr-2 custom-scrollbar"
-                            style={{ maxHeight: 'calc(100vh - 280px)' }}
-                        >
+                        {/* Content participates in the page scroll; avoid a nested vertical scroller. */}
+                        <div className="pr-2 custom-scrollbar">
                             {rightTab === 'decisions' ? (
                                 <div className="space-y-4">
                                     {decisions && decisions.length > 0 ? (
