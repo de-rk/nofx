@@ -127,6 +127,9 @@ type Context struct {
 	BTCETHLeverage     int                                `json:"-"`
 	AltcoinLeverage    int                                `json:"-"`
 	Timeframes         []string                           `json:"-"`
+	// Exchange used for account-specific market data (e.g. "okx").
+	// Empty keeps the historical Binance default for standalone callers.
+	Exchange string `json:"-"`
 }
 
 // Decision AI trading decision
@@ -392,7 +395,11 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 
 	// 1. First fetch data for position coins (must fetch)
 	for _, pos := range ctx.Positions {
-		data, err := market.GetWithTimeframes(pos.Symbol, timeframes, primaryTimeframe, klineCount)
+		exchange := ctx.Exchange
+		if exchange == "" {
+			exchange = "binance"
+		}
+		data, err := market.GetWithTimeframesAndExchange(pos.Symbol, timeframes, primaryTimeframe, klineCount, exchange)
 		if err != nil {
 			logger.Infof("⚠️  Failed to fetch market data for position %s: %v", pos.Symbol, err)
 			continue
@@ -413,7 +420,11 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			continue
 		}
 
-		data, err := market.GetWithTimeframes(coin.Symbol, timeframes, primaryTimeframe, klineCount)
+		exchange := ctx.Exchange
+		if exchange == "" {
+			exchange = "binance"
+		}
+		data, err := market.GetWithTimeframesAndExchange(coin.Symbol, timeframes, primaryTimeframe, klineCount, exchange)
 		if err != nil {
 			logger.Infof("⚠️  Failed to fetch market data for %s: %v", coin.Symbol, err)
 			continue
@@ -1177,7 +1188,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- `trailing_stop_activation_pct`: favorable price move from entry before the trailing stop activates. Use 0 for immediate activation; otherwise use a non-negative percentage. For a long, activation is above entry; for a short, activation is below entry.\n")
 	sb.WriteString("- `trailing_stop_callback_pct`: permitted pullback from the best price after activation. Must be 0.1-5.0. A smaller value protects profit sooner; a larger value gives the trend more room.\n")
 	sb.WriteString("- Set both fields together when using the trailing stop. Omit both fields when it is not appropriate. The backend submits it after the market entry for the full opened quantity.\n")
-	sb.WriteString("- Always provide fixed `stop_loss` and `take_profit` as well: the OKX trailing stop is an additional native protection order, not a replacement for either field.\n\n")
+	sb.WriteString("- `stop_loss` and `take_profit` remain required numeric fallback fields. When trailing-stop fields are set successfully, the backend creates one native trailing protection order and does not create separate fixed TP/SL orders; fixed TP/SL are used only if the trailing order fails.\n\n")
 
 	sb.WriteString("# Output Format (Strictly Follow)\n\n")
 	sb.WriteString("**Must use XML tags <reasoning> and <decision> to separate chain of thought and decision JSON, avoiding parsing errors**\n\n")
@@ -1428,6 +1439,7 @@ func (e *StrategyEngine) formatPositionInfo(index int, pos PositionInfo, ctx *Co
 
 	if marketData, ok := ctx.MarketDataMap[pos.Symbol]; ok {
 		sb.WriteString(e.formatMarketData(marketData))
+		sb.WriteString("Note: position Current is the exchange mark price; current_price is the account exchange ticker (while indicators use the latest completed primary-timeframe candle). Mark and last price may differ slightly.\n\n")
 
 		if ctx.QuantDataMap != nil {
 			if quantData, hasQuant := ctx.QuantDataMap[pos.Symbol]; hasQuant {

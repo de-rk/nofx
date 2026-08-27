@@ -1257,6 +1257,42 @@ func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, 
 	return nil
 }
 
+// SetTakeProfitAndStopLoss places one OKX conditional algo order containing
+// both trigger legs.
+func (t *OKXTrader) SetTakeProfitAndStopLoss(symbol, positionSide string, quantity, stopPrice, takeProfitPrice float64) error {
+	instId := t.convertSymbol(symbol)
+	inst, err := t.getInstrument(symbol)
+	if err != nil {
+		return fmt.Errorf("failed to get instrument info: %w", err)
+	}
+	szStr := t.formatSize(quantity/inst.CtVal, inst)
+	side := "sell"
+	posSide := t.orderPosSide("long")
+	if strings.EqualFold(positionSide, "SHORT") {
+		side = "buy"
+		posSide = t.orderPosSide("short")
+	}
+	body := map[string]interface{}{
+		"instId": instId, "tdMode": t.tdMode(), "side": side, "posSide": posSide,
+		"ordType": "conditional", "sz": szStr,
+		"slTriggerPx": fmt.Sprintf("%.8f", stopPrice), "slOrdPx": "-1",
+		"tpTriggerPx": fmt.Sprintf("%.8f", takeProfitPrice), "tpOrdPx": "-1", "tag": okxTag,
+	}
+	data, err := t.doRequest("POST", okxAlgoOrderPath, body)
+	if err != nil {
+		return fmt.Errorf("failed to set combined TP/SL: %w", err)
+	}
+	var orders []struct {
+		SCode string `json:"sCode"`
+		SMsg  string `json:"sMsg"`
+	}
+	if len(data) > 0 && json.Unmarshal(data, &orders) == nil && len(orders) > 0 && orders[0].SCode != "" && orders[0].SCode != "0" {
+		return fmt.Errorf("failed to set combined TP/SL: code=%s, message=%s", orders[0].SCode, orders[0].SMsg)
+	}
+	logger.Infof("  Combined TP/SL set: %s stop=%.8f takeProfit=%.8f", symbol, stopPrice, takeProfitPrice)
+	return nil
+}
+
 // SetTrailingStop places an OKX native trailing-stop algo order. callbackPct
 // is a price percentage (for example 1.5 means a 1.5% callback), while
 // activationPrice is an optional absolute price. A zero activation price makes

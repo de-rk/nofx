@@ -256,6 +256,7 @@ func formatCurrentPositionsZH(ctx *Context) string {
 		if ctx.MarketDataMap != nil {
 			if mdata, ok := ctx.MarketDataMap[pos.Symbol]; ok {
 				sb.WriteString(fmt.Sprintf("   📈 当前价格: %.4f\n", mdata.CurrentPrice))
+				sb.WriteString("   注：持仓“当前”是交易所标记价格；此处当前价格是账户交易所 ticker，指标使用已完成的主周期K线，两者可能有小幅差异。\n")
 			}
 		}
 
@@ -354,7 +355,6 @@ func formatKlineDataZH(symbol string, tfData map[string]*market.TimeframeSeriesD
 
 	return sb.String()
 }
-
 
 // getOIInterpretationZH 获取OI变化解读（中文）
 func getOIInterpretationZH(oiChange, priceChange string) string {
@@ -522,6 +522,7 @@ func formatCurrentPositionsEN(ctx *Context) string {
 		if ctx.MarketDataMap != nil {
 			if mdata, ok := ctx.MarketDataMap[pos.Symbol]; ok {
 				sb.WriteString(fmt.Sprintf("   📈 Current Price: %.4f\n", mdata.CurrentPrice))
+				sb.WriteString("   Note: position Current is the exchange mark price; this current price is the account exchange ticker, while indicators use the latest completed primary-timeframe candle. They may differ slightly.\n")
 			}
 		}
 
@@ -619,7 +620,6 @@ func formatKlineDataEN(symbol string, tfData map[string]*market.TimeframeSeriesD
 
 	return sb.String()
 }
-
 
 // getOIInterpretationEN 获取OI变化解读（英文）
 func getOIInterpretationEN(oiChange, priceChange string) string {

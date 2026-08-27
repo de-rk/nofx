@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
+	"net/url"
 	"nofx/logger"
 	"nofx/provider/coinank/coinank_api"
 	"nofx/provider/coinank/coinank_enum"
@@ -15,6 +17,107 @@ import (
 	"sync"
 	"time"
 )
+
+// getKlinesFromOKX fetches completed perpetual-swap candles directly from OKX.
+// This keeps an OKX trading account's analysis on the same venue as execution.
+func getKlinesFromOKX(symbol, interval string, limit int) ([]Kline, error) {
+	base := strings.TrimSuffix(Normalize(symbol), "USDT")
+	instID := base + "-USDT-SWAP"
+	bar := interval
+	if interval == "1h" {
+		bar = "1H"
+	} else if interval == "2h" {
+		bar = "2H"
+	} else if interval == "4h" {
+		bar = "4H"
+	} else if interval == "6h" {
+		bar = "6H"
+	} else if interval == "12h" {
+		bar = "12H"
+	} else if interval == "1d" {
+		bar = "1D"
+	} else if interval == "3d" {
+		bar = "3D"
+	} else if interval == "1w" {
+		bar = "1W"
+	}
+
+	endpoint := fmt.Sprintf("https://www.okx.com/api/v5/market/candles?instId=%s&bar=%s&limit=%d",
+		url.QueryEscape(instID), url.QueryEscape(bar), limit)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Code string          `json:"code"`
+		Msg  string          `json:"msg"`
+		Data [][]interface{} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || result.Code != "0" {
+		return nil, fmt.Errorf("OKX candles error: code=%s msg=%s status=%d", result.Code, result.Msg, resp.StatusCode)
+	}
+	duration, err := TFDuration(interval)
+	if err != nil {
+		return nil, err
+	}
+
+	// OKX returns newest first; normalize to oldest-first and validate it.
+	klines := make([]Kline, 0, len(result.Data))
+	for i := len(result.Data) - 1; i >= 0; i-- {
+		row := result.Data[i]
+		if len(row) < 6 {
+			continue
+		}
+		parse := func(v interface{}) float64 {
+			f, _ := strconv.ParseFloat(fmt.Sprintf("%v", v), 64)
+			return f
+		}
+		openTime, _ := strconv.ParseInt(fmt.Sprintf("%v", row[0]), 10, 64)
+		klines = append(klines, Kline{
+			OpenTime: openTime,
+			Open:     parse(row[1]), High: parse(row[2]), Low: parse(row[3]),
+			Close: parse(row[4]), Volume: parse(row[5]),
+			CloseTime: openTime + duration.Milliseconds(),
+		})
+	}
+	return cleanKlines(klines, interval, time.Now())
+}
+
+func getCurrentPriceFromOKX(symbol string) (float64, error) {
+	base := strings.TrimSuffix(Normalize(symbol), "USDT")
+	instID := base + "-USDT-SWAP"
+	endpoint := fmt.Sprintf("https://www.okx.com/api/v5/market/ticker?instId=%s", url.QueryEscape(instID))
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			Last string `json:"last"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || result.Code != "0" || len(result.Data) == 0 {
+		return 0, fmt.Errorf("OKX ticker error: code=%s msg=%s status=%d", result.Code, result.Msg, resp.StatusCode)
+	}
+	price, err := strconv.ParseFloat(result.Data[0].Last, 64)
+	if err != nil || price <= 0 {
+		return 0, fmt.Errorf("invalid OKX ticker price %q", result.Data[0].Last)
+	}
+	return price, nil
+}
 
 // FundingRateCache is the funding rate cache structure
 // Binance Funding Rate only updates every 8 hours, using 1-hour cache can significantly reduce API calls
@@ -214,6 +317,12 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Failed to get 5-minute K-line from Hyperliquid: %v", err)
 		}
+	} else if strings.EqualFold(exchange, "okx") {
+		klines3m, err = getKlinesFromOKX(symbol, "3m", 100)
+		if err != nil {
+			logger.Warnf("⚠️ OKX native candles unavailable for %s 3m, trying CoinAnk OKX feed: %v", symbol, err)
+			klines3m, err = getKlinesFromCoinAnk(symbol, "3m", "okx", 100)
+		}
 	} else {
 		// Use CoinAnk for regular crypto assets with exchange-specific data
 		klines3m, err = getKlinesFromCoinAnk(symbol, "3m", exchange, 100)
@@ -234,6 +343,12 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Failed to get 4-hour K-line from Hyperliquid: %v", err)
 		}
+	} else if strings.EqualFold(exchange, "okx") {
+		klines4h, err = getKlinesFromOKX(symbol, "4h", 100)
+		if err != nil {
+			logger.Warnf("⚠️ OKX native candles unavailable for %s 4h, trying CoinAnk OKX feed: %v", symbol, err)
+			klines4h, err = getKlinesFromCoinAnk(symbol, "4h", "okx", 100)
+		}
 	} else {
 		klines4h, err = getKlinesFromCoinAnk(symbol, "4h", exchange, 100)
 		if err != nil {
@@ -251,6 +366,13 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 
 	// Calculate current indicators (based on 3-minute latest data)
 	currentPrice := klines3m[len(klines3m)-1].Close
+	if strings.EqualFold(exchange, "okx") {
+		if tickerPrice, tickerErr := getCurrentPriceFromOKX(symbol); tickerErr == nil {
+			currentPrice = tickerPrice
+		} else {
+			logger.Warnf("⚠️ OKX ticker unavailable for %s, using latest OKX candle close: %v", symbol, tickerErr)
+		}
+	}
 	currentEMA20 := calculateEMA(klines3m, 20)
 	currentMACD := calculateMACD(klines3m)
 	currentRSI7 := calculateRSI(klines3m, 7)
@@ -310,7 +432,17 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 // primaryTimeframe: primary timeframe (used for calculating current indicators), defaults to timeframes[0]
 // count: number of K-lines for each timeframe
 func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe string, count int) (*Data, error) {
+	return GetWithTimeframesAndExchange(symbol, timeframes, primaryTimeframe, count, "binance")
+}
+
+// GetWithTimeframesAndExchange retrieves multi-timeframe data from the requested
+// exchange. The legacy GetWithTimeframes wrapper intentionally keeps Binance as
+// its default for callers that are not tied to an execution account.
+func GetWithTimeframesAndExchange(symbol string, timeframes []string, primaryTimeframe string, count int, exchange string) (*Data, error) {
 	symbol = Normalize(symbol)
+	if strings.TrimSpace(exchange) == "" {
+		exchange = "binance"
+	}
 
 	if len(timeframes) == 0 {
 		return nil, fmt.Errorf("at least one timeframe is required")
@@ -352,9 +484,15 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 				logger.Infof("⚠️ Failed to get %s %s K-line from Hyperliquid: %v", symbol, tf, err)
 				continue
 			}
+		} else if strings.EqualFold(exchange, "okx") {
+			klines, err = getKlinesFromOKX(symbol, tf, 200)
+			if err != nil {
+				logger.Warnf("⚠️ OKX native candles unavailable for %s %s, trying CoinAnk OKX feed: %v", symbol, tf, err)
+				klines, err = getKlinesFromCoinAnk(symbol, tf, "okx", 200)
+			}
 		} else {
-			// Use CoinAnk for regular crypto assets (default to Binance)
-			klines, err = getKlinesFromCoinAnk(symbol, tf, "binance", 200)
+			// Use CoinAnk for regular crypto assets on the execution exchange.
+			klines, err = getKlinesFromCoinAnk(symbol, tf, exchange, 200)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from CoinAnk: %v", symbol, tf, err)
 				continue
@@ -405,6 +543,14 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 
 	// Get Funding Rate
 	fundingRate, _ := getFundingRate(symbol)
+
+	if strings.EqualFold(exchange, "okx") {
+		if tickerPrice, tickerErr := getCurrentPriceFromOKX(symbol); tickerErr == nil {
+			currentPrice = tickerPrice
+		} else {
+			logger.Warnf("⚠️ OKX ticker unavailable for %s, using latest OKX candle close: %v", symbol, tickerErr)
+		}
+	}
 
 	return &Data{
 		Symbol:        symbol,

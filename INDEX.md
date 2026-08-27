@@ -47,7 +47,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；开仓后按 AI 参数调用交易所原生移动止盈止损；平空与利润回撤全平均按标准化后的持仓方向执行，避免依赖仓位数量正负；支持接替时按方向撤销对侧网格普通挂单并保留减仓单；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
+| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；开仓后按 AI 参数调用交易所原生移动止盈止损，移动单成功时只保留单一移动保护单，失败时回退单一合并固定止盈/止损委托；平空与利润回撤全平均按标准化后的持仓方向执行，避免依赖仓位数量正负；支持接替时按方向撤销对侧网格普通挂单并保留减仓单；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
 | `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、AI 主动 `adjust_grid` 与价格越界自动重建并行、AI 的 `reduce_long`/`reduce_short` 普通市价部分减仓、定期刷新投资额后复用 `adjust_grid`（保留 T 字/浮盈减仓保护单并迁移持仓）、T-trade（T字操作）、减仓、syncExchangeState、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；支持接替时暂停网格周期、按方向撤销对侧普通入口单并保护减仓单；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路，交易日志 source 按实际来源标为 `"ai"` 或 `"algo"` |
 | `position_rebuild.go` | 持仓重建逻辑：从交易所读取持仓，匹配到网格层级，重建本地状态 |
 | `position_snapshot.go` | 持仓快照定时存储（用于绩效分析） |
@@ -61,7 +61,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；正确根据 `posSide=net` 的持仓正负值识别多空，按实际账户模式提交 `posSide`，并在切换双向模式后同步本地模式；支持原生 `move_order_stop` 移动止盈止损及挂单查询/撤销 |
+| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；正确根据 `posSide=net` 的持仓正负值识别多空，按实际账户模式提交 `posSide`，并在切换双向模式后同步本地模式；支持原生 `move_order_stop` 移动止盈止损、单一 conditional 合并止盈止损及挂单查询/撤销 |
 | `ws.go` | OKX WebSocket 推送（公共 ticker、business K线、私有持仓/订单事件；`net` 持仓按正负数量识别多空；含独立重连与心跳） |
 | `trader_test.go` | OKX `net`/双向持仓模式的方向与下单 `posSide` 回归测试 |
 | `order_sync.go` | OKX 订单状态同步 |
@@ -187,10 +187,10 @@
 
 | 文件 | 说明 |
 |------|------|
-| `kernel/engine.go` | AI 策略引擎：候选币源（AI500 失败/空结果回退静态币）、多周期行情上下文、LLM 决策解析与风险校验 |
-| `trader/auto_trader.go` | 普通 AI 交易周期、持仓管理、开仓执行层硬风控（趋势门控、最低置信度、最大保证金占用）和策略热更新 |
+| `kernel/engine.go` | AI 策略引擎：候选币源（AI500 失败/空结果回退静态币）、按账户交易所获取多周期行情上下文、LLM 决策解析与风险校验 |
+| `trader/auto_trader.go` | 普通 AI 交易周期、持仓管理、开仓执行层硬风控（趋势门控、最低置信度、最大保证金占用）和策略热更新；AI 设置 OKX 移动止盈时只创建单一移动保护单，失败才回退固定止盈/止损 |
 | `store/strategy.go` | AI/网格策略 JSON 配置，含 `TrendGateConfig` 单币 K 线+成交量开仓门控 |
-| `market/data.go` | 多周期 OHLCV 与指标数据构建；CoinAnk 交易所 K 线为空或质量校验失败时回退 Binance，仍不可用时继续回退 Binance Futures REST 并校验 K 线质量；保留完整盘中序列供可配置趋势门控使用 |
+| `market/data.go` | 多周期 OHLCV 与指标数据构建；支持按账户交易所获取 K 线，CoinAnk 交易所 K 线为空或质量校验失败时回退 Binance，仍不可用时继续回退 Binance Futures REST 并校验 K 线质量；保留完整盘中序列供可配置趋势门控使用 |
 | `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`InvestmentRefreshDays`（每隔N天从权益重算投资额，0=禁用，复刻 trader.checkInvestmentRefresh）、`ScoreMode`（"balanced"（默认，回撤惩罚系数1.5）| "return_focused"（回撤惩罚系数0.3），只影响退火搜索怎么打分选参数，不改变单次回测本身的成交/回撤结果））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid`/`InvestmentRefreshes` 计数） |
 | `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界（回测使用原生 4h K 线的 Wilder ATR14 并按交易 bar 时间对齐）、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD`；另复刻网格重置逻辑（`checkGridSkew`/`maybeRebuildGrid`）：`checkGridSkew` 判断价格是否超出网格边界（upper*1.02 或 lower*0.98），`maybeResetGrid` 触发后重新计算边界、重建全部层级，并把仍持仓的层按价格就近迁移到新层（与实盘 trader/auto_trader_grid.go 的 2% 阈值保持一致）|
 | `backtest/simulate.go` | `Simulate()`/`SimulateWithATR()` 纯函数：拉历史K线跑网格模拟，后者使用原生 4h ATR14 按时间对齐（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费；`Score(returnPct, maxDrawdownPct, mode)` 按「收益 - 回撤惩罚系数×最大回撤」打分（系数由 `GridParams.ScoreMode` 决定），爆仓固定给 `-1e9` 极端惩罚分（不受 ScoreMode 影响） |

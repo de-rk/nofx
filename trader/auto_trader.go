@@ -1097,6 +1097,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		},
 		Positions:      positionInfos,
 		CandidateCoins: candidateCoins,
+		Exchange:       at.exchange,
 	}
 
 	// 7. Add recent closed trades (if store is available)
@@ -1375,15 +1376,18 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	posKey := decision.Symbol + "_long"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
-	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
-	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
-	}
-	if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
-		logger.Infof("  ⚠ Failed to set trailing stop: %v", err)
+	// A native trailing stop is the single protection order when configured.
+	// Fixed TP/SL are only a fallback if the trailing order cannot be created.
+	if decision.TrailingStopCallbackPct > 0 {
+		if err := at.trader.CancelStopOrders(decision.Symbol); err != nil {
+			logger.Infof("  ⚠ Failed to clear previous protection orders: %v", err)
+		}
+		if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
+			logger.Infof("  ⚠ Failed to set trailing stop, falling back to fixed TP/SL: %v", err)
+			at.setFixedProtection(decision, quantity)
+		}
+	} else {
+		at.setFixedProtection(decision, quantity)
 	}
 
 	return nil
@@ -1505,18 +1509,44 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	posKey := decision.Symbol + "_short"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
-	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
-	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
-	}
-	if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
-		logger.Infof("  ⚠ Failed to set trailing stop: %v", err)
+	// A native trailing stop is the single protection order when configured.
+	// Fixed TP/SL are only a fallback if the trailing order cannot be created.
+	if decision.TrailingStopCallbackPct > 0 {
+		if err := at.trader.CancelStopOrders(decision.Symbol); err != nil {
+			logger.Infof("  ⚠ Failed to clear previous protection orders: %v", err)
+		}
+		if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
+			logger.Infof("  ⚠ Failed to set trailing stop, falling back to fixed TP/SL: %v", err)
+			at.setFixedProtection(decision, quantity)
+		}
+	} else {
+		at.setFixedProtection(decision, quantity)
 	}
 
 	return nil
+}
+
+// setFixedProtection prefers OKX's single conditional order carrying both
+// trigger legs. Other exchanges retain their existing two-order interface.
+func (at *AutoTrader) setFixedProtection(decision *kernel.Decision, quantity float64) {
+	positionSide := "LONG"
+	if decision.Action == "open_short" {
+		positionSide = "SHORT"
+	}
+	if combined, ok := at.trader.(interface {
+		SetTakeProfitAndStopLoss(symbol, positionSide string, quantity, stopPrice, takeProfitPrice float64) error
+	}); ok {
+		if err := combined.SetTakeProfitAndStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss, decision.TakeProfit); err != nil {
+			logger.Infof("  ⚠ Failed to set combined TP/SL: %v", err)
+		}
+		return
+	}
+	if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
+		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
+	}
+	if err := at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit); err != nil {
+		logger.Infof("  ⚠ Failed to set take profit: %v", err)
+	}
 }
 
 // setTrailingStop submits the optional native trailing stop after an entry.
