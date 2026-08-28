@@ -24,3 +24,16 @@ func TestStrategyEngineSystemPromptIncludesOKXTrailingStop(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractDecisionsNormalizesEnglishConfidenceWords(t *testing.T) {
+	decisions, err := extractDecisions(`[{"symbol":"BTCUSDT","action":"wait","confidence": sixty,"reason":"no signal"},{"symbol":"ETHUSDT","action":"wait","confidence":"seventy-five"}]`)
+	if err != nil {
+		t.Fatalf("extractDecisions returned error: %v", err)
+	}
+	if len(decisions) != 2 {
+		t.Fatalf("got %d decisions, want 2", len(decisions))
+	}
+	if decisions[0].Confidence != 60 || decisions[1].Confidence != 75 {
+		t.Fatalf("confidence values = %v, %v; want 60, 75", decisions[0].Confidence, decisions[1].Confidence)
+	}
+}

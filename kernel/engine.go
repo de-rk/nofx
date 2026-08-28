@@ -33,7 +33,21 @@ var (
 	// XML tag extraction (supports any characters in reasoning chain)
 	reReasoningTag = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
 	reDecisionTag  = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	// Some models emit English number words for the numeric confidence field,
+	// which is invalid JSON when unquoted (for example: "confidence": sixty).
+	// Restrict this repair to that field so prose and reasoning are untouched.
+	reConfidenceWord = regexp.MustCompile(`(?i)("confidence"\s*:\s*)("?)([a-z]+(?:-[a-z]+)?)("?)`)
 )
+
+var confidenceNumberWords = map[string]int{
+	"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+	"six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+	"eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+	"fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+	"nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40,
+	"fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80,
+	"ninety": 90, "hundred": 100,
+}
 
 // ============================================================================
 // Type Definitions
@@ -1225,10 +1239,10 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("</decision>\n\n")
 	sb.WriteString("## Field Description\n\n")
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
-	sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
+	sb.WriteString(fmt.Sprintf("- `confidence`: JSON number 0-100 (opening recommended ≥ %d); write numeric values only, never English number words or quoted strings\n", riskControl.MinConfidence))
 	sb.WriteString("- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd\n")
 	sb.WriteString("- For OKX native trailing-stop settings, follow the `trailing_stop_activation_pct` and `trailing_stop_callback_pct` rules above.\n")
-	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n\n")
+	sb.WriteString("- **IMPORTANT**: All numeric values must be JSON numbers, NOT words, quoted strings, formulas, or expressions (e.g., use `27.76` not an English number word, `\"60\"`, or `3000 * 0.01`)\n\n")
 
 	// 8. Custom Prompt
 	if e.config.CustomPrompt != "" {
@@ -1941,7 +1955,32 @@ func fixMissingQuotes(jsonStr string) string {
 
 	jsonStr = strings.ReplaceAll(jsonStr, "　", " ")
 
-	return jsonStr
+	return normalizeConfidenceWords(jsonStr)
+}
+
+func normalizeConfidenceWords(jsonStr string) string {
+	return reConfidenceWord.ReplaceAllStringFunc(jsonStr, func(match string) string {
+		parts := reConfidenceWord.FindStringSubmatch(match)
+		if len(parts) != 5 {
+			return match
+		}
+		word := strings.ToLower(parts[3])
+		value, ok := confidenceNumberWords[word]
+		if !ok && strings.Contains(word, "-") {
+			pieces := strings.Split(word, "-")
+			if len(pieces) == 2 {
+				tens, tensOK := confidenceNumberWords[pieces[0]]
+				ones, onesOK := confidenceNumberWords[pieces[1]]
+				if tensOK && onesOK && tens >= 20 && ones < 10 {
+					value, ok = tens+ones, true
+				}
+			}
+		}
+		if !ok {
+			return match
+		}
+		return fmt.Sprintf("%s%d", parts[1], value)
+	})
 }
 
 func validateJSONFormat(jsonStr string) error {
