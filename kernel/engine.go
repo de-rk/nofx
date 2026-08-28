@@ -1130,6 +1130,13 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
 	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
 
+	sb.WriteString("## OKX Contract Position Mode (Mandatory)\n")
+	sb.WriteString("- OKX perpetual orders use dual-side (hedge) position mode: `long_short_mode`.\n")
+	sb.WriteString("- Use `action: open_long` to open a long and `action: open_short` to open a short; the backend sends `posSide: long` or `posSide: short` respectively.\n")
+	sb.WriteString("- Close and protection orders use the matching position side: long for long positions, short for short positions.\n")
+	sb.WriteString("- Never use `posSide: net`; do not output a `posSide` field yourself because the backend derives it from `action`.\n")
+	sb.WriteString("- If the OKX account cannot be switched to dual-side mode (for example, because existing positions or orders block the switch), the order is rejected and is not downgraded to one-way mode.\n\n")
+
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
 		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))

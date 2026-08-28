@@ -61,9 +61,9 @@
 
 | 文件 | 说明 |
 |------|------|
-| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；按实际账户模式提交开仓 `posSide`（单向模式省略该字段，双向模式发送 long/short），正确根据 `posSide=net` 的持仓正负值识别多空；支持原生 `move_order_stop` 移动止盈止损、单一 conditional 合并止盈止损及挂单查询/撤销 |
+| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；AI 下单前强制确认/切换账户双向持仓模式，所有开平仓、限价和保护单显式发送 `posSide=long/short`；支持原生 `move_order_stop` 移动止盈止损、单一 conditional 合并止盈止损及挂单查询/撤销 |
 | `ws.go` | OKX WebSocket 推送（公共 ticker、business K线、私有持仓/订单事件；`net` 持仓按正负数量识别多空；含独立重连与心跳） |
-| `trader_test.go` | OKX `net`/双向持仓模式的方向与下单 `posSide` 回归测试 |
+| `trader_test.go` | OKX 持仓方向解析与双向模式 `posSide` 回归测试 |
 | `order_sync.go` | OKX 订单状态同步 |
 
 ### trader/binance/
@@ -187,10 +187,10 @@
 
 | 文件 | 说明 |
 |------|------|
-| `kernel/engine.go` | AI 策略引擎：候选币源（AI500 失败/空结果回退静态币）、按账户交易所获取多周期行情上下文、LLM 决策解析与风险校验；system prompt 根据 `enable_trailing_stop` 开关告知 AI 是否允许原生移动止盈止损，并要求盈亏比在最小阈值外预留执行缓冲 |
-| `trader/auto_trader.go` | 普通 AI 交易周期、持仓管理、开仓执行层硬风控（趋势门控、最低置信度、最大保证金占用）和策略热更新；AI 设置 OKX 移动止盈时只创建单一移动保护单，失败才回退合并固定止盈/止损，且受策略开关控制 |
+| `kernel/engine.go` | AI 策略引擎：候选币源（AI500 失败/空结果回退静态币）、按账户交易所获取多周期行情上下文、LLM 决策解析与风险校验；system prompt 根据 `enable_trailing_stop` 开关告知 AI 是否允许原生移动止盈止损，明确 OKX 双向持仓与 `posSide=long/short` 规则，并要求盈亏比在最小阈值外预留执行缓冲 |
+| `trader/auto_trader.go` | 普通 AI 交易周期、持仓管理、开仓执行层硬风控（趋势门控按账户交易所获取 K 线、最低置信度、最大保证金占用）和策略热更新；AI 设置 OKX 移动止盈时只创建单一移动保护单，失败才回退合并固定止盈/止损，且受策略开关控制 |
 | `store/strategy.go` | AI/网格策略 JSON 配置，含 `TrendGateConfig` 单币 K 线+成交量开仓门控 |
-| `market/data.go` | 多周期 OHLCV 与指标数据构建；支持按账户交易所获取 K 线，CoinAnk 交易所 K 线为空或质量校验失败时回退 Binance，仍不可用时继续回退 Binance Futures REST 并校验 K 线质量；保留完整盘中序列供可配置趋势门控使用 |
+| `market/data.go` | 多周期 OHLCV 与指标数据构建；支持按账户交易所获取 K 线，保留完整盘中序列供可配置趋势门控使用；严格交易所模式下 OKX 趋势门控的 candles、成交量、OI、资金费率和 ticker 均只使用 OKX 链路，不回退 CoinAnk/Binance |
 | `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`InvestmentRefreshDays`（每隔N天从权益重算投资额，0=禁用，复刻 trader.checkInvestmentRefresh）、`ScoreMode`（"balanced"（默认，回撤惩罚系数1.5）| "return_focused"（回撤惩罚系数0.3），只影响退火搜索怎么打分选参数，不改变单次回测本身的成交/回撤结果））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid`/`InvestmentRefreshes` 计数） |
 | `backtest/grid.go` | 复刻 `trader/auto_trader_grid.go` 的 `calculateATRBounds`/`initializeGridLevels`：ATR 边界（回测使用原生 4h K 线的 Wilder ATR14 并按交易 bar 时间对齐）、gaussian/pyramid/uniform 权重分配、逐层 `AllocatedUSD`；另复刻网格重置逻辑（`checkGridSkew`/`maybeRebuildGrid`）：`checkGridSkew` 判断价格是否超出网格边界（upper*1.02 或 lower*0.98），`maybeResetGrid` 触发后重新计算边界、重建全部层级，并把仍持仓的层按价格就近迁移到新层（与实盘 trader/auto_trader_grid.go 的 2% 阈值保持一致）|
 | `backtest/simulate.go` | `Simulate()`/`SimulateWithATR()` 纯函数：拉历史K线跑网格模拟，后者使用原生 4h ATR14 按时间对齐（成交模型简化——K线 High/Low 区间覆盖某层价格即视为成交，不模拟部分成交/做市排队）+ 手续费模拟（按 `FeePct` 对每笔成交/减仓/平仓的名义价值收取，计入 `cashReleased` 与 `TotalFeesPaid`）+ 三套风控机制精确复刻：①逐层 T 字打标记/挂减仓单/减仓单成交释放该层的状态机（复刻 `ttradeTagOrders`/`ttradeProcessFills`/`placeTTradeReduceOrder`）②利润回撤峰值全平（复刻 `checkPositionDrawdown`：浮盈>5%后从峰值回撤超过阈值即全平该侧）③小仓位自动平仓（复刻 `checkProfitReduce` 的早退分支：浮盈超过止盈步进2倍且名义价值<$100即全平）④止盈阶梯减仓（`applyProfitReduce`，三者互斥，按①②③④优先级触发）+ 全仓强平检测（`crossMarginMaintenanceRate`=0.5% 固定维持保证金率）。输出收益率/最大回撤/成交层数/各类减仓与平仓次数/累计手续费；`Score(returnPct, maxDrawdownPct, mode)` 按「收益 - 回撤惩罚系数×最大回撤」打分（系数由 `GridParams.ScoreMode` 决定），爆仓固定给 `-1e9` 极端惩罚分（不受 ScoreMode 影响） |

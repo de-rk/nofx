@@ -279,6 +279,25 @@ func (t *OKXTrader) detectPositionMode() error {
 	return nil
 }
 
+// ensureDualPositionMode makes the order contract explicit for AI trading.
+// OKX requires long/short posSide values in hedge mode; silently falling back
+// to one-way mode causes otherwise valid open/close decisions to be rejected.
+func (t *OKXTrader) ensureDualPositionMode() error {
+	if err := t.detectPositionMode(); err != nil {
+		return fmt.Errorf("failed to verify OKX position mode: %w", err)
+	}
+	if t.positionMode == "long_short_mode" {
+		return nil
+	}
+	if err := t.setPositionMode(); err != nil {
+		return fmt.Errorf("OKX account must use dual position mode (long_short_mode): %w", err)
+	}
+	if t.positionMode != "long_short_mode" {
+		return fmt.Errorf("OKX account position mode is %q after switch; refusing order", t.positionMode)
+	}
+	return nil
+}
+
 // setPositionMode sets dual position mode
 func (t *OKXTrader) setPositionMode() error {
 	body := map[string]string{
@@ -319,9 +338,6 @@ func positionSideFromOKX(posSide string, contracts float64) string {
 
 // orderPosSide returns the position-side value required by the account mode.
 func (t *OKXTrader) orderPosSide(positionSide string) string {
-	if t.positionMode == "net_mode" {
-		return "net"
-	}
 	if strings.EqualFold(positionSide, "short") {
 		return "short"
 	}
@@ -705,6 +721,9 @@ func (t *OKXTrader) SetMarginMode(symbol string, isCrossMargin bool) error {
 
 // SetLeverage sets leverage
 func (t *OKXTrader) SetLeverage(symbol string, leverage int) error {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return err
+	}
 	instId := t.convertSymbol(symbol)
 
 	mgnMode := "isolated"
@@ -713,9 +732,6 @@ func (t *OKXTrader) SetLeverage(symbol string, leverage int) error {
 	}
 
 	posSides := []string{"long", "short"}
-	if t.positionMode == "net_mode" {
-		posSides = []string{"net"}
-	}
 	for _, posSide := range posSides {
 		body := map[string]interface{}{
 			"instId":  instId,
@@ -740,6 +756,9 @@ func (t *OKXTrader) SetLeverage(symbol string, leverage int) error {
 
 // OpenLong opens long position
 func (t *OKXTrader) OpenLong(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return nil, err
+	}
 	// Cancel old orders
 	t.CancelAllOrders(symbol)
 
@@ -779,11 +798,7 @@ func (t *OKXTrader) OpenLong(symbol string, quantity float64, leverage int) (map
 		"clOrdId": genOkxClOrdID(),
 		"tag":     okxTag,
 	}
-	// OKX requires posSide only in hedge mode. In one-way/net mode the
-	// explicit value "net" is rejected by the trade order endpoint.
-	if t.positionMode == "long_short_mode" {
-		body["posSide"] = "long"
-	}
+	body["posSide"] = "long"
 
 	data, err := t.doRequest("POST", okxOrderPath, body)
 	if err != nil {
@@ -821,6 +836,9 @@ func (t *OKXTrader) OpenLong(symbol string, quantity float64, leverage int) (map
 
 // OpenShort opens short position
 func (t *OKXTrader) OpenShort(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return nil, err
+	}
 	// Cancel old orders
 	t.CancelAllOrders(symbol)
 
@@ -860,9 +878,7 @@ func (t *OKXTrader) OpenShort(symbol string, quantity float64, leverage int) (ma
 		"clOrdId": genOkxClOrdID(),
 		"tag":     okxTag,
 	}
-	if t.positionMode == "long_short_mode" {
-		body["posSide"] = "short"
-	}
+	body["posSide"] = "short"
 
 	data, err := t.doRequest("POST", okxOrderPath, body)
 	if err != nil {
@@ -900,6 +916,9 @@ func (t *OKXTrader) OpenShort(symbol string, quantity float64, leverage int) (ma
 
 // CloseLong closes long position
 func (t *OKXTrader) CloseLong(symbol string, quantity float64) (map[string]interface{}, error) {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return nil, err
+	}
 	instId := t.convertSymbol(symbol)
 
 	// Get instrument info for contract conversion
@@ -919,7 +938,6 @@ func (t *OKXTrader) CloseLong(symbol string, quantity float64) (map[string]inter
 	var actualQty float64
 	var posFound bool
 	var posMgnMode string = "cross" // Default to cross margin
-	positionMode := t.positionMode
 	logger.Infof("🔍 OKX CloseLong: searching for symbol=%s in %d positions", symbol, len(positions))
 	for _, pos := range positions {
 		logger.Infof("🔍 OKX position: symbol=%v, side=%v, positionAmt=%v, mgnMode=%v", pos["symbol"], pos["side"], pos["positionAmt"], pos["mgnMode"])
@@ -928,13 +946,6 @@ func (t *OKXTrader) CloseLong(symbol string, quantity float64) (map[string]inter
 			if side == "long" {
 				actualQty = pos["positionAmt"].(float64)
 				posFound = true
-				if rawPosSide, ok := pos["posSide"].(string); ok {
-					if strings.EqualFold(rawPosSide, "net") {
-						positionMode = "net_mode"
-					} else if strings.EqualFold(rawPosSide, "long") || strings.EqualFold(rawPosSide, "short") {
-						positionMode = "long_short_mode"
-					}
-				}
 				if mgnMode, ok := pos["mgnMode"].(string); ok && mgnMode != "" {
 					posMgnMode = mgnMode
 				}
@@ -975,10 +986,7 @@ func (t *OKXTrader) CloseLong(symbol string, quantity float64) (map[string]inter
 		"tag":     okxTag,
 	}
 
-	// Only add posSide in dual mode (long_short_mode)
-	if positionMode == "long_short_mode" {
-		body["posSide"] = "long"
-	}
+	body["posSide"] = "long"
 
 	data, err := t.doRequest("POST", okxOrderPath, body)
 	if err != nil {
@@ -1017,6 +1025,9 @@ func (t *OKXTrader) CloseLong(symbol string, quantity float64) (map[string]inter
 
 // CloseShort closes short position
 func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]interface{}, error) {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return nil, err
+	}
 	instId := t.convertSymbol(symbol)
 
 	// Get instrument info for contract conversion
@@ -1036,7 +1047,6 @@ func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]inte
 	var actualQty float64
 	var posFound bool
 	var posMgnMode string = "cross" // Default to cross margin
-	positionMode := t.positionMode
 	logger.Infof("🔍 OKX CloseShort searching positions: symbol=%s, current position count=%d", symbol, len(positions))
 	for _, pos := range positions {
 		logger.Infof("🔍 OKX position: symbol=%v, side=%v, positionAmt=%v, mgnMode=%v",
@@ -1044,13 +1054,6 @@ func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]inte
 		if pos["symbol"] == symbol && pos["side"] == "short" {
 			actualQty = pos["positionAmt"].(float64)
 			posFound = true
-			if rawPosSide, ok := pos["posSide"].(string); ok {
-				if strings.EqualFold(rawPosSide, "net") {
-					positionMode = "net_mode"
-				} else if strings.EqualFold(rawPosSide, "long") || strings.EqualFold(rawPosSide, "short") {
-					positionMode = "long_short_mode"
-				}
-			}
 			if mgnMode, ok := pos["mgnMode"].(string); ok && mgnMode != "" {
 				posMgnMode = mgnMode
 			}
@@ -1094,10 +1097,7 @@ func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]inte
 		"tag":     okxTag,
 	}
 
-	// Only add posSide in dual mode (long_short_mode)
-	if positionMode == "long_short_mode" {
-		body["posSide"] = "short"
-	}
+	body["posSide"] = "short"
 
 	logger.Infof("🔻 OKX close short request body: %+v", body)
 
@@ -1179,6 +1179,9 @@ func (t *OKXTrader) GetMarketPrice(symbol string) (float64, error) {
 
 // SetStopLoss sets stop loss order
 func (t *OKXTrader) SetStopLoss(symbol string, positionSide string, quantity, stopPrice float64) error {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return err
+	}
 	instId := t.convertSymbol(symbol)
 
 	// Get instrument info
@@ -1222,6 +1225,9 @@ func (t *OKXTrader) SetStopLoss(symbol string, positionSide string, quantity, st
 
 // SetTakeProfit sets take profit order
 func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, takeProfitPrice float64) error {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return err
+	}
 	instId := t.convertSymbol(symbol)
 
 	// Get instrument info
@@ -1266,6 +1272,9 @@ func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, 
 // SetTakeProfitAndStopLoss places one OKX conditional algo order containing
 // both trigger legs.
 func (t *OKXTrader) SetTakeProfitAndStopLoss(symbol, positionSide string, quantity, stopPrice, takeProfitPrice float64) error {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return err
+	}
 	instId := t.convertSymbol(symbol)
 	inst, err := t.getInstrument(symbol)
 	if err != nil {
@@ -1304,6 +1313,9 @@ func (t *OKXTrader) SetTakeProfitAndStopLoss(symbol, positionSide string, quanti
 // activationPrice is an optional absolute price. A zero activation price makes
 // OKX start trailing immediately.
 func (t *OKXTrader) SetTrailingStop(symbol string, positionSide string, quantity, activationPrice, callbackPct float64) error {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return err
+	}
 	if quantity <= 0 {
 		return fmt.Errorf("trailing stop quantity must be greater than zero")
 	}
@@ -1897,6 +1909,9 @@ func (t *OKXTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 // PlaceLimitOrder places a limit order for grid trading
 // Implements GridTrader interface
 func (t *OKXTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitOrderResult, error) {
+	if err := t.ensureDualPositionMode(); err != nil {
+		return nil, err
+	}
 	instId := t.convertSymbol(req.Symbol)
 
 	// Get instrument info
@@ -1933,7 +1948,7 @@ func (t *OKXTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitO
 		case "SHORT", "short":
 			posSide = "short"
 		default:
-			posSide = "net" // OKX uses "net" for one-way mode
+			return nil, fmt.Errorf("OKX dual position mode requires PositionSide LONG or SHORT, got %q", req.PositionSide)
 		}
 	} else {
 		// Fallback: infer from side (for backward compatibility)
@@ -1943,21 +1958,17 @@ func (t *OKXTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitO
 			posSide = "long"
 		}
 	}
-	if t.positionMode == "net_mode" {
-		posSide = "net"
-	}
-
 	body := map[string]interface{}{
 		"instId":  instId,
 		"tdMode":  t.tdMode(),
 		"side":    side,
-		"posSide": posSide,
 		"ordType": "limit",
 		"sz":      szStr,
 		"px":      fmt.Sprintf("%.8f", req.Price),
 		"clOrdId": genOkxClOrdID(),
 		"tag":     okxTag,
 	}
+	body["posSide"] = posSide
 
 	// Add reduce only if specified
 	if req.ReduceOnly {

@@ -2663,27 +2663,27 @@ func (at *AutoTrader) enforceEntryGate(symbol, action string, data *market.Data)
 		return fmt.Errorf("[TREND GATE] market data unavailable for %s", symbol)
 	}
 	gate := config.TrendGate
-	closes := data.IntradaySeries.MidPrices
-	volumes := data.IntradaySeries.Volume
-	if gate.Timeframe != "" && gate.Timeframe != "3m" {
-		count := gate.Lookback + 1
-		if count < 21 {
-			count = 21
-		}
-		trendData, err := market.GetWithTimeframes(symbol, []string{gate.Timeframe}, gate.Timeframe, count)
-		if err != nil {
-			return fmt.Errorf("[TREND GATE] failed to load %s data: %w", gate.Timeframe, err)
-		}
-		series := trendData.TimeframeData[gate.Timeframe]
-		if series == nil {
-			return fmt.Errorf("[TREND GATE] %s data unavailable", gate.Timeframe)
-		}
-		closes = make([]float64, 0, len(series.Klines))
-		volumes = make([]float64, 0, len(series.Klines))
-		for _, kline := range series.Klines {
-			closes = append(closes, kline.Close)
-			volumes = append(volumes, kline.Volume)
-		}
+	count := gate.Lookback + 1
+	if count < 21 {
+		count = 21
+	}
+	timeframe := gate.Timeframe
+	if timeframe == "" {
+		timeframe = "3m"
+	}
+	trendData, err := market.GetWithTimeframesStrictExchange(symbol, []string{timeframe}, timeframe, count, at.exchange)
+	if err != nil {
+		return fmt.Errorf("[TREND GATE] failed to load %s data from %s: %w", timeframe, at.exchange, err)
+	}
+	series := trendData.TimeframeData[timeframe]
+	if series == nil {
+		return fmt.Errorf("[TREND GATE] %s data unavailable from %s", timeframe, at.exchange)
+	}
+	closes := make([]float64, 0, len(series.Klines))
+	volumes := make([]float64, 0, len(series.Klines))
+	for _, kline := range series.Klines {
+		closes = append(closes, kline.Close)
+		volumes = append(volumes, kline.Volume)
 	}
 	result := market.EvaluateTrendGate(closes, volumes, action, gate.Enabled, gate.Lookback, gate.MinPriceChangePct, gate.MinVolumeRatio)
 	if !result.Allowed {

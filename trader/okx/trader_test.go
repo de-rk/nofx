@@ -26,8 +26,11 @@ func TestPositionSideFromOKX(t *testing.T) {
 
 func TestOrderPosSide(t *testing.T) {
 	netTrader := &OKXTrader{positionMode: "net_mode"}
-	if got := netTrader.orderPosSide("short"); got != "net" {
-		t.Errorf("net-mode order posSide = %q, want net", got)
+	if got := netTrader.orderPosSide("short"); got != "short" {
+		t.Errorf("short order posSide = %q, want short", got)
+	}
+	if got := netTrader.orderPosSide("long"); got != "long" {
+		t.Errorf("long order posSide = %q, want long", got)
 	}
 
 	hedgeTrader := &OKXTrader{positionMode: "long_short_mode"}

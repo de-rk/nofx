@@ -435,14 +435,26 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	return GetWithTimeframesAndExchange(symbol, timeframes, primaryTimeframe, count, "binance")
 }
 
+// GetWithTimeframesStrictExchange is used by execution-sensitive consumers
+// such as the trend gate. For OKX it never falls back to CoinAnk or Binance:
+// every candle and volume value must come from OKX's native market API.
+func GetWithTimeframesStrictExchange(symbol string, timeframes []string, primaryTimeframe string, count int, exchange string) (*Data, error) {
+	return getWithTimeframesAndExchange(symbol, timeframes, primaryTimeframe, count, exchange, true)
+}
+
 // GetWithTimeframesAndExchange retrieves multi-timeframe data from the requested
 // exchange. The legacy GetWithTimeframes wrapper intentionally keeps Binance as
 // its default for callers that are not tied to an execution account.
 func GetWithTimeframesAndExchange(symbol string, timeframes []string, primaryTimeframe string, count int, exchange string) (*Data, error) {
+	return getWithTimeframesAndExchange(symbol, timeframes, primaryTimeframe, count, exchange, false)
+}
+
+func getWithTimeframesAndExchange(symbol string, timeframes []string, primaryTimeframe string, count int, exchange string, strict bool) (*Data, error) {
 	symbol = Normalize(symbol)
 	if strings.TrimSpace(exchange) == "" {
 		exchange = "binance"
 	}
+	strictOKX := strict && strings.EqualFold(exchange, "okx")
 
 	if len(timeframes) == 0 {
 		return nil, fmt.Errorf("at least one timeframe is required")
@@ -477,7 +489,7 @@ func GetWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 		var klines []Kline
 		var err error
 
-		if isXyzAsset {
+		if isXyzAsset && !strictOKX {
 			// Use Hyperliquid API for xyz dex assets
 			klines, err = getKlinesFromHyperliquid(symbol, tf, 200)
 			if err != nil {
@@ -486,7 +498,7 @@ func GetWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 			}
 		} else if strings.EqualFold(exchange, "okx") {
 			klines, err = getKlinesFromOKX(symbol, tf, 200)
-			if err != nil {
+			if err != nil && !strictOKX {
 				logger.Warnf("⚠️ OKX native candles unavailable for %s %s, trying CoinAnk OKX feed: %v", symbol, tf, err)
 				klines, err = getKlinesFromCoinAnk(symbol, tf, "okx", 200)
 			}
@@ -497,6 +509,9 @@ func GetWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 				logger.Infof("⚠️ Failed to get %s %s K-line from CoinAnk: %v", symbol, tf, err)
 				continue
 			}
+		}
+		if err != nil && strictOKX {
+			return nil, fmt.Errorf("%s %s data unavailable from %s: %w", symbol, tf, exchange, err)
 		}
 
 		if len(klines) == 0 {
@@ -535,14 +550,25 @@ func GetWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60)  // 1 hour
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
 
-	// Get OI data
-	oiData, err := getOpenInterestData(symbol)
+	// Get OI/funding data from the execution venue. Strict OKX consumers must
+	// not accidentally mix Binance derivatives metrics into OKX analysis.
+	var oiData *OIData
+	var err error
+	if strictOKX {
+		oiData, err = getOpenInterestDataFromOKX(symbol)
+	} else {
+		oiData, err = getOpenInterestData(symbol)
+	}
 	if err != nil {
 		oiData = &OIData{Latest: 0, Average: 0}
 	}
 
-	// Get Funding Rate
-	fundingRate, _ := getFundingRate(symbol)
+	var fundingRate float64
+	if strictOKX {
+		fundingRate, _ = getFundingRateFromOKX(symbol)
+	} else {
+		fundingRate, _ = getFundingRate(symbol)
+	}
 
 	if strings.EqualFold(exchange, "okx") {
 		if tickerPrice, tickerErr := getCurrentPriceFromOKX(symbol); tickerErr == nil {
@@ -564,6 +590,62 @@ func GetWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 		FundingRate:   fundingRate,
 		TimeframeData: timeframeData,
 	}, nil
+}
+
+func getOpenInterestDataFromOKX(symbol string) (*OIData, error) {
+	base := strings.TrimSuffix(Normalize(symbol), "USDT")
+	instID := base + "-USDT-SWAP"
+	endpoint := fmt.Sprintf("https://www.okx.com/api/v5/public/open-interest?instType=SWAP&instId=%s", url.QueryEscape(instID))
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			OI string `json:"oi"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || result.Code != "0" || len(result.Data) == 0 {
+		return nil, fmt.Errorf("OKX open interest error: code=%s msg=%s status=%d", result.Code, result.Msg, resp.StatusCode)
+	}
+	oi, err := strconv.ParseFloat(result.Data[0].OI, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &OIData{Latest: oi, Average: oi * 0.999}, nil
+}
+
+func getFundingRateFromOKX(symbol string) (float64, error) {
+	base := strings.TrimSuffix(Normalize(symbol), "USDT")
+	instID := base + "-USDT-SWAP"
+	endpoint := fmt.Sprintf("https://www.okx.com/api/v5/public/funding-rate?instId=%s", url.QueryEscape(instID))
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			FundingRate string `json:"fundingRate"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || result.Code != "0" || len(result.Data) == 0 {
+		return 0, fmt.Errorf("OKX funding rate error: code=%s msg=%s status=%d", result.Code, result.Msg, resp.StatusCode)
+	}
+	return strconv.ParseFloat(result.Data[0].FundingRate, 64)
 }
 
 // BuildFromKlines builds a Data struct from pre-fetched klines, skipping REST calls.
