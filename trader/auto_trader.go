@@ -1526,7 +1526,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	return nil
 }
 
-// setFixedProtection prefers OKX's single conditional order carrying both
+// setFixedProtection prefers OKX's single OCO order carrying both
 // trigger legs. Other exchanges retain their existing two-order interface.
 func (at *AutoTrader) setFixedProtection(decision *kernel.Decision, quantity float64) {
 	positionSide := "LONG"
@@ -1537,9 +1537,10 @@ func (at *AutoTrader) setFixedProtection(decision *kernel.Decision, quantity flo
 		SetTakeProfitAndStopLoss(symbol, positionSide string, quantity, stopPrice, takeProfitPrice float64) error
 	}); ok {
 		if err := combined.SetTakeProfitAndStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss, decision.TakeProfit); err != nil {
-			logger.Infof("  ⚠ Failed to set combined TP/SL: %v", err)
+			logger.Infof("  ⚠ Failed to set OCO TP/SL, falling back to separate orders: %v", err)
+		} else {
+			return
 		}
-		return
 	}
 	if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
 		logger.Infof("  ⚠ Failed to set stop loss: %v", err)

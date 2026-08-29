@@ -1269,8 +1269,9 @@ func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, 
 	return nil
 }
 
-// SetTakeProfitAndStopLoss places one OKX conditional algo order containing
-// both trigger legs.
+// SetTakeProfitAndStopLoss places one OKX OCO algo order containing both
+// trigger legs. OKX treats conditional as a single-leg order; using it with
+// both TP and SL fields can result in only the stop-loss being registered.
 func (t *OKXTrader) SetTakeProfitAndStopLoss(symbol, positionSide string, quantity, stopPrice, takeProfitPrice float64) error {
 	if err := t.ensureDualPositionMode(); err != nil {
 		return err
@@ -1289,22 +1290,22 @@ func (t *OKXTrader) SetTakeProfitAndStopLoss(symbol, positionSide string, quanti
 	}
 	body := map[string]interface{}{
 		"instId": instId, "tdMode": t.tdMode(), "side": side, "posSide": posSide,
-		"ordType": "conditional", "sz": szStr,
+		"ordType": "oco", "sz": szStr,
 		"slTriggerPx": fmt.Sprintf("%.8f", stopPrice), "slOrdPx": "-1",
 		"tpTriggerPx": fmt.Sprintf("%.8f", takeProfitPrice), "tpOrdPx": "-1", "tag": okxTag,
 	}
 	data, err := t.doRequest("POST", okxAlgoOrderPath, body)
 	if err != nil {
-		return fmt.Errorf("failed to set combined TP/SL: %w", err)
+		return fmt.Errorf("failed to set OCO TP/SL: %w", err)
 	}
 	var orders []struct {
 		SCode string `json:"sCode"`
 		SMsg  string `json:"sMsg"`
 	}
 	if len(data) > 0 && json.Unmarshal(data, &orders) == nil && len(orders) > 0 && orders[0].SCode != "" && orders[0].SCode != "0" {
-		return fmt.Errorf("failed to set combined TP/SL: code=%s, message=%s", orders[0].SCode, orders[0].SMsg)
+		return fmt.Errorf("failed to set OCO TP/SL: code=%s, message=%s", orders[0].SCode, orders[0].SMsg)
 	}
-	logger.Infof("  Combined TP/SL set: %s stop=%.8f takeProfit=%.8f", symbol, stopPrice, takeProfitPrice)
+	logger.Infof("  OCO TP/SL set: %s stop=%.8f takeProfit=%.8f", symbol, stopPrice, takeProfitPrice)
 	return nil
 }
 
@@ -1406,6 +1407,25 @@ func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
 
 	if err := json.Unmarshal(data, &orders); err != nil {
 		return err
+	}
+	// OCO TP/SL orders are a separate algo type from legacy conditional
+	// orders, so include them when clearing protection before a new entry.
+	ocoPath := fmt.Sprintf("%s?instType=SWAP&instId=%s&ordType=oco", okxAlgoPendingPath, instId)
+	if ocoData, ocoErr := t.doRequest("GET", ocoPath, nil); ocoErr == nil {
+		var ocoOrders []struct {
+			AlgoId string `json:"algoId"`
+			InstId string `json:"instId"`
+		}
+		if json.Unmarshal(ocoData, &ocoOrders) == nil {
+			for _, order := range ocoOrders {
+				orders = append(orders, struct {
+					AlgoId string `json:"algoId"`
+					InstId string `json:"instId"`
+				}{AlgoId: order.AlgoId, InstId: order.InstId})
+			}
+		}
+	} else {
+		logger.Infof("  ⚠️ Failed to get OCO algo orders: %v", ocoErr)
 	}
 	if orderType == "" {
 		trailingPath := fmt.Sprintf("%s?instType=SWAP&instId=%s&ordType=move_order_stop", okxAlgoPendingPath, instId)
@@ -1772,14 +1792,17 @@ func (t *OKXTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 		}
 	}
 
-	// 2. Get pending algo orders (stop-loss/take-profit)
-	// OKX requires ordType parameter for algo orders API
-	algoPath := fmt.Sprintf("%s?instId=%s&instType=SWAP&ordType=conditional", okxAlgoPendingPath, instId)
-	algoData, err := t.doRequest("GET", algoPath, nil)
-	if err != nil {
-		logger.Warnf("[OKX] Failed to get algo orders: %v", err)
-	}
-	if err == nil && algoData != nil {
+	// 2. Get pending algo orders (stop-loss/take-profit). OCO orders are
+	// returned separately from legacy conditional orders by OKX.
+	for _, algoType := range []string{"conditional", "oco"} {
+		algoPath := fmt.Sprintf("%s?instId=%s&instType=SWAP&ordType=%s", okxAlgoPendingPath, instId, algoType)
+		algoData, err := t.doRequest("GET", algoPath, nil)
+		if err != nil {
+			logger.Warnf("[OKX] Failed to get %s algo orders: %v", algoType, err)
+		}
+		if err != nil || algoData == nil {
+			continue
+		}
 		var algoOrders []struct {
 			AlgoId      string `json:"algoId"`
 			InstId      string `json:"instId"`

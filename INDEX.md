@@ -61,7 +61,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；AI 下单前强制确认/切换账户双向持仓模式，所有开平仓、限价和保护单显式发送 `posSide=long/short`；支持原生 `move_order_stop` 移动止盈止损、单一 conditional 合并止盈止损及挂单查询/撤销 |
+| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；AI 下单前强制确认/切换账户双向持仓模式，所有开平仓、限价和保护单显式发送 `posSide=long/short`；固定止盈止损使用单一 OCO algo 订单并兼容 OCO 查询/撤销；支持原生 `move_order_stop` 移动止盈止损 |
 | `ws.go` | OKX WebSocket 推送（公共 ticker、business K线、私有持仓/订单事件；`net` 持仓按正负数量识别多空；含独立重连与心跳） |
 | `trader_test.go` | OKX 持仓方向解析与双向模式 `posSide` 回归测试 |
 | `order_sync.go` | OKX 订单状态同步 |
@@ -188,7 +188,7 @@
 | 文件 | 说明 |
 |------|------|
 | `kernel/engine.go` | AI 策略引擎：候选币源（AI500 失败/空结果回退静态币）、按账户交易所获取多周期行情上下文、LLM 决策解析与风险校验；system prompt 根据 `enable_trailing_stop` 开关告知 AI 是否允许原生移动止盈止损，明确 OKX 双向持仓与 `posSide=long/short` 规则，并要求盈亏比在最小阈值外预留执行缓冲 |
-| `trader/auto_trader.go` | 普通 AI 交易周期、持仓管理、开仓执行层硬风控（趋势门控按账户交易所获取 K 线、最低置信度、最大保证金占用）和策略热更新；AI 设置 OKX 移动止盈时只创建单一移动保护单，失败才回退合并固定止盈/止损，且受策略开关控制 |
+| `trader/auto_trader.go` | 普通 AI 交易周期、持仓管理、开仓执行层硬风控（趋势门控按账户交易所获取 K 线、最低置信度、最大保证金占用）和策略热更新；AI 设置 OKX 移动止盈时只创建单一移动保护单，失败才回退单一 OCO 固定止盈/止损，OCO 失败再拆分为两条保护单，且受策略开关控制 |
 | `store/strategy.go` | AI/网格策略 JSON 配置，含 `TrendGateConfig` 单币 K 线+成交量开仓门控 |
 | `market/data.go` | 多周期 OHLCV 与指标数据构建；支持按账户交易所获取 K 线，保留完整盘中序列供可配置趋势门控使用；严格交易所模式下 OKX 趋势门控的 candles、成交量、OI、资金费率和 ticker 均只使用 OKX 链路，不回退 CoinAnk/Binance |
 | `backtest/types.go` | `GridParams`（搜索空间：`grid_count`/`atr_multiplier`/`distribution`/`leverage`/`profit_reduce_step_pct`/`profit_reduce_multiplier`，均带 JSON tag 供 API 序列化；另有固定不参与退火搜索、仅按传入值忠实模拟的风控开关：`EnableTTrade`+`TTradePositionThresholdPct`+`TTradeSpreadPct`、`ProfitDrawdownThresholdPct`、`EnableSmallPositionClose`、`FeePct`（每笔成交名义价值的固定手续费率，0=禁用）、`InvestmentRefreshDays`（每隔N天从权益重算投资额，0=禁用，复刻 trader.checkInvestmentRefresh）、`ScoreMode`（"balanced"（默认，回撤惩罚系数1.5）| "return_focused"（回撤惩罚系数0.3），只影响退火搜索怎么打分选参数，不改变单次回测本身的成交/回撤结果））、`SimResult`（单次回测结果，含 `TTradeReduces`/`DrawdownCloses`/`SmallPositionCloses`/`TotalFeesPaid`/`InvestmentRefreshes` 计数） |
