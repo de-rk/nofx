@@ -143,9 +143,34 @@ export function TraderDashboardPage({
 
     // Live prices from chart WS ticker, keyed by symbol
     const [livePrices, setLivePrices] = useState<Record<string, number>>({})
+    const livePriceFrameRef = useRef<number | null>(null)
+    const pendingLivePricesRef = useRef<Record<string, number>>({})
     const handlePriceUpdate = (symbol: string, price: number) => {
-        setLivePrices(prev => prev[symbol] === price ? prev : { ...prev, [symbol]: price })
+        pendingLivePricesRef.current[symbol] = price
+        if (livePriceFrameRef.current !== null) return
+        livePriceFrameRef.current = window.requestAnimationFrame(() => {
+            livePriceFrameRef.current = null
+            const pending = pendingLivePricesRef.current
+            pendingLivePricesRef.current = {}
+            setLivePrices(prev => {
+                let changed = false
+                const next = { ...prev }
+                for (const [pendingSymbol, pendingPrice] of Object.entries(pending)) {
+                    if (next[pendingSymbol] !== pendingPrice) {
+                        next[pendingSymbol] = pendingPrice
+                        changed = true
+                    }
+                }
+                return changed ? next : prev
+            })
+        })
     }
+
+    useEffect(() => () => {
+        if (livePriceFrameRef.current !== null) {
+            window.cancelAnimationFrame(livePriceFrameRef.current)
+        }
+    }, [])
 
     // Calculate paginated positions
     const totalPositions = positions?.length || 0
@@ -315,8 +340,8 @@ export function TraderDashboardPage({
     }
 
     return (
-        <DeepVoidBackground className="min-h-screen pb-12" disableAnimation>
-            <div className="w-full px-4 md:px-8 relative z-10 pt-6">
+        <DeepVoidBackground className="dashboard-page min-h-[100dvh] pb-12" disableAnimation>
+            <div className="w-full px-3 sm:px-4 md:px-8 relative z-10 pt-3 sm:pt-6">
                 {/* Trader Header */}
                 <div
                     className="mb-6 rounded-lg p-6 animate-scale-in nofx-glass group"

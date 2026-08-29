@@ -8,7 +8,7 @@ interface DeepVoidBackgroundProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export function DeepVoidBackground({ children, className = '', disableAnimation = false, ...props }: DeepVoidBackgroundProps) {
     return (
-        <div className={`relative w-full min-h-screen bg-nofx-bg text-nofx-text overflow-x-hidden flex flex-col ${className}`} {...props}>
+        <div className={`relative w-full min-h-screen bg-nofx-bg text-nofx-text overflow-x-hidden flex flex-col ${disableAnimation ? 'deep-void-static' : ''} ${className}`} {...props}>
             {/* BACKGROUND LAYERS */}
 
             {/* 1. Grain/Noise Texture */}
@@ -21,13 +21,13 @@ export function DeepVoidBackground({ children, className = '', disableAnimation 
             </div>
 
             {/* 3. Ambient Glow Spots */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none fixed z-0">
+            <div className="absolute inset-0 overflow-hidden pointer-events-none fixed z-0 deep-void-glows">
                 <div className="absolute top-[-10%] left-[-10%] w-[40vw] h-[40vw] bg-nofx-gold/10 rounded-full blur-[120px] mix-blend-screen animate-pulse-slow"></div>
                 <div className="absolute bottom-[-10%] right-[-10%] w-[40vw] h-[40vw] bg-nofx-accent/5 rounded-full blur-[120px] mix-blend-screen animate-pulse-slow" style={{ animationDelay: '2s' }}></div>
             </div>
 
             {/* 4. CRT/Scanline Overlay */}
-            <div className="absolute inset-0 pointer-events-none fixed z-[9999] opacity-40">
+            <div className="absolute inset-0 pointer-events-none fixed z-[9999] opacity-40 deep-void-crt">
                 <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] pointer-events-none"></div>
             </div>
 

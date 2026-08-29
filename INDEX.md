@@ -209,7 +209,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `pages/TraderDashboardPage.tsx` | Trader 主看板（持仓、决策历史、图表）；统一使用页面纵向滚动，避免嵌套滚动容器导致返回顶部失效 |
+| `pages/TraderDashboardPage.tsx` | Trader 主看板（持仓、决策历史、图表）；统一使用页面纵向滚动，避免嵌套滚动容器导致返回顶部失效；移动端关闭高开销背景模糊/动画、使用动态视口高度，并按动画帧合并行情刷新，提升触摸滚动流畅度 |
 | `pages/StrategyStudioPage.tsx` | 策略配置编辑页 |
 | `pages/StrategyMarketPage.tsx` | 策略市场页 |
 | `pages/LandingPage.tsx` | 落地页 |
