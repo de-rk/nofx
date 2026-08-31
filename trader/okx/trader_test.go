@@ -38,3 +38,28 @@ func TestOrderPosSide(t *testing.T) {
 		t.Errorf("hedge-mode short order posSide = %q, want short", got)
 	}
 }
+
+func TestHedgeProtectionDirection(t *testing.T) {
+	tests := []struct {
+		positionSide string
+		wantSide     string
+		wantPosSide  string
+		wantErr      bool
+	}{
+		{positionSide: "LONG", wantSide: "sell", wantPosSide: "long"},
+		{positionSide: "short", wantSide: "buy", wantPosSide: "short"},
+		{positionSide: "net", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.positionSide, func(t *testing.T) {
+			side, posSide, err := hedgeProtectionDirection(tt.positionSide)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("hedgeProtectionDirection(%q) error = %v, wantErr %v", tt.positionSide, err, tt.wantErr)
+			}
+			if !tt.wantErr && (side != tt.wantSide || posSide != tt.wantPosSide) {
+				t.Fatalf("hedgeProtectionDirection(%q) = (%q, %q), want (%q, %q)", tt.positionSide, side, posSide, tt.wantSide, tt.wantPosSide)
+			}
+		})
+	}
+}

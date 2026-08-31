@@ -1379,7 +1379,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	// A native trailing stop is the single protection order when configured.
 	// Fixed TP/SL are only a fallback if the trailing order cannot be created.
 	if at.trailingStopEnabled() && decision.TrailingStopCallbackPct > 0 {
-		if err := at.trader.CancelStopOrders(decision.Symbol); err != nil {
+		if err := at.clearProtectionForSide(decision.Symbol, "LONG"); err != nil {
 			logger.Infof("  ⚠ Failed to clear previous protection orders: %v", err)
 		}
 		if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
@@ -1512,7 +1512,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	// A native trailing stop is the single protection order when configured.
 	// Fixed TP/SL are only a fallback if the trailing order cannot be created.
 	if at.trailingStopEnabled() && decision.TrailingStopCallbackPct > 0 {
-		if err := at.trader.CancelStopOrders(decision.Symbol); err != nil {
+		if err := at.clearProtectionForSide(decision.Symbol, "SHORT"); err != nil {
 			logger.Infof("  ⚠ Failed to clear previous protection orders: %v", err)
 		}
 		if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
@@ -1556,6 +1556,15 @@ func (at *AutoTrader) trailingStopEnabled() bool {
 	}
 	config := at.strategyEngine.GetConfig()
 	return config != nil && config.RiskControl.EnableTrailingStop
+}
+
+func (at *AutoTrader) clearProtectionForSide(symbol, positionSide string) error {
+	if sideAware, ok := at.trader.(interface {
+		CancelStopOrdersForSide(symbol, positionSide string) error
+	}); ok {
+		return sideAware.CancelStopOrdersForSide(symbol, positionSide)
+	}
+	return at.trader.CancelStopOrders(symbol)
 }
 
 // setTrailingStop submits the optional native trailing stop after an entry.

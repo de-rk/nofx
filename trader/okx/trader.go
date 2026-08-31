@@ -344,6 +344,17 @@ func (t *OKXTrader) orderPosSide(positionSide string) string {
 	return "long"
 }
 
+func hedgeProtectionDirection(positionSide string) (side, posSide string, err error) {
+	switch strings.ToLower(strings.TrimSpace(positionSide)) {
+	case "long":
+		return "sell", "long", nil
+	case "short":
+		return "buy", "short", nil
+	default:
+		return "", "", fmt.Errorf("OKX dual position mode requires protection side LONG or SHORT, got %q", positionSide)
+	}
+}
+
 // sign generates OKX API signature
 func (t *OKXTrader) sign(timestamp, method, requestPath, body string) string {
 	preHash := timestamp + method + requestPath + body
@@ -759,8 +770,11 @@ func (t *OKXTrader) OpenLong(symbol string, quantity float64, leverage int) (map
 	if err := t.ensureDualPositionMode(); err != nil {
 		return nil, err
 	}
-	// Cancel old orders
-	t.CancelAllOrders(symbol)
+	// Only clear stale long-side entries. In hedge mode, clearing every order
+	// here would remove valid short-side TP/SL or trailing protection.
+	if err := t.cancelPendingOrdersForSide(symbol, "long"); err != nil {
+		logger.Infof("  ⚠ Failed to clear existing long-side orders: %v", err)
+	}
 
 	// Set leverage
 	if err := t.SetLeverage(symbol, leverage); err != nil {
@@ -839,8 +853,10 @@ func (t *OKXTrader) OpenShort(symbol string, quantity float64, leverage int) (ma
 	if err := t.ensureDualPositionMode(); err != nil {
 		return nil, err
 	}
-	// Cancel old orders
-	t.CancelAllOrders(symbol)
+	// Only clear stale short-side entries; retain long-side protection.
+	if err := t.cancelPendingOrdersForSide(symbol, "short"); err != nil {
+		logger.Infof("  ⚠ Failed to clear existing short-side orders: %v", err)
+	}
 
 	// Set leverage
 	if err := t.SetLeverage(symbol, leverage); err != nil {
@@ -1013,8 +1029,10 @@ func (t *OKXTrader) CloseLong(symbol string, quantity float64) (map[string]inter
 
 	logger.Infof("✓ OKX closed long position successfully: %s", symbol)
 
-	// Cancel pending orders after closing position
-	t.CancelAllOrders(symbol)
+	// Only remove the closed long side's orders and protection. A simultaneous
+	// short hedge position must keep its own pending orders and trailing/OCO.
+	t.cancelPendingOrdersForSide(symbol, "long")
+	t.CancelStopOrdersForSide(symbol, "long")
 
 	return map[string]interface{}{
 		"orderId": orders[0].OrdId,
@@ -1127,8 +1145,9 @@ func (t *OKXTrader) CloseShort(symbol string, quantity float64) (map[string]inte
 
 	logger.Infof("✓ OKX closed short position successfully: %s, ordId=%s", symbol, orders[0].OrdId)
 
-	// Cancel pending orders after closing position
-	t.CancelAllOrders(symbol)
+	// Preserve long-side orders/protection when only the short hedge closes.
+	t.cancelPendingOrdersForSide(symbol, "short")
+	t.CancelStopOrdersForSide(symbol, "short")
 
 	return map[string]interface{}{
 		"orderId": orders[0].OrdId,
@@ -1195,11 +1214,9 @@ func (t *OKXTrader) SetStopLoss(symbol string, positionSide string, quantity, st
 	szStr := t.formatSize(sz, inst)
 
 	// Determine direction
-	side := "sell"
-	posSide := t.orderPosSide("long")
-	if strings.ToUpper(positionSide) == "SHORT" {
-		side = "buy"
-		posSide = t.orderPosSide("short")
+	side, posSide, err := hedgeProtectionDirection(positionSide)
+	if err != nil {
+		return err
 	}
 
 	body := map[string]interface{}{
@@ -1241,11 +1258,9 @@ func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, 
 	szStr := t.formatSize(sz, inst)
 
 	// Determine direction
-	side := "sell"
-	posSide := t.orderPosSide("long")
-	if strings.ToUpper(positionSide) == "SHORT" {
-		side = "buy"
-		posSide = t.orderPosSide("short")
+	side, posSide, err := hedgeProtectionDirection(positionSide)
+	if err != nil {
+		return err
 	}
 
 	body := map[string]interface{}{
@@ -1282,11 +1297,9 @@ func (t *OKXTrader) SetTakeProfitAndStopLoss(symbol, positionSide string, quanti
 		return fmt.Errorf("failed to get instrument info: %w", err)
 	}
 	szStr := t.formatSize(quantity/inst.CtVal, inst)
-	side := "sell"
-	posSide := t.orderPosSide("long")
-	if strings.EqualFold(positionSide, "SHORT") {
-		side = "buy"
-		posSide = t.orderPosSide("short")
+	side, posSide, err := hedgeProtectionDirection(positionSide)
+	if err != nil {
+		return err
 	}
 	body := map[string]interface{}{
 		"instId": instId, "tdMode": t.tdMode(), "side": side, "posSide": posSide,
@@ -1332,11 +1345,9 @@ func (t *OKXTrader) SetTrailingStop(symbol string, positionSide string, quantity
 	sz := quantity / inst.CtVal
 	szStr := t.formatSize(sz, inst)
 
-	side := "sell"
-	posSide := t.orderPosSide("long")
-	if strings.EqualFold(positionSide, "SHORT") {
-		side = "buy"
-		posSide = t.orderPosSide("short")
+	side, posSide, err := hedgeProtectionDirection(positionSide)
+	if err != nil {
+		return err
 	}
 
 	body := map[string]interface{}{
@@ -1390,6 +1401,12 @@ func (t *OKXTrader) CancelTakeProfitOrders(symbol string) error {
 
 // cancelAlgoOrders cancels algo orders
 func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
+	return t.cancelAlgoOrdersForSide(symbol, orderType, "")
+}
+
+// cancelAlgoOrdersForSide cancels protection algos for one hedge position.
+// An empty positionSide preserves the emergency "cancel everything" behavior.
+func (t *OKXTrader) cancelAlgoOrdersForSide(symbol string, orderType, positionSide string) error {
 	instId := t.convertSymbol(symbol)
 
 	// Get pending conditional algo orders. A blank orderType means callers are
@@ -1401,8 +1418,9 @@ func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
 	}
 
 	var orders []struct {
-		AlgoId string `json:"algoId"`
-		InstId string `json:"instId"`
+		AlgoId  string `json:"algoId"`
+		InstId  string `json:"instId"`
+		PosSide string `json:"posSide"`
 	}
 
 	if err := json.Unmarshal(data, &orders); err != nil {
@@ -1413,15 +1431,17 @@ func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
 	ocoPath := fmt.Sprintf("%s?instType=SWAP&instId=%s&ordType=oco", okxAlgoPendingPath, instId)
 	if ocoData, ocoErr := t.doRequest("GET", ocoPath, nil); ocoErr == nil {
 		var ocoOrders []struct {
-			AlgoId string `json:"algoId"`
-			InstId string `json:"instId"`
+			AlgoId  string `json:"algoId"`
+			InstId  string `json:"instId"`
+			PosSide string `json:"posSide"`
 		}
 		if json.Unmarshal(ocoData, &ocoOrders) == nil {
 			for _, order := range ocoOrders {
 				orders = append(orders, struct {
-					AlgoId string `json:"algoId"`
-					InstId string `json:"instId"`
-				}{AlgoId: order.AlgoId, InstId: order.InstId})
+					AlgoId  string `json:"algoId"`
+					InstId  string `json:"instId"`
+					PosSide string `json:"posSide"`
+				}{AlgoId: order.AlgoId, InstId: order.InstId, PosSide: order.PosSide})
 			}
 		}
 	} else {
@@ -1434,15 +1454,17 @@ func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
 			logger.Infof("  ⚠️ Failed to get trailing-stop orders: %v", trailingErr)
 		} else {
 			var trailingOrders []struct {
-				AlgoId string `json:"algoId"`
-				InstId string `json:"instId"`
+				AlgoId  string `json:"algoId"`
+				InstId  string `json:"instId"`
+				PosSide string `json:"posSide"`
 			}
 			if err := json.Unmarshal(trailingData, &trailingOrders); err == nil {
 				for _, order := range trailingOrders {
 					orders = append(orders, struct {
-						AlgoId string `json:"algoId"`
-						InstId string `json:"instId"`
-					}{AlgoId: order.AlgoId, InstId: order.InstId})
+						AlgoId  string `json:"algoId"`
+						InstId  string `json:"instId"`
+						PosSide string `json:"posSide"`
+					}{AlgoId: order.AlgoId, InstId: order.InstId, PosSide: order.PosSide})
 				}
 			}
 		}
@@ -1450,6 +1472,9 @@ func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
 
 	canceledCount := 0
 	for _, order := range orders {
+		if positionSide != "" && !strings.EqualFold(order.PosSide, positionSide) {
+			continue
+		}
 		body := []map[string]interface{}{
 			{
 				"algoId": order.AlgoId,
@@ -1511,9 +1536,54 @@ func (t *OKXTrader) CancelAllOrders(symbol string) error {
 	return nil
 }
 
+// cancelPendingOrdersForSide clears stale regular orders for one hedge side.
+// Algo protection is deliberately excluded because it is managed separately.
+func (t *OKXTrader) cancelPendingOrdersForSide(symbol, positionSide string) error {
+	instId := t.convertSymbol(symbol)
+	path := fmt.Sprintf("%s?instType=SWAP&instId=%s", okxPendingOrdersPath, instId)
+	data, err := t.doRequest("GET", path, nil)
+	if err != nil {
+		return err
+	}
+
+	var orders []struct {
+		OrdId   string `json:"ordId"`
+		InstId  string `json:"instId"`
+		PosSide string `json:"posSide"`
+	}
+	if err := json.Unmarshal(data, &orders); err != nil {
+		return err
+	}
+
+	canceledCount := 0
+	for _, order := range orders {
+		if !strings.EqualFold(order.PosSide, positionSide) {
+			continue
+		}
+		if _, err := t.doRequest("POST", okxCancelOrderPath, map[string]interface{}{
+			"instId": order.InstId,
+			"ordId":  order.OrdId,
+		}); err != nil {
+			logger.Infof("  ⚠️ Failed to cancel %s-side order %s: %v", positionSide, order.OrdId, err)
+			continue
+		}
+		canceledCount++
+	}
+	if canceledCount > 0 {
+		logger.Infof("  ✓ Canceled %d pending %s-side orders for %s", canceledCount, positionSide, symbol)
+	}
+	return nil
+}
+
 // CancelStopOrders cancels stop loss and take profit orders
 func (t *OKXTrader) CancelStopOrders(symbol string) error {
 	return t.cancelAlgoOrders(symbol, "")
+}
+
+// CancelStopOrdersForSide is used by AI hedge-mode entries so replacing one
+// side's protection cannot remove the opposite side's protection.
+func (t *OKXTrader) CancelStopOrdersForSide(symbol, positionSide string) error {
+	return t.cancelAlgoOrdersForSide(symbol, "", positionSide)
 }
 
 // FormatQuantity formats quantity (converts base asset quantity to contract count)

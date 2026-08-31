@@ -1192,6 +1192,14 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString(fmt.Sprintf("\nFeel free to use any effective analysis method, but **confidence ≥ %d** required to open positions; avoid low-quality behaviors such as single indicators, contradictory signals, sideways consolidation, reopening immediately after closing, etc.\n\n", riskControl.MinConfidence))
 	}
 
+	// Direction selection remains mandatory even when editable entry standards are configured.
+	sb.WriteString("# Direction Selection: Long and Short Are Symmetric\n\n")
+	sb.WriteString("- Open a long with `open_long` only after sufficient bullish confirmation. Long stop_loss must be below entry and take_profit above entry.\n")
+	sb.WriteString("- Open a short with `open_short` only after sufficient bearish confirmation. Short stop_loss must be above entry and take_profit below entry.\n")
+	sb.WriteString("- Do not default to `wait` merely because price is falling. When bearish trend, momentum, and entry timing meet the same quality, confidence, and risk/reward standards required for a long, use `open_short`.\n")
+	sb.WriteString("- Use `wait` only when the setup is unconfirmed, signals conflict, price is extended/near support or resistance without a safe entry, or the required stop_loss and risk/reward cannot be defined.\n")
+	sb.WriteString("- Treat candidate-source tags as discovery signals, not a directional restriction. Evaluate bullish and bearish setups independently for every candidate.\n\n")
+
 	// 6. Decision process (editable)
 	if promptSections.DecisionProcess != "" {
 		sb.WriteString(promptSections.DecisionProcess)
@@ -1215,7 +1223,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- `trailing_stop_callback_pct`: permitted pullback from the best price after activation. Must be 0.1-5.0. A smaller value protects profit sooner; a larger value gives the trend more room.\n")
 	sb.WriteString("- Set both fields together when using the trailing stop. Omit both fields when it is not appropriate. The backend submits it after the market entry for the full opened quantity.\n")
 	if riskControl.EnableTrailingStop {
-		sb.WriteString("- `stop_loss` and `take_profit` remain required numeric fallback fields. When trailing-stop fields are set successfully, the backend creates one native trailing protection order and does not create separate fixed TP/SL orders; fixed TP/SL are used only if the trailing order fails.\n\n")
+		sb.WriteString("- `stop_loss` and `take_profit` remain required numeric fallback fields. When trailing-stop fields are set successfully, the backend prioritizes one native trailing protection order for that exact long/short position and does not create fixed TP/SL orders; fixed TP/SL are used only if the trailing order fails.\n\n")
 	} else {
 		sb.WriteString("- `stop_loss` and `take_profit` are the only protection fields used while this switch is off.\n\n")
 	}

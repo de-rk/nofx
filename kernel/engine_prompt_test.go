@@ -17,7 +17,9 @@ func TestStrategyEngineSystemPromptIncludesOKXTrailingStop(t *testing.T) {
 		"`trailing_stop_callback_pct`",
 		"Must be 0.1-5.0",
 		"For a long, activation is above entry; for a short, activation is below entry.",
-		"Always provide fixed `stop_loss` and `take_profit` as well",
+		"`stop_loss` and `take_profit` remain required numeric fallback fields.",
+		"# Direction Selection: Long and Short Are Symmetric",
+		"When bearish trend, momentum, and entry timing meet the same quality, confidence, and risk/reward standards required for a long, use `open_short`.",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Errorf("system prompt should contain %q", expected)
