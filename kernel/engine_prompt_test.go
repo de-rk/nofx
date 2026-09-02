@@ -18,6 +18,7 @@ func TestStrategyEngineSystemPromptIncludesOKXTrailingStop(t *testing.T) {
 		"Must be 0.1-5.0",
 		"For a long, activation is above entry; for a short, activation is below entry.",
 		"`stop_loss` and `take_profit` remain required numeric fallback fields.",
+		"Protection priority (mandatory):** use fixed stop_loss/take_profit only when the trailing stop is disabled, cannot be created, is rejected, or otherwise becomes invalid.",
 		"# Direction Selection: Long and Short Are Symmetric",
 		"When bearish trend, momentum, and entry timing meet the same quality, confidence, and risk/reward standards required for a long, use `open_short`.",
 	} {

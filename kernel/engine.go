@@ -1223,7 +1223,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- `trailing_stop_callback_pct`: permitted pullback from the best price after activation. Must be 0.1-5.0. A smaller value protects profit sooner; a larger value gives the trend more room.\n")
 	sb.WriteString("- Set both fields together when using the trailing stop. Omit both fields when it is not appropriate. The backend submits it after the market entry for the full opened quantity.\n")
 	if riskControl.EnableTrailingStop {
-		sb.WriteString("- `stop_loss` and `take_profit` remain required numeric fallback fields. When trailing-stop fields are set successfully, the backend prioritizes one native trailing protection order for that exact long/short position and does not create fixed TP/SL orders; fixed TP/SL are used only if the trailing order fails.\n\n")
+		sb.WriteString("- `stop_loss` and `take_profit` remain required numeric fallback fields. When trailing-stop fields are set successfully, the backend prioritizes one native trailing protection order for that exact long/short position and does not create fixed TP/SL orders; fixed TP/SL are used only if the trailing order fails.\n")
+		sb.WriteString("- **Protection priority (mandatory):** use fixed stop_loss/take_profit only when the trailing stop is disabled, cannot be created, is rejected, or otherwise becomes invalid. Never create or request separate fixed TP/SL alongside a successfully active trailing stop.\n\n")
 	} else {
 		sb.WriteString("- `stop_loss` and `take_profit` are the only protection fields used while this switch is off.\n\n")
 	}

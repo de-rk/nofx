@@ -33,7 +33,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；system prompt 明确 AI 可在 OKX 开仓时成对设置原生移动止盈止损的激活/回撤百分比（含多空方向、取值范围及与固定止盈止损共存规则），并以对称规则要求确认看多时 `open_long`、确认看空时 `open_short`，不得因下跌而默认 `wait`；并要求 `confidence` 使用 JSON 数字；解析器兼容置信度偶发输出英文数字词；AI user prompt 不再注入历史交易统计；风险收益比校验含显示精度容差；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
+| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；system prompt 明确 AI 可在 OKX 开仓时成对设置原生移动止盈止损的激活/回撤百分比（含多空方向、取值范围及保护优先级：仅移动单禁用、创建失败或失效时才使用固定止盈止损），并以对称规则要求确认看多时 `open_long`、确认看空时 `open_short`，不得因下跌而默认 `wait`；并要求 `confidence` 使用 JSON 数字；解析器兼容置信度偶发输出英文数字词；AI user prompt 不再注入历史交易统计；风险收益比校验含显示精度容差；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
 | `engine_prompt_test.go` | `StrategyEngine.BuildSystemPrompt` 的 OKX 原生移动止盈止损和多空对称开仓规则的 prompt 回归测试，以及英文置信度数字归一化解析测试 |
 | `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；prompt 支持 AI 主动 `adjust_grid`、`reduce_long` 和 `reduce_short`，并说明与价格越界自动重建并行的 ATR/默认边界、主动部分减仓和保护减仓单规则；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
 | `grid_engine_prompt_test.go` | 网格 system prompt 中普通多空部分减仓动作与规则的回归测试 |
@@ -187,7 +187,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `kernel/engine.go` | AI 策略引擎：候选币源（AI500 失败/空结果回退静态币）、按账户交易所获取多周期行情上下文、LLM 决策解析与风险校验；system prompt 根据 `enable_trailing_stop` 开关告知 AI 是否允许原生移动止盈止损，明确 OKX 双向持仓与 `posSide=long/short` 规则，以多空对称的确认、置信度和风险收益比标准要求看空时使用 `open_short`，并要求盈亏比在最小阈值外预留执行缓冲 |
+| `kernel/engine.go` | AI 策略引擎：候选币源（AI500 失败/空结果回退静态币）、按账户交易所获取多周期行情上下文、LLM 决策解析与风险校验；system prompt 根据 `enable_trailing_stop` 开关告知 AI 是否允许原生移动止盈止损，明确移动保护成功时禁止并行固定止盈止损、仅在移动单禁用/失败/失效时回退固定保护，明确 OKX 双向持仓与 `posSide=long/short` 规则，以多空对称的确认、置信度和风险收益比标准要求看空时使用 `open_short`，并要求盈亏比在最小阈值外预留执行缓冲 |
 | `trader/auto_trader.go` | 普通 AI 交易周期、持仓管理、开仓执行层硬风控（趋势门控按账户交易所获取 K 线、最低置信度、最大保证金占用）和策略热更新；AI 设置 OKX 移动止盈时优先创建当前 long/short 方向的单一移动保护单，仅清理同方向保护单；失败才回退单一 OCO 固定止盈/止损，OCO 失败再拆分为两条保护单，且受策略开关控制 |
 | `store/strategy.go` | AI/网格策略 JSON 配置，含 `TrendGateConfig` 单币 K 线+成交量开仓门控 |
 | `market/data.go` | 多周期 OHLCV 与指标数据构建；支持按账户交易所获取 K 线，保留完整盘中序列供可配置趋势门控使用；严格交易所模式下 OKX 趋势门控的 candles、成交量、OI、资金费率和 ticker 均只使用 OKX 链路，不回退 CoinAnk/Binance |
