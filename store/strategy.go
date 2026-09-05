@@ -273,9 +273,9 @@ type RiskControlConfig struct {
 	// Min AI confidence to open position (AI guided)
 	MinConfidence int `json:"min_confidence"`
 
-	// Profit drawdown threshold (%) - auto close when profit drawdown exceeds this (when profit>5%)
+	// Profit drawdown threshold (%) - auto close a position when its peak-profit drawdown exceeds this
 	ProfitDrawdownPct float64 `json:"profit_drawdown_pct"`
-	// Profit threshold (%) - profit drawdown only triggers when profit exceeds this (default 5%)
+	// Profit threshold (%) - protection activates after a position reaches this profit (default 5%)
 	ProfitThresholdPct float64 `json:"profit_threshold_pct"`
 }
 

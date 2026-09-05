@@ -2213,6 +2213,11 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			// Update peak cache
 			at.UpdatePeakPnL(symbol, side, currentPnLPct)
 		}
+		// Read the peak again after updating it so the comparison always uses
+		// the latest value, including the first observation.
+		at.peakPnLCacheMutex.RLock()
+		peakPnLPct = at.peakPnLCache[posKey]
+		at.peakPnLCacheMutex.RUnlock()
 
 		// Calculate drawdown (magnitude of decline from peak)
 		var drawdownPct float64
@@ -2220,20 +2225,36 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			drawdownPct = ((peakPnLPct - currentPnLPct) / peakPnLPct) * 100
 		}
 
-		// Get drawdown threshold from config; 0 = disabled
+		// AI strategies use the risk-control fields. Grid strategies retain
+		// their existing grid-specific drawdown threshold and 5% activation.
+		profitThreshold := 5.0
 		drawdownThreshold := 50.0
-		if at.config.StrategyConfig != nil && at.config.StrategyConfig.GridConfig != nil {
-			configured := at.config.StrategyConfig.GridConfig.ProfitDrawdownThreshold
-			if configured == 0 {
-				continue // disabled
-			}
-			if configured > 0 {
-				drawdownThreshold = configured
+		if at.config.StrategyConfig != nil {
+			if at.IsGridStrategy() {
+				configured := at.config.StrategyConfig.GridConfig.ProfitDrawdownThreshold
+				if configured == 0 {
+					continue // disabled
+				}
+				if configured > 0 {
+					drawdownThreshold = configured
+				}
+			} else {
+				configuredRisk := at.config.StrategyConfig.RiskControl
+				if configuredRisk.ProfitThresholdPct > 0 {
+					profitThreshold = configuredRisk.ProfitThresholdPct
+				}
+				if configuredRisk.ProfitDrawdownPct <= 0 {
+					continue // disabled
+				}
+				drawdownThreshold = configuredRisk.ProfitDrawdownPct
 			}
 		}
 
-		// Check close position condition: profit > 5% and drawdown >= threshold
-		if currentPnLPct > 5.0 && drawdownPct >= drawdownThreshold {
+		// Require both the historical peak and current profit to remain at or
+		// above the activation threshold. This intentionally preserves the
+		// configured behavior: after a drawdown, keep the position unless at
+		// least the activation profit (for example, 2%) is still protected.
+		if shouldCloseProfitDrawdown(currentPnLPct, peakPnLPct, profitThreshold, drawdownThreshold) {
 			logger.Infof("🚨 Drawdown close position condition triggered: %s %s | Current profit: %.2f%% | Peak profit: %.2f%% | Drawdown: %.2f%% (threshold: %.0f%%)",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct, drawdownThreshold)
 
@@ -2250,12 +2271,27 @@ func (at *AutoTrader) checkPositionDrawdown() {
 						"", 0, 0, 0, 0, currentPnLPct, 0, true, "")
 				}
 			}
-		} else if currentPnLPct > 5.0 {
+		} else if peakPnLPct >= profitThreshold && currentPnLPct >= profitThreshold {
 			// Record situations close to close position condition (for debugging)
 			logger.Infof("📊 Drawdown monitoring: %s %s | Profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
 		}
 	}
+}
+
+// shouldCloseProfitDrawdown applies profit drawdown protection to one
+// position. The position must have reached the activation profit, must still
+// retain that minimum profit after the pullback, and must have retraced the
+// configured percentage of its peak profit.
+func shouldCloseProfitDrawdown(currentProfitPct, peakProfitPct, activationProfitPct, drawdownThresholdPct float64) bool {
+	if activationProfitPct <= 0 || drawdownThresholdPct <= 0 {
+		return false
+	}
+	if peakProfitPct < activationProfitPct || currentProfitPct < activationProfitPct || peakProfitPct <= currentProfitPct {
+		return false
+	}
+	drawdownPct := (peakProfitPct - currentProfitPct) / peakProfitPct * 100
+	return drawdownPct >= drawdownThresholdPct
 }
 
 // emergencyClosePosition emergency close position function
@@ -2813,7 +2849,11 @@ func (at *AutoTrader) enforceMaxPositions(currentPositionCount int) error {
 // checkProfitDrawdown checks if profit drawdown exceeds threshold and triggers position closure
 // Returns true if drawdown protection is triggered
 func (at *AutoTrader) checkProfitDrawdown() (bool, error) {
-	if at.config.StrategyConfig == nil {
+	// AI strategies are protected per position by checkPositionDrawdown.
+	// Do not use the legacy account-level check here: it compares total equity
+	// and would close every long/short position together instead of applying
+	// the configured threshold to the side that actually drew down.
+	if !at.IsGridStrategy() || at.config.StrategyConfig == nil {
 		return false, nil
 	}
 

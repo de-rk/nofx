@@ -47,7 +47,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；开仓后按 AI 参数调用交易所原生移动止盈止损，移动单成功时只保留单一移动保护单，失败时回退单一合并固定止盈/止损委托；平空与利润回撤全平均按标准化后的持仓方向执行，避免依赖仓位数量正负；支持接替时按方向撤销对侧网格普通挂单并保留减仓单；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
+| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；开仓后按 AI 参数调用交易所原生移动止盈止损，移动单成功时只保留单一移动保护单，失败时回退单一合并固定止盈/止损委托；利润回撤按每个多空仓位独立跟踪峰值，读取 AI 风险控制的利润触发/回撤阈值，且当前收益跌破触发收益时保留仓位；AI 不再使用旧的账户级全部平仓检查；平空与利润回撤全平均按标准化后的持仓方向执行，避免依赖仓位数量正负；支持接替时按方向撤销对侧网格普通挂单并保留减仓单；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
+| `profit_drawdown_test.go` | AI/网格单仓位利润回撤保护触发条件测试：峰值达到激活收益、回撤达到阈值且当前收益仍保留激活收益 |
 | `auto_trader_grid.go` | 网格交易核心：网格状态机、AI 周期、AI 主动 `adjust_grid` 与价格越界自动重建并行、AI 的 `reduce_long`/`reduce_short` 普通市价部分减仓、定期刷新投资额后复用 `adjust_grid`（保留 T 字/浮盈减仓保护单并迁移持仓）、T-trade（T字操作）、减仓、syncExchangeState、checkProfitReduce（浮盈减仓，排除 T-trade 减仓单与网格层挂单的重复下单检查）；支持接替时暂停网格周期、按方向撤销对侧普通入口单并保护减仓单；`buildAlgoGridDecision` 为非 AI 的确定性决策生成器（补空层+超时撤单），由 `RunGridCycle` 按 `GridConfig.DecisionMode`（"ai"/"ai_with_algo_fallback"/"algo_only"）选择性调用，产出与 AI 完全一致的 `kernel.Decision`，走同一条 `executeGridDecision` 执行链路，交易日志 source 按实际来源标为 `"ai"` 或 `"algo"` |
 | `position_rebuild.go` | 持仓重建逻辑：从交易所读取持仓，匹配到网格层级，重建本地状态 |
 | `position_snapshot.go` | 持仓快照定时存储（用于绩效分析） |
@@ -110,7 +111,7 @@
 | `store.go` | Store 接口与工厂 |
 | `gorm.go` | GORM 连接初始化与迁移 |
 | `driver.go` | 数据库驱动选择（SQLite/PostgreSQL） |
-| `strategy.go` | 策略配置表（`StrategyConfig`）；风险控制含 AI 原生移动止盈止损开关 `enable_trailing_stop` |
+| `strategy.go` | 策略配置表（`StrategyConfig`）；风险控制含 AI 原生移动止盈止损开关 `enable_trailing_stop` 以及利润触发 `profit_threshold_pct`、利润回撤 `profit_drawdown_pct` |
 | `grid.go` | 网格配置表（`GridStrategyConfig`），含 T-trade、投资额刷新等字段 |
 | `decision.go` | AI 决策记录表，保存移动止盈止损参数 |
 | `trader.go` | Trader 实例配置表 |
