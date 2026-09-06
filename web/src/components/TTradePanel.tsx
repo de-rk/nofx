@@ -9,7 +9,7 @@ interface TTradeGroup {
   tagLog?: GridTradeLog
   fillLog?: GridTradeLog
   reducePlacedLog?: GridTradeLog
-  reduceLog?: GridTradeLog
+  reduceLogs: GridTradeLog[]
   cancelLog?: GridTradeLog
 }
 
@@ -31,7 +31,7 @@ function groupTTradeEvents(logs: GridTradeLog[]): TTradeGroup[] {
     const tagLog = events.find(e => e.action === 'ttrade_tag')
     const fillLog = events.find(e => e.action === 'ttrade_fill')
     const reducePlacedLog = events.find(e => e.action === 'ttrade_reduce_placed')
-    const reduceLog = events.find(e => e.action === 'ttrade_reduce')
+    const reduceLogs = events.filter(e => e.action === 'ttrade_reduce')
     const cancelLog = events.find(e => e.action === 'ttrade_cancel')
 
     // A prep that was cancelled/expired before ever filling has no further
@@ -46,7 +46,7 @@ function groupTTradeEvents(logs: GridTradeLog[]): TTradeGroup[] {
       tagLog,
       fillLog,
       reducePlacedLog,
-      reduceLog,
+      reduceLogs,
       cancelLog,
     })
   }
@@ -76,6 +76,24 @@ const ACTION_LABELS: Record<string, string> = {
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function realizedPL(log: GridTradeLog): number {
+  if (typeof log.realized_pl === 'number' && log.realized_pl !== 0) {
+    return log.realized_pl
+  }
+  // Backward-compatible fallback for reduce logs written before the column
+  // was added; those records already contain the two prices and quantity.
+  if (log.action !== 'ttrade_reduce' || log.entry_price <= 0 || log.price <= 0 || log.quantity <= 0) {
+    return log.realized_pl || 0
+  }
+  if (log.side === 'buy' || log.side === 'long') {
+    return (log.price - log.entry_price) * log.quantity
+  }
+  if (log.side === 'sell' || log.side === 'short') {
+    return (log.entry_price - log.price) * log.quantity
+  }
+  return log.realized_pl || 0
 }
 
 export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
@@ -117,7 +135,30 @@ export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
 
   return (
     <div className="space-y-3">
-      {groups.map(({ prepOrderId, symbol, side, events, tagLog, fillLog, reducePlacedLog, reduceLog }) => {
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {(() => {
+          const realizedTotal = groups.reduce(
+            (sum, group) => sum + group.reduceLogs.reduce((groupSum, log) => groupSum + realizedPL(log), 0),
+            0,
+          )
+          const completedCount = groups.filter(group => group.reduceLogs.length > 0).length
+          return (
+            <>
+              <div className="rounded-lg border border-white/5 bg-black/20 px-4 py-3">
+                <div className="text-xs text-nofx-text-muted">T-trade 累计收益（当前记录）</div>
+                <div className={`text-lg font-semibold tabular-nums ${realizedTotal >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {realizedTotal >= 0 ? '+' : ''}{realizedTotal.toFixed(4)} USDT
+                </div>
+              </div>
+              <div className="rounded-lg border border-white/5 bg-black/20 px-4 py-3">
+                <div className="text-xs text-nofx-text-muted">已完成 T-trade</div>
+                <div className="text-lg font-semibold tabular-nums text-nofx-text-main">{completedCount} 次</div>
+              </div>
+            </>
+          )
+        })()}
+      </div>
+      {groups.map(({ prepOrderId, symbol, side, events, tagLog, fillLog, reducePlacedLog, reduceLogs }) => {
         const isExpanded = expanded.has(prepOrderId)
         const isBuy = side === 'buy'
         const sideColor = isBuy ? 'text-green-400' : 'text-red-400'
@@ -126,7 +167,8 @@ export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
         // Status badge
         let status = '标记'
         let statusColor = 'bg-gray-500/20 text-gray-400'
-        if (reduceLog) {
+        const realizedProfit = reduceLogs.reduce((sum, log) => sum + realizedPL(log), 0)
+        if (reduceLogs.length > 0) {
           status = '已完成'
           statusColor = 'bg-green-500/20 text-green-400'
         } else if (reducePlacedLog) {
@@ -155,9 +197,14 @@ export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
                 <div className="text-xs text-nofx-text-muted truncate">
                   {tagLog && `标记 ${tagLog.price?.toFixed(4)} × ${tagLog.quantity?.toFixed(2)}`}
                   {fillLog && ` → 成交 ${fillLog.price?.toFixed(4)}`}
-                  {reduceLog && ` → 减仓 ${reduceLog.price?.toFixed(4)}`}
+                  {reduceLogs.length > 0 && ` → 减仓 ${reduceLogs[reduceLogs.length - 1].price?.toFixed(4)}`}
                 </div>
               </div>
+              {reduceLogs.length > 0 && (
+                <div className={`text-xs font-mono tabular-nums shrink-0 ${realizedProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {realizedProfit >= 0 ? '+' : ''}{realizedProfit.toFixed(4)} USDT
+                </div>
+              )}
               <div className="text-xs text-nofx-text-muted shrink-0">
                 {tagLog && formatTime(tagLog.created_at)}
               </div>
@@ -186,6 +233,11 @@ export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
                           )}
                           {event.quantity && event.quantity > 0 && (
                             <span className="text-xs text-nofx-text-muted">×{event.quantity.toFixed(2)}</span>
+                          )}
+                          {event.action === 'ttrade_reduce' && realizedPL(event) !== 0 && (
+                            <span className={`text-xs font-mono ${realizedPL(event) > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {realizedPL(event) > 0 ? '+' : ''}{realizedPL(event).toFixed(4)} USDT
+                            </span>
                           )}
                         </div>
                         {event.reason && (

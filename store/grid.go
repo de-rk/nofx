@@ -40,9 +40,9 @@ type GridConfigModel struct {
 	TrendResumeThreshold int  `json:"trend_resume_threshold" gorm:"default:70"`
 
 	// Box indicator periods (1h candles)
-	ShortBoxPeriod int `json:"short_box_period" gorm:"default:72"`  // 3 days
-	MidBoxPeriod   int `json:"mid_box_period" gorm:"default:240"`   // 10 days
-	LongBoxPeriod  int `json:"long_box_period" gorm:"default:500"`  // 21 days
+	ShortBoxPeriod int `json:"short_box_period" gorm:"default:72"` // 3 days
+	MidBoxPeriod   int `json:"mid_box_period" gorm:"default:240"`  // 10 days
+	LongBoxPeriod  int `json:"long_box_period" gorm:"default:500"` // 21 days
 
 	// Effective leverage limits by regime level
 	NarrowRegimeLeverage   int `json:"narrow_regime_leverage" gorm:"default:2"`
@@ -56,10 +56,10 @@ type GridConfigModel struct {
 	WideRegimePositionPct     float64 `json:"wide_regime_position_pct" gorm:"default:60"`
 	VolatileRegimePositionPct float64 `json:"volatile_regime_position_pct" gorm:"default:40"`
 
-	OrderRefreshSec  int     `json:"order_refresh_sec" gorm:"default:300"`
-	UseMakerOnly     bool    `json:"use_maker_only" gorm:"default:true"`
-	EnableSmallPositionClose bool `json:"enable_small_position_close" gorm:"default:true"`
-	SlippageTolerPct float64 `json:"slippage_toler_pct" gorm:"default:0.1"`
+	OrderRefreshSec          int     `json:"order_refresh_sec" gorm:"default:300"`
+	UseMakerOnly             bool    `json:"use_maker_only" gorm:"default:true"`
+	EnableSmallPositionClose bool    `json:"enable_small_position_close" gorm:"default:true"`
+	SlippageTolerPct         float64 `json:"slippage_toler_pct" gorm:"default:0.1"`
 
 	AIProvider string `json:"ai_provider" gorm:"default:deepseek"`
 	AIModel    string `json:"ai_model" gorm:"default:deepseek-chat"`
@@ -71,9 +71,9 @@ type GridConfigModel struct {
 	TTradePositionThresholdPct float64 `json:"t_trade_position_threshold_pct" gorm:"default:30.0"`
 
 	// Profit-based position reduction settings (盈利分批减仓)
-	EnableProfitReduce         bool    `json:"enable_profit_reduce" gorm:"default:true"`
-	ProfitReduceStepPct        float64 `json:"profit_reduce_step_pct" gorm:"default:10.0"`
-	ProfitReduceMultiplier     float64 `json:"profit_reduce_multiplier" gorm:"default:1.0"`
+	EnableProfitReduce     bool    `json:"enable_profit_reduce" gorm:"default:true"`
+	ProfitReduceStepPct    float64 `json:"profit_reduce_step_pct" gorm:"default:10.0"`
+	ProfitReduceMultiplier float64 `json:"profit_reduce_multiplier" gorm:"default:1.0"`
 
 	// Periodic investment amount refresh
 	EnableInvestmentRefresh bool `json:"enable_investment_refresh" gorm:"default:false"`
@@ -98,14 +98,14 @@ type GridInstanceModel struct {
 	StoppedAt *time.Time `json:"stopped_at,omitempty"`
 	UpdatedAt time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 
-	CurrentUpperPrice   float64 `json:"current_upper_price"`
-	CurrentLowerPrice   float64 `json:"current_lower_price"`
-	CurrentGridSpacing  float64 `json:"current_grid_spacing"`
-	ActiveLevelCount    int     `json:"active_level_count"`
-	CurrentRegime       string  `json:"current_regime"`
-	RegimeScore         int     `json:"regime_score"`
+	CurrentUpperPrice   float64   `json:"current_upper_price"`
+	CurrentLowerPrice   float64   `json:"current_lower_price"`
+	CurrentGridSpacing  float64   `json:"current_grid_spacing"`
+	ActiveLevelCount    int       `json:"active_level_count"`
+	CurrentRegime       string    `json:"current_regime"`
+	RegimeScore         int       `json:"regime_score"`
 	LastRegimeCheck     time.Time `json:"last_regime_check"`
-	ConsecutiveTrending int     `json:"consecutive_trending"`
+	ConsecutiveTrending int       `json:"consecutive_trending"`
 
 	// Current regime level (narrow/standard/wide/volatile/trending)
 	CurrentRegimeLevel string `json:"current_regime_level" gorm:"default:standard"`
@@ -219,24 +219,25 @@ func (GridRegimeAssessmentModel) TableName() string {
 // GridTradeLogModel records every significant trading action for post-analysis.
 // Source values: "ai", "algo", "ttrade", "profit_reduce", "profit_drawdown", "system"
 type GridTradeLogModel struct {
-	ID           uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	InstanceID   string    `json:"instance_id" gorm:"index;not null"`
-	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime;index"`
-	Source       string    `json:"source" gorm:"not null;index"` // "ai" | "algo" | "ttrade" | "profit_reduce" | "profit_drawdown" | "system"
-	Action       string    `json:"action" gorm:"not null"`       // reduce_long, close_long, ttrade_tag, ttrade_fill, etc.
-	Symbol       string    `json:"symbol" gorm:"not null"`
-	Side         string    `json:"side"`         // "long" | "short"
-	Quantity     float64   `json:"quantity"`     // order quantity
-	Price        float64   `json:"price"`        // order price (0 = market)
-	EntryPrice   float64   `json:"entry_price"`  // position entry price at time of action
-	MarkPrice    float64   `json:"mark_price"`   // mark price at time of action
-	MarginProfit float64   `json:"margin_profit"` // margin profit % at time of action
-	UnrealizedPL float64   `json:"unrealized_pl"` // unrealized P&L at time of action
-	Reason         string  `json:"reason" gorm:"type:text"` // AI reasoning or system note
-	OrderID        string  `json:"order_id"`                // exchange order ID (if available)
-	RelatedOrderID string  `json:"related_order_id"`        // secondary order ID this entry references (e.g. reduce order ID for a ttrade_reduce_placed row keyed by prep OrderID) — structured replacement for parsing IDs out of Reason text
-	Success        bool    `json:"success"`                 // whether the action succeeded
-	ErrorMsg     string    `json:"error_msg"`    // error message if failed
+	ID             uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	InstanceID     string    `json:"instance_id" gorm:"index;not null"`
+	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime;index"`
+	Source         string    `json:"source" gorm:"not null;index"` // "ai" | "algo" | "ttrade" | "profit_reduce" | "profit_drawdown" | "system"
+	Action         string    `json:"action" gorm:"not null"`       // reduce_long, close_long, ttrade_tag, ttrade_fill, etc.
+	Symbol         string    `json:"symbol" gorm:"not null"`
+	Side           string    `json:"side"`                    // "long" | "short"
+	Quantity       float64   `json:"quantity"`                // order quantity
+	Price          float64   `json:"price"`                   // order price (0 = market)
+	EntryPrice     float64   `json:"entry_price"`             // position entry price at time of action
+	MarkPrice      float64   `json:"mark_price"`              // mark price at time of action
+	MarginProfit   float64   `json:"margin_profit"`           // margin profit % at time of action
+	UnrealizedPL   float64   `json:"unrealized_pl"`           // unrealized P&L at time of action
+	RealizedPL     float64   `json:"realized_pl"`             // realized P&L for completed reductions (gross, before fees)
+	Reason         string    `json:"reason" gorm:"type:text"` // AI reasoning or system note
+	OrderID        string    `json:"order_id"`                // exchange order ID (if available)
+	RelatedOrderID string    `json:"related_order_id"`        // secondary order ID this entry references (e.g. reduce order ID for a ttrade_reduce_placed row keyed by prep OrderID) — structured replacement for parsing IDs out of Reason text
+	Success        bool      `json:"success"`                 // whether the action succeeded
+	ErrorMsg       string    `json:"error_msg"`               // error message if failed
 }
 
 func (GridTradeLogModel) TableName() string {
@@ -291,11 +292,17 @@ func (s *GridStore) InitTables() error {
 				mark_price numeric,
 				margin_profit numeric,
 				unrealized_pl numeric,
+				realized_pl numeric,
 				reason text,
 				order_id text,
+				related_order_id text,
 				success boolean,
 				error_msg text
 			)`)
+			// Existing PostgreSQL installations skip AutoMigrate above, so add
+			// newly introduced log columns explicitly and idempotently.
+			s.db.Exec(`ALTER TABLE grid_trade_logs ADD COLUMN IF NOT EXISTS realized_pl numeric`)
+			s.db.Exec(`ALTER TABLE grid_trade_logs ADD COLUMN IF NOT EXISTS related_order_id text`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_trade_logs_instance_id ON grid_trade_logs(instance_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_trade_logs_created_at ON grid_trade_logs(created_at)`)
 			return nil

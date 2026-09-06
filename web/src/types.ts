@@ -618,8 +618,10 @@ export interface GridTradeLog {
   mark_price: number
   margin_profit: number
   unrealized_pl: number
+  realized_pl?: number      // realized gross P&L for a completed T-trade reduction
   reason: string
   order_id: string
+  related_order_id?: string // secondary exchange order ID, e.g. a T-trade reduce order
   success: boolean
   error_msg: string
 }

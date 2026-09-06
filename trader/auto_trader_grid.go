@@ -864,6 +864,7 @@ func (at *AutoTrader) RunGridCycle() error {
 										ReduceQueued:      true,
 									}
 									at.gridState.mu.Unlock()
+									atomic.AddInt32(&at.gridState.PendingReducePlacements, 1)
 									go func(side string, fp float64, q float64, prepID string) {
 										ok := at.placeTTradeReduceOrder(side, fp, q, prepID)
 										at.gridState.mu.Lock()
@@ -3039,6 +3040,14 @@ func (at *AutoTrader) logGridTrade(source, action, side, symbol, reason, orderID
 	if len(relatedOrderID) > 0 {
 		related = relatedOrderID[0]
 	}
+	// T-trade reduce events close the prep fill and therefore have a realized
+	// gross P&L that can be calculated from the two execution prices. `side`
+	// is the prep order side here: buy=long, sell=short. Partial fills use the
+	// actual executed quantity and are accumulated by the dashboard.
+	realizedPL := 0.0
+	if action == "ttrade_reduce" {
+		realizedPL = calculateTTradeRealizedPL(side, entryPrice, price, qty)
+	}
 	entry := &store.GridTradeLogModel{
 		InstanceID:     at.id,
 		Source:         source,
@@ -3051,6 +3060,7 @@ func (at *AutoTrader) logGridTrade(source, action, side, symbol, reason, orderID
 		MarkPrice:      markPrice,
 		MarginProfit:   marginProfit,
 		UnrealizedPL:   unrealizedPL,
+		RealizedPL:     realizedPL,
 		Reason:         reason,
 		OrderID:        orderID,
 		RelatedOrderID: related,
@@ -3059,6 +3069,20 @@ func (at *AutoTrader) logGridTrade(source, action, side, symbol, reason, orderID
 	}
 	if err := at.store.Grid().LogGridTrade(entry); err != nil {
 		logger.Warnf("[Grid] Failed to write trade log: %v", err)
+	}
+}
+
+func calculateTTradeRealizedPL(prepSide string, entryPrice, exitPrice, qty float64) float64 {
+	if qty <= 0 || entryPrice <= 0 || exitPrice <= 0 {
+		return 0
+	}
+	switch strings.ToLower(strings.TrimSpace(prepSide)) {
+	case "buy", "long":
+		return (exitPrice - entryPrice) * qty
+	case "sell", "short":
+		return (entryPrice - exitPrice) * qty
+	default:
+		return 0
 	}
 }
 
@@ -3382,6 +3406,7 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 						fmt.Sprintf("prep %s filled @ %.2f", orderID, fillPrice),
 						orderID, prep.Qty, fillPrice, 0, 0, 0, 0, true, "")
 				}
+				atomic.AddInt32(&at.gridState.PendingReducePlacements, 1)
 				go func(side string, fp float64, qty float64, prepID string) {
 					ok := at.placeTTradeReduceOrder(side, fp, qty, prepID)
 					at.gridState.mu.Lock()
@@ -3414,9 +3439,9 @@ func (at *AutoTrader) ttradeProcessFills(openOrders []types.OpenOrder) {
 // cancelled-with-remainder reduce order, so it lands at the same price as
 // the original even if gridConfig.TTradeSpreadPct has since changed.
 func (at *AutoTrader) placeTTradeReduceOrder(prepSide string, fillPrice float64, qty float64, prepOrderID string, overrideSpreadPct ...float64) bool {
-	// Balances the atomic.AddInt32(..., 1) at each of this function's call
-	// sites (always dispatched via `go`) — see PendingReducePlacements' doc
-	// comment on GridState for why this matters.
+	// Callers increment PendingReducePlacements immediately before dispatching
+	// this helper (including before starting goroutines), closing the race with
+	// grid reset. This defer balances that increment on every return path.
 	defer atomic.AddInt32(&at.gridState.PendingReducePlacements, -1)
 
 	gridConfig := at.config.StrategyConfig.GridConfig
@@ -3598,6 +3623,7 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 			// entry.ReducePrice, even if gridConfig.TTradeSpreadPct has since
 			// changed — this makes it possible to tell from the price alone
 			// that this is a revival of the same reduce intent, not a new one.
+			atomic.AddInt32(&at.gridState.PendingReducePlacements, 1)
 			ok := at.placeTTradeReduceOrder(cancelledPrepSide, entry.PrepFillPrice, remainingQty, entry.PrepOrderID, entry.SpreadPct)
 			if ok {
 				// Remove old entry only after successful re-placement
