@@ -20,7 +20,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `server.go` | 路由注册、中间件、服务器启动 |
+| `server.go` | 路由注册、中间件、服务器启动；提供 T-trade 永久累计统计接口 `GET /api/traders/:id/ttrade-stats` |
 | `strategy.go` | 策略配置的 CRUD 接口 |
 | `backtest.go` | 回测接口（网格策略回测、参数搜索） |
 | `crypto_handler.go` | 加密相关接口（密钥导入/导出） |
@@ -113,7 +113,7 @@
 | `gorm.go` | GORM 连接初始化与迁移 |
 | `driver.go` | 数据库驱动选择（SQLite/PostgreSQL） |
 | `strategy.go` | 策略配置表（`StrategyConfig`）；风险控制含 AI 原生移动止盈止损开关 `enable_trailing_stop` 以及利润触发 `profit_threshold_pct`、利润回撤 `profit_drawdown_pct` |
-| `grid.go` | 网格配置表（`GridStrategyConfig`），含 T-trade、投资额刷新等字段；T-trade 减仓成交日志保存 `realized_pl`（按多空方向和实际成交价/数量计算的毛收益），并为 PostgreSQL 已有日志表补充幂等字段迁移 |
+| `grid.go` | 网格配置表（`GridStrategyConfig`），含 T-trade、投资额刷新等字段；T-trade 减仓成交日志保存 `realized_pl`（按多空方向和实际成交价/数量计算的毛收益），并通过 `grid_ttrade_stats` 持久化永久累计收益/次数（事务原子累加，首次建表回填保留日志） |
 | `decision.go` | AI 决策记录表，保存移动止盈止损参数 |
 | `trader.go` | Trader 实例配置表 |
 | `order.go` | 订单记录表 |
@@ -211,7 +211,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `pages/TraderDashboardPage.tsx` | Trader 主看板（持仓、决策历史、图表）；统一使用页面纵向滚动，避免嵌套滚动容器导致返回顶部失效；移动端关闭高开销背景模糊/动画、使用动态视口高度，并按动画帧合并行情刷新，提升触摸滚动流畅度 |
+| `pages/TraderDashboardPage.tsx` | Trader 主看板（持仓、决策历史、图表）；统一使用页面纵向滚动，避免嵌套滚动容器导致返回顶部失效；移动端关闭高开销背景模糊/动画、使用动态视口高度，并按动画帧合并行情刷新，提升触摸滚动流畅度；向 T-trade 面板传递永久统计 |
 | `pages/StrategyStudioPage.tsx` | 策略配置编辑页 |
 | `pages/StrategyMarketPage.tsx` | 策略市场页 |
 | `pages/LandingPage.tsx` | 落地页 |
@@ -228,7 +228,8 @@
 | `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏（策略市场、Traders、Dashboard、Strategy、Prompt测试） |
 | `components/LoginPage.tsx` / `RegisterPage.tsx` | 登录/注册页 |
 | `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip |
-| `components/TTradePanel.tsx` / `types.ts` | T-trade 生命周期看板：按每个 T-trade 周期显示单次已实现收益，并统计当前日志范围内的累计收益与已完成次数；`GridTradeLog` 暴露已实现收益及关联订单字段 |
+| `components/TTradePanel.tsx` / `types.ts` | T-trade 生命周期看板：按每个 T-trade 周期显示单次已实现收益，并显示永久累计收益与已完成次数；`GridTradeLog` 暴露已实现收益及关联订单字段，`TTradeStats` 暴露独立持久化统计 |
+| `App.tsx` / `lib/api.ts` | 获取并缓存 T-trade 永久统计，在交易事件到达时刷新，与看板生命周期明细并行展示 |
 
 ### 策略组件 (`components/strategy/`)
 

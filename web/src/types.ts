@@ -625,3 +625,10 @@ export interface GridTradeLog {
   success: boolean
   error_msg: string
 }
+
+export interface TTradeStats {
+  instance_id: string
+  total_realized_pl: number
+  reduce_count: number
+  updated_at: string
+}

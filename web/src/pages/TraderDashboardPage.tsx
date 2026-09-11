@@ -18,6 +18,7 @@ import type {
     TraderInfo,
     Exchange,
     GridTradeLog,
+    TTradeStats,
 } from '../types'
 
 // --- Helper Functions ---
@@ -106,6 +107,7 @@ interface TraderDashboardPageProps {
     decisionsLimit: number
     onDecisionsLimitChange: (limit: number) => void
     gridTradeLogs?: GridTradeLog[]
+    ttradeStats?: TTradeStats
     stats?: Statistics
     lastUpdate: string
     language: Language
@@ -121,6 +123,7 @@ export function TraderDashboardPage({
     decisionsLimit,
     onDecisionsLimitChange,
     gridTradeLogs,
+    ttradeStats,
     lastUpdate,
     language,
     traders,
@@ -814,7 +817,7 @@ export function TraderDashboardPage({
                             ) : rightTab === 'tradelog' ? (
                                 <GridTradeLogList logs={gridTradeLogs} language={language} />
                             ) : (
-                                <TTradePanel logs={gridTradeLogs} />
+                                <TTradePanel logs={gridTradeLogs} stats={ttradeStats} />
                             )}
                         </div>
                     </div>

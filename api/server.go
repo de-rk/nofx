@@ -156,6 +156,7 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/grid-risk/reset-profit-tracker", s.handleResetProfitTracker)
 			protected.GET("/traders/:id/events", s.handleTraderEvents)
 			protected.GET("/traders/:id/trade-logs", s.handleGetGridTradeLogs)
+			protected.GET("/traders/:id/ttrade-stats", s.handleGetTTradeStats)
 			protected.GET("/handoffs", s.handleListHandoffs)
 			protected.POST("/handoffs", s.handleCreateHandoff)
 			protected.PUT("/handoffs/:id", s.handleUpdateHandoff)
@@ -1142,6 +1143,17 @@ func (s *Server) handleGetGridTradeLogs(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, logs)
+}
+
+// handleGetTTradeStats returns lifetime T-trade realized P&L for a trader instance.
+func (s *Server) handleGetTTradeStats(c *gin.Context) {
+	traderID := c.Param("id")
+	stats, err := s.store.Grid().GetTTradeStats(traderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, stats)
 }
 
 // handleSyncBalance Sync exchange balance to initial_balance (Option B: Manual Sync + Option C: Smart Detection)

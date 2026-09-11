@@ -31,6 +31,7 @@ import type {
   TraderInfo,
   Exchange,
   GridTradeLog,
+  TTradeStats,
 } from './types'
 
 type Page =
@@ -276,6 +277,18 @@ function App() {
     }
   )
 
+  const { data: ttradeStats } = useSWR<TTradeStats>(
+    currentPage === 'trader' && selectedTraderId
+      ? `ttrade-stats-${selectedTraderId}`
+      : null,
+    () => api.getTTradeStats(selectedTraderId!),
+    {
+      refreshInterval: 60000, // fallback
+      revalidateOnFocus: false,
+      dedupingInterval: 20000,
+    }
+  )
+
   const { data: stats } = useSWR<Statistics>(
     currentPage === 'trader' && selectedTraderId
       ? `statistics-${selectedTraderId}`
@@ -318,6 +331,7 @@ function App() {
               mutate(`positions-${selectedTraderId}`)
               mutate(`decisions/latest-${selectedTraderId}-${decisionsLimit}`)
               mutate(`grid-trade-logs-${selectedTraderId}-${tradeLogsLimit}`)
+              mutate(`ttrade-stats-${selectedTraderId}`)
               mutate(`statistics-${selectedTraderId}`)
             }
           }
@@ -450,6 +464,7 @@ function App() {
                 decisionsLimit={decisionsLimit}
                 onDecisionsLimitChange={setDecisionsLimit}
                 gridTradeLogs={gridTradeLogs}
+                ttradeStats={ttradeStats}
                 stats={stats}
                 lastUpdate={lastUpdate}
                 language={language}

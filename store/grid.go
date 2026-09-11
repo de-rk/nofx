@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ==================== Grid Store Models ====================
@@ -244,6 +245,19 @@ func (GridTradeLogModel) TableName() string {
 	return "grid_trade_logs"
 }
 
+// GridTTradeStatsModel stores the lifetime realized P&L for T-trade reductions.
+// Unlike GridTradeLogModel, it is never purged with the short-lived activity logs.
+type GridTTradeStatsModel struct {
+	InstanceID      string    `json:"instance_id" gorm:"primaryKey"`
+	TotalRealizedPL float64   `json:"total_realized_pl"`
+	ReduceCount     int64     `json:"reduce_count"`
+	UpdatedAt       time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (GridTTradeStatsModel) TableName() string {
+	return "grid_ttrade_stats"
+}
+
 // ==================== Grid Store ====================
 
 // GridStore provides database operations for grid trading
@@ -258,6 +272,7 @@ func NewGridStore(db *gorm.DB) *GridStore {
 
 // InitTables initializes grid-related tables
 func (s *GridStore) InitTables() error {
+	statsTableExisted := s.db.Migrator().HasTable(&GridTTradeStatsModel{})
 	// For PostgreSQL with existing tables, skip AutoMigrate to avoid type conflicts
 	if s.db.Dialector.Name() == "postgres" {
 		var tableExists int64
@@ -303,8 +318,17 @@ func (s *GridStore) InitTables() error {
 			// newly introduced log columns explicitly and idempotently.
 			s.db.Exec(`ALTER TABLE grid_trade_logs ADD COLUMN IF NOT EXISTS realized_pl numeric`)
 			s.db.Exec(`ALTER TABLE grid_trade_logs ADD COLUMN IF NOT EXISTS related_order_id text`)
+			s.db.Exec(`CREATE TABLE IF NOT EXISTS grid_ttrade_stats (
+				instance_id text PRIMARY KEY,
+				total_realized_pl numeric NOT NULL DEFAULT 0,
+				reduce_count bigint NOT NULL DEFAULT 0,
+				updated_at timestamptz DEFAULT now()
+			)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_trade_logs_instance_id ON grid_trade_logs(instance_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_grid_trade_logs_created_at ON grid_trade_logs(created_at)`)
+			if !statsTableExisted {
+				return s.bootstrapTTradeStats()
+			}
 			return nil
 		}
 	}
@@ -317,8 +341,12 @@ func (s *GridStore) InitTables() error {
 		&GridEventModel{},
 		&GridRegimeAssessmentModel{},
 		&GridTradeLogModel{},
+		&GridTTradeStatsModel{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate grid tables: %w", err)
+	}
+	if !statsTableExisted {
+		return s.bootstrapTTradeStats()
 	}
 
 	return nil
@@ -670,11 +698,71 @@ func (s *GridStore) GetGridPerformanceMetrics(instanceID string, from, to time.T
 // LogGridTrade records a trading action to grid_trade_logs for analysis.
 // It also purges entries older than 7 days to keep the table size bounded.
 func (s *GridStore) LogGridTrade(entry *GridTradeLogModel) error {
-	if err := s.db.Create(entry).Error; err != nil {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(entry).Error; err != nil {
+			return err
+		}
+		if entry.Action == "ttrade_reduce" && entry.Success {
+			return tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "instance_id"}},
+				DoUpdates: clause.Assignments(map[string]interface{}{
+					"total_realized_pl": gorm.Expr("total_realized_pl + ?", entry.RealizedPL),
+					"reduce_count":      gorm.Expr("reduce_count + ?", 1),
+					"updated_at":        time.Now(),
+				}),
+			}).Create(&GridTTradeStatsModel{
+				InstanceID:      entry.InstanceID,
+				TotalRealizedPL: entry.RealizedPL,
+				ReduceCount:     1,
+			}).Error
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	cutoff := time.Now().UTC().AddDate(0, 0, -7)
 	s.db.Where("created_at < ?", cutoff).Delete(&GridTradeLogModel{})
+	return nil
+}
+
+// GetTTradeStats returns the lifetime T-trade realized P&L for one trader.
+func (s *GridStore) GetTTradeStats(instanceID string) (*GridTTradeStatsModel, error) {
+	var stats GridTTradeStatsModel
+	err := s.db.Where("instance_id = ?", instanceID).First(&stats).Error
+	if err == nil {
+		return &stats, nil
+	}
+	if err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+	return &GridTTradeStatsModel{InstanceID: instanceID}, nil
+}
+
+// bootstrapTTradeStats imports currently retained T-trade logs exactly once,
+// when the lifetime stats table is first created. Later logs update it atomically.
+func (s *GridStore) bootstrapTTradeStats() error {
+	type aggregate struct {
+		InstanceID      string
+		TotalRealizedPL float64
+		ReduceCount     int64
+	}
+	var aggregates []aggregate
+	if err := s.db.Model(&GridTradeLogModel{}).
+		Select("instance_id, COALESCE(SUM(realized_pl), 0) AS total_realized_pl, COUNT(*) AS reduce_count").
+		Where("action = ? AND success = ?", "ttrade_reduce", true).
+		Group("instance_id").
+		Scan(&aggregates).Error; err != nil {
+		return err
+	}
+	for _, aggregate := range aggregates {
+		if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&GridTTradeStatsModel{
+			InstanceID:      aggregate.InstanceID,
+			TotalRealizedPL: aggregate.TotalRealizedPL,
+			ReduceCount:     aggregate.ReduceCount,
+		}).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

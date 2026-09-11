@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { GridTradeLog } from '../types'
+import type { GridTradeLog, TTradeStats } from '../types'
 
 interface TTradeGroup {
   prepOrderId: string
@@ -96,30 +96,16 @@ function realizedPL(log: GridTradeLog): number {
   return log.realized_pl || 0
 }
 
-export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
+export function TTradePanel({ logs, stats }: { logs?: GridTradeLog[]; stats?: TTradeStats }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-
-  if (!logs || logs.length === 0) {
-    return (
-      <div className="py-16 text-center text-nofx-text-muted opacity-60">
-        <div className="text-6xl mb-4 opacity-30">🎯</div>
-        <div className="text-lg font-semibold mb-2 text-nofx-text-main">暂无 T-trade 记录</div>
-        <div className="text-sm">T-trade 生命周期将在此显示</div>
-      </div>
-    )
-  }
-
-  const groups = groupTTradeEvents(logs)
-
-  if (groups.length === 0) {
-    return (
-      <div className="py-16 text-center text-nofx-text-muted opacity-60">
-        <div className="text-6xl mb-4 opacity-30">🎯</div>
-        <div className="text-lg font-semibold mb-2 text-nofx-text-main">暂无 T-trade 记录</div>
-        <div className="text-sm">标记单成交后将显示完整生命周期</div>
-      </div>
-    )
-  }
+  const groups = groupTTradeEvents(logs || [])
+  const logRealizedTotal = groups.reduce(
+    (sum, group) => sum + group.reduceLogs.reduce((groupSum, log) => groupSum + realizedPL(log), 0),
+    0,
+  )
+  const logCompletedCount = groups.filter(group => group.reduceLogs.length > 0).length
+  const realizedTotal = stats?.total_realized_pl ?? logRealizedTotal
+  const completedCount = stats?.reduce_count ?? logCompletedCount
 
   const toggle = (id: string) => {
     setExpanded(prev => {
@@ -136,16 +122,9 @@ export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {(() => {
-          const realizedTotal = groups.reduce(
-            (sum, group) => sum + group.reduceLogs.reduce((groupSum, log) => groupSum + realizedPL(log), 0),
-            0,
-          )
-          const completedCount = groups.filter(group => group.reduceLogs.length > 0).length
-          return (
-            <>
+        <>
               <div className="rounded-lg border border-white/5 bg-black/20 px-4 py-3">
-                <div className="text-xs text-nofx-text-muted">T-trade 累计收益（当前记录）</div>
+                <div className="text-xs text-nofx-text-muted">T-trade 累计收益</div>
                 <div className={`text-lg font-semibold tabular-nums ${realizedTotal >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                   {realizedTotal >= 0 ? '+' : ''}{realizedTotal.toFixed(4)} USDT
                 </div>
@@ -154,11 +133,9 @@ export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
                 <div className="text-xs text-nofx-text-muted">已完成 T-trade</div>
                 <div className="text-lg font-semibold tabular-nums text-nofx-text-main">{completedCount} 次</div>
               </div>
-            </>
-          )
-        })()}
+        </>
       </div>
-      {groups.map(({ prepOrderId, symbol, side, events, tagLog, fillLog, reducePlacedLog, reduceLogs }) => {
+      {groups.length > 0 ? groups.map(({ prepOrderId, symbol, side, events, tagLog, fillLog, reducePlacedLog, reduceLogs }) => {
         const isExpanded = expanded.has(prepOrderId)
         const isBuy = side === 'buy'
         const sideColor = isBuy ? 'text-green-400' : 'text-red-400'
@@ -254,7 +231,13 @@ export function TTradePanel({ logs }: { logs?: GridTradeLog[] }) {
             )}
           </div>
         )
-      })}
+      }) : (
+        <div className="py-12 text-center text-nofx-text-muted opacity-60">
+          <div className="text-5xl mb-3 opacity-30">🎯</div>
+          <div className="text-base font-semibold mb-1 text-nofx-text-main">暂无近期 T-trade 记录</div>
+          <div className="text-sm">累计统计会永久保留</div>
+        </div>
+      )}
     </div>
   )
 }

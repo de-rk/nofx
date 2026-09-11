@@ -17,6 +17,7 @@ import type {
   StrategyConfig,
   PositionHistoryResponse,
   GridTradeLog,
+  TTradeStats,
   HandoffBinding,
   HandoffRequest,
 } from '../types'
@@ -375,6 +376,15 @@ export const api = {
       `${API_BASE}/traders/${traderId}/trade-logs?limit=${limit}`
     )
     if (!result.success) throw new Error('获取交易日志失败')
+    return result.data!
+  },
+
+  // 获取 T-trade 永久累计统计（独立于短期交易日志保留期）
+  async getTTradeStats(traderId: string): Promise<TTradeStats> {
+    const result = await httpClient.get<TTradeStats>(
+      `${API_BASE}/traders/${traderId}/ttrade-stats`
+    )
+    if (!result.success) throw new Error('获取 T-trade 统计失败')
     return result.data!
   },
 
