@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/store"
 	"nofx/trader/types"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 // ============================================================================
@@ -105,7 +107,11 @@ type GridState struct {
 	// Each fills independently and auto-places its own reduce order.
 	TTradePrepOrders   map[string]*TTradePrepEntry   // prep orders waiting to fill, keyed by order ID
 	TTradeReduceOrders map[string]*TTradeReduceEntry // active reduce orders, keyed by reduce order ID
-	TTradePrepSide     string                        // current trapped direction: "buy" or "sell"
+	// TTradeOpenOrderIDs is the latest successful exchange open-order snapshot.
+	// It keeps prompt protection aligned with real orders instead of stale logs.
+	TTradeOpenOrderIDs   map[string]bool
+	TTradeOpenSnapshotAt time.Time
+	TTradePrepSide       string // current trapped direction: "buy" or "sell"
 
 	// Profit-based reduce tracking (per side)
 	LongProfitReducedPct  float64 // cumulative % already reduced for long (multiples of 10)
@@ -143,6 +149,7 @@ func NewGridState(config *store.GridStrategyConfig) *GridState {
 		OrderBook:            make(map[string]int),
 		TTradePrepOrders:     make(map[string]*TTradePrepEntry),
 		TTradeReduceOrders:   make(map[string]*TTradeReduceEntry),
+		TTradeOpenOrderIDs:   make(map[string]bool),
 		ProfitReduceOrderIDs: make(map[string]bool),
 	}
 }
@@ -324,6 +331,7 @@ func (at *AutoTrader) InitializeGrid() error {
 				for _, o := range openOrders {
 					openOrderMap[o.OrderID] = o
 				}
+				at.setTTradeOpenOrderSnapshot(openOrders)
 			}
 
 			restored := 0
@@ -346,6 +354,23 @@ func (at *AutoTrader) InitializeGrid() error {
 				if reducePlacedEntry != nil && reducePlacedEntry.CreatedAt.After(entry.CreatedAt) {
 					reduceOrderID := reducePlacedEntry.RelatedOrderID
 					if reduceOrderID != "" {
+						// A placement log is historical evidence only. Restore the
+						// reduce entry as active only when the exchange snapshot still
+						// contains the order. Missing orders are handled by the repair
+						// path below and must not leak into the AI prompt.
+						if _, stillOpen := openOrderMap[reduceOrderID]; !stillOpen {
+							statusMap, statusErr := at.trader.GetOrderStatus(gridConfig.Symbol, reduceOrderID)
+							if statusErr != nil {
+								logger.Warnf("[Grid] T-trade reduce %s missing during restore; status unavailable, skipping stale protection: %v", reduceOrderID, statusErr)
+								continue
+							}
+							status, _ := statusMap["status"].(string)
+							status = strings.ToUpper(strings.TrimSpace(status))
+							if status == "FILLED" || status == "CANCELED" || status == "CANCELLED" || status == "EXPIRED" || status == "REJECTED" || status == "FAILED" || status == "NOT_FOUND" || status == "ORDER_NOT_FOUND" {
+								logger.Infof("[Grid] T-trade reduce %s is no longer active during restore (status=%s)", reduceOrderID, status)
+								continue
+							}
+						}
 						prepSide := reducePlacedEntry.Side
 						reduceSide := "sell"
 						if prepSide == "sell" {
@@ -1374,10 +1399,15 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		ctx.TrappedInfo = at.buildTrappedPositionInfo(ctx.CurrentPrice)
 	}
 
-	// Populate protected T-trade order IDs — only reduce orders are protected from AI
-	// cancellation. Falls back to DB when memory is empty (post-restart) so protection
-	// doesn't silently vanish after a deploy/restart.
-	for id := range at.activeTTradeReduceOrderIDs() {
+	// Populate protected T-trade order IDs from the latest successful exchange
+	// snapshot. Restored orders are included only after they are confirmed live.
+	protectedIDs := at.activeTTradeReduceOrderIDs()
+	protectedIDList := make([]string, 0, len(protectedIDs))
+	for id := range protectedIDs {
+		protectedIDList = append(protectedIDList, id)
+	}
+	sort.Strings(protectedIDList)
+	for _, id := range protectedIDList {
 		ctx.TTradeProtectedOrderIDs = append(ctx.TTradeProtectedOrderIDs, id)
 	}
 
@@ -1810,8 +1840,9 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 	}
 
 	// Protect T-trade reduce orders — prep/tag orders can be cancelled by AI.
-	// Falls back to DB when memory is empty (post-restart) so protection survives restarts.
-	if at.activeTTradeReduceOrderIDs()[orderID] {
+	// Restored reduce entries are loaded during initialization and remain locally
+	// protected even while a transient exchange snapshot is unavailable.
+	if at.activeTTradeProtectedIDs()[orderID] {
 		logger.Warnf("[Grid] cancel_order blocked: order %s is a protected T-trade reduce order",
 			orderID)
 		return nil
@@ -1824,6 +1855,19 @@ func (at *AutoTrader) cancelGridOrder(d *kernel.Decision) error {
 		logger.Warnf("[Grid] cancel_order blocked: order %s is a protected profit-reduce order",
 			orderID)
 		return nil
+	}
+	// Last-resort structural guard for a live hedge-mode reduce order whose
+	// lifecycle record was unavailable during restart. Do not let an AI cancel
+	// action turn SELL+LONG / BUY+SHORT into an opening order cancellation.
+	openOrders, err := at.trader.GetOpenOrders(d.Symbol)
+	if err != nil {
+		return fmt.Errorf("cancel_order: failed to verify live order before cancellation: %w", err)
+	}
+	for _, order := range openOrders {
+		if order.OrderID == orderID && isHedgeReduceOrder(order) {
+			logger.Warnf("[Grid] cancel_order blocked: %s is a live hedge-mode reduce order", orderID)
+			return nil
+		}
 	}
 
 	if err := gridTrader.CancelOrder(d.Symbol, orderID); err != nil {
@@ -1883,36 +1927,38 @@ func (at *AutoTrader) activeTTradePrepOrderIDs() map[string]bool {
 }
 
 // activeTTradeReduceOrderIDs returns reduce order IDs still awaiting fill. Reads in-memory
-// state first; if empty (e.g. right after a process restart, since this map is never
-// persisted), falls back to reconstructing the active set from grid_trade_logs.
+// state first and intersects it with the latest successful exchange open-order
+// snapshot. The database is used only during startup recovery; historical
+// placement logs must never by themselves make an order appear active.
 func (at *AutoTrader) activeTTradeReduceOrderIDs() map[string]bool {
 	at.gridState.mu.RLock()
 	ids := make(map[string]bool, len(at.gridState.TTradeReduceOrders))
-	for id := range at.gridState.TTradeReduceOrders {
-		ids[id] = true
-	}
-	at.gridState.mu.RUnlock()
-
-	if len(ids) == 0 && at.store != nil {
-		since24h := time.Now().Add(-24 * time.Hour)
-		// Active reduces: ttrade_reduce_placed without ttrade_reduce
-		if placedEntries, _ := at.store.Grid().GetGridTradeLogsByActionSince(at.id, "ttrade_reduce_placed", since24h); len(placedEntries) > 0 {
-			for _, e := range placedEntries {
-				reduceID := e.RelatedOrderID
-				if reduceID == "" {
-					continue
-				}
-				if reduce, _ := at.store.Grid().GetGridTradeLogByActionAndOrderID(at.id, "ttrade_reduce", e.OrderID); reduce != nil {
-					continue
-				}
-				ids[reduceID] = true
+	if !at.gridState.TTradeOpenSnapshotAt.IsZero() {
+		for id := range at.gridState.TTradeReduceOrders {
+			if at.gridState.TTradeOpenOrderIDs[id] {
+				ids[id] = true
 			}
 		}
-		if len(ids) > 0 {
-			logger.Infof("[Grid] activeTTradeReduceOrderIDs: restored %d reduce order IDs from DB (post-restart protection)", len(ids))
+	}
+	at.gridState.mu.RUnlock()
+	return ids
+}
+
+// setTTradeOpenOrderSnapshot records a successful exchange snapshot. It is
+// intentionally separate from TTradeReduceOrders: the latter tracks lifecycle
+// metadata, while this map answers the narrower question "is this order live
+// right now?" and is used to build the AI protection list.
+func (at *AutoTrader) setTTradeOpenOrderSnapshot(openOrders []types.OpenOrder) {
+	ids := make(map[string]bool, len(openOrders))
+	for _, order := range openOrders {
+		if order.OrderID != "" {
+			ids[order.OrderID] = true
 		}
 	}
-	return ids
+	at.gridState.mu.Lock()
+	at.gridState.TTradeOpenOrderIDs = ids
+	at.gridState.TTradeOpenSnapshotAt = time.Now()
+	at.gridState.mu.Unlock()
 }
 
 // activeTTradeProtectedIDs returns the set of T-trade reduce order IDs that must not be
@@ -1922,7 +1968,13 @@ func (at *AutoTrader) activeTTradeReduceOrderIDs() map[string]bool {
 // state (preserving PositionEntry/PositionSize) to re-enter T-trade flow if conditions
 // still qualify post-rebuild.
 func (at *AutoTrader) activeTTradeProtectedIDs() map[string]bool {
-	return at.activeTTradeReduceOrderIDs()
+	at.gridState.mu.RLock()
+	defer at.gridState.mu.RUnlock()
+	ids := make(map[string]bool, len(at.gridState.TTradeReduceOrders))
+	for id := range at.gridState.TTradeReduceOrders {
+		ids[id] = true
+	}
+	return ids
 }
 
 // activeProfitReduceOrderIDs returns reduce-only order IDs placed by
@@ -1964,18 +2016,26 @@ func (at *AutoTrader) cancelAllGridOrders() error {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Build set of T-trade + profit-reduce order IDs to protect (memory + DB
-	// fallback for post-restart on the T-trade side; profit-reduce is
-	// memory-only, see activeProfitReduceOrderIDs).
-	protectedIDs := at.activeTTradeProtectedIDs()
-	for id := range at.activeProfitReduceOrderIDs() {
-		protectedIDs[id] = true
-	}
-
 	// Get all open orders
 	openOrders, err := at.trader.GetOpenOrders(gridConfig.Symbol)
 	if err != nil {
 		return fmt.Errorf("failed to get open orders: %w", err)
+	}
+	at.setTTradeOpenOrderSnapshot(openOrders)
+
+	// Build protection only after the successful exchange snapshot. This keeps
+	// real restored/new reduce orders protected while excluding stale IDs.
+	protectedIDs := at.activeTTradeProtectedIDs()
+	for id := range at.activeProfitReduceOrderIDs() {
+		protectedIDs[id] = true
+	}
+	// In hedge mode, the opposite side/position-side combination is inherently
+	// reduce-only. Keep these orders even if lifecycle logs were unavailable
+	// during restart and the ID was not restored into TTradeReduceOrders.
+	for _, order := range openOrders {
+		if isHedgeReduceOrder(order) {
+			protectedIDs[order.OrderID] = true
+		}
 	}
 
 	// Cancel orders, skipping T-trade reduce orders and profit-reduce orders
@@ -2060,14 +2120,14 @@ func (at *AutoTrader) CancelGridOrdersByDirection(direction string) error {
 	for atomic.LoadInt32(&at.gridState.PendingReducePlacements) > 0 && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}
-	protectedIDs := at.activeTTradeProtectedIDs()
-	for id := range at.activeProfitReduceOrderIDs() {
-		protectedIDs[id] = true
-	}
-
 	openOrders, err := at.trader.GetOpenOrders(at.config.StrategyConfig.GridConfig.Symbol)
 	if err != nil {
 		return fmt.Errorf("failed to get open orders: %w", err)
+	}
+	at.setTTradeOpenOrderSnapshot(openOrders)
+	protectedIDs := at.activeTTradeProtectedIDs()
+	for id := range at.activeProfitReduceOrderIDs() {
+		protectedIDs[id] = true
 	}
 	cancelPositionSide := "LONG"
 	if direction == "long" {
@@ -2136,6 +2196,13 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func isHedgeReduceOrder(order types.OpenOrder) bool {
+	side := strings.ToUpper(strings.TrimSpace(order.Side))
+	positionSide := strings.ToUpper(strings.TrimSpace(order.PositionSide))
+	return (side == "SELL" && positionSide == "LONG") ||
+		(side == "BUY" && positionSide == "SHORT")
 }
 
 // pauseGrid pauses grid trading
@@ -2247,6 +2314,10 @@ func (at *AutoTrader) syncExchangeState(openOrders []types.OpenOrder, runPostChe
 	for _, o := range openOrders {
 		activeOrderIDs[o.OrderID] = true
 	}
+	// Keep the latest successful exchange snapshot available to prompt and
+	// cancellation protection. A failed GetOpenOrders call returns above and
+	// therefore never overwrites a known-good snapshot with an empty one.
+	at.setTTradeOpenOrderSnapshot(openOrders)
 
 	// Prune ProfitReduceOrderIDs entries no longer open on the exchange (filled
 	// or cancelled) so the map doesn't grow unbounded and cancelAllGridOrders'
@@ -3550,6 +3621,7 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 			continue
 		}
 		statusStr, _ := statusMap["status"].(string)
+		statusStr = strings.ToUpper(strings.TrimSpace(statusStr))
 		at.gridState.mu.Lock()
 		switch statusStr {
 		case "FILLED":
@@ -3577,7 +3649,7 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 			// remove the newly placed prep if the reduce dropped position below threshold.
 			go at.ttradeSupplementOrder(entry.PrepSide)
 			continue
-		case "CANCELED", "EXPIRED":
+		case "CANCELED", "CANCELLED", "EXPIRED", "REJECTED", "FAILED", "NOT_FOUND", "ORDER_NOT_FOUND":
 			at.gridState.mu.Unlock()
 			// A CANCELED/EXPIRED order can still have a nonzero executedQty if it
 			// was partially filled before being cancelled. That portion already
@@ -3634,6 +3706,11 @@ func (at *AutoTrader) ttradeRepairOrders(openOrders []types.OpenOrder) {
 				logger.Warnf("[Grid] T-trade reduce re-placement failed — will retry next scan")
 			}
 			continue
+		default:
+			// Keep the entry when the exchange returned an unfamiliar or
+			// transitional status. A successful open-order snapshot will filter
+			// it out of the AI prompt until the next status check resolves it.
+			logger.Warnf("[Grid] T-trade reduce %s disappeared with unresolved status %q; keeping lifecycle entry for retry", reduceID, statusStr)
 		}
 		at.gridState.mu.Unlock()
 	}
