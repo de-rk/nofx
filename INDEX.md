@@ -227,7 +227,7 @@
 | `components/PositionHistory.tsx` | 历史持仓列表 |
 | `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏（策略市场、Traders、Dashboard、Strategy、Prompt测试） |
 | `components/LoginPage.tsx` / `RegisterPage.tsx` | 登录/注册页 |
-| `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip |
+| `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip；订单数量标签统一格式化，避免显示浮点误差尾数 |
 | `components/TTradePanel.tsx` / `types.ts` | T-trade 生命周期看板：按每个 T-trade 周期显示单次已实现收益，并显示永久累计收益与已完成次数；`GridTradeLog` 暴露已实现收益及关联订单字段，`TTradeStats` 暴露独立持久化统计 |
 | `App.tsx` / `lib/api.ts` | 获取并缓存 T-trade 永久统计，在交易事件到达时刷新，与看板生命周期明细并行展示 |
 

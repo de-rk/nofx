@@ -79,6 +79,13 @@ const formatVolume = (value: number): string => {
   return value.toFixed(2)
 }
 
+// Format exchange quantities for chart labels without exposing binary floating-point noise.
+const formatOrderQuantity = (value: number): string => {
+  if (!Number.isFinite(value)) return '0'
+  const rounded = Math.round((value + Number.EPSILON) * 1e8) / 1e8
+  return rounded.toFixed(8).replace(/\.?0+$/, '') || '0'
+}
+
 export function AdvancedChart({
   symbol = 'BTCUSDT',
   interval = '5m',
@@ -931,15 +938,15 @@ export function AdvancedChart({
 
             if (isStopLoss) {
               lineColor = '#F6465D' // 红色 - 止损
-              title = `SL ${order.quantity}`
+              title = `SL ${formatOrderQuantity(order.quantity)}`
             } else if (isTakeProfit) {
               lineColor = '#0ECB81' // 绿色 - 止盈
-              title = `TP ${order.quantity}`
+              title = `TP ${formatOrderQuantity(order.quantity)}`
             } else if (isLimit) {
               lineColor = '#F0B90B' // 黄色 - 限价单
-              title = `Limit ${order.side} ${order.quantity}`
+              title = `Limit ${order.side} ${formatOrderQuantity(order.quantity)}`
             } else {
-              title = `${order.type} ${order.quantity}`
+              title = `${order.type} ${formatOrderQuantity(order.quantity)}`
             }
 
             const priceLine = candlestickSeriesRef.current?.createPriceLine({
@@ -1002,7 +1009,9 @@ export function AdvancedChart({
             lineWidth: 1,
             lineStyle: 2,
             axisLabelVisible: true,
-            title: order.side === 'BUY' ? `B ${order.quantity}` : `S ${order.quantity}`,
+            title: order.side === 'BUY'
+              ? `B ${formatOrderQuantity(order.quantity)}`
+              : `S ${formatOrderQuantity(order.quantity)}`,
           })
           priceLinesRef.current.push(line)
         })
