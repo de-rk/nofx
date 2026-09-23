@@ -316,7 +316,7 @@ func (t *HyperliquidTrader) GetBalance() (map[string]interface{}, error) {
 	if t.isUnifiedAccount && spotUSDCBalance > 0 {
 		// Add Spot balance to available balance for trading
 		availableBalance = availableBalance + spotUSDCBalance
-		logger.Infof("✓ Unified Account: Spot %.2f USDC added to available balance (total: %.2f)", 
+		logger.Infof("✓ Unified Account: Spot %.2f USDC added to available balance (total: %.2f)",
 			spotUSDCBalance, availableBalance)
 	}
 

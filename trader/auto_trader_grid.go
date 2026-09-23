@@ -1458,39 +1458,20 @@ func (at *AutoTrader) buildAlgoGridDecision(ctx *kernel.GridContext) *kernel.Ful
 	}
 	availableMargin := ctx.AvailableBalance
 	skippedForBalance := 0
+	var staleOrderCancels []kernel.Decision
+	type emptyLevelCandidate struct {
+		index int
+		level kernel.GridLevelInfo
+	}
+	var emptyLevels []emptyLevelCandidate
 
 	for i, level := range ctx.Levels {
 		switch level.State {
 		case "empty":
-			qty := kernel.SuggestedQuantity(level, ctx)
-			if qty <= 0 {
-				continue
-			}
-			marginNeeded := qty * level.Price / float64(leverage)
-			if marginNeeded > availableMargin {
-				// Not enough available balance left for this level (or any
-				// further one — levels are processed in index/price order,
-				// but a later cheaper level could theoretically still fit,
-				// so keep scanning instead of breaking outright).
-				skippedForBalance++
-				continue
-			}
-			action := "place_buy_limit"
-			if level.Side == "sell" {
-				action = "place_sell_limit"
-			}
-			decisions = append(decisions, kernel.Decision{
-				Symbol:     gridConfig.Symbol,
-				Action:     action,
-				Price:      level.Price,
-				Quantity:   qty,
-				LevelIndex: i,
-				Reasoning:  "algo: filling empty grid level",
-			})
-			availableMargin -= marginNeeded
+			emptyLevels = append(emptyLevels, emptyLevelCandidate{index: i, level: level})
 		case "pending":
 			if level.OrderID != "" && !level.OrderPlacedAt.IsZero() && time.Since(level.OrderPlacedAt) > algoStaleOrderTimeout {
-				decisions = append(decisions, kernel.Decision{
+				staleOrderCancels = append(staleOrderCancels, kernel.Decision{
 					Symbol:     gridConfig.Symbol,
 					Action:     "cancel_order",
 					OrderID:    level.OrderID,
@@ -1500,6 +1481,48 @@ func (at *AutoTrader) buildAlgoGridDecision(ctx *kernel.GridContext) *kernel.Ful
 			}
 		}
 	}
+
+	// Fill the closest empty levels first, selecting on both sides of current
+	// price before expanding farther outward as balance allows.
+	sort.SliceStable(emptyLevels, func(i, j int) bool {
+		di := math.Abs(emptyLevels[i].level.Price - ctx.CurrentPrice)
+		dj := math.Abs(emptyLevels[j].level.Price - ctx.CurrentPrice)
+		if math.Abs(di-dj) > 1e-9 {
+			return di < dj
+		}
+		iAbove := emptyLevels[i].level.Price >= ctx.CurrentPrice
+		jAbove := emptyLevels[j].level.Price >= ctx.CurrentPrice
+		if iAbove != jAbove {
+			return iAbove
+		}
+		return emptyLevels[i].index < emptyLevels[j].index
+	})
+	for _, candidate := range emptyLevels {
+		level := candidate.level
+		qty := kernel.SuggestedQuantity(level, ctx)
+		if qty <= 0 {
+			continue
+		}
+		marginNeeded := qty * level.Price / float64(leverage)
+		if marginNeeded > availableMargin {
+			skippedForBalance++
+			continue
+		}
+		action := "place_buy_limit"
+		if level.Side == "sell" {
+			action = "place_sell_limit"
+		}
+		decisions = append(decisions, kernel.Decision{
+			Symbol:     gridConfig.Symbol,
+			Action:     action,
+			Price:      level.Price,
+			Quantity:   qty,
+			LevelIndex: candidate.index,
+			Reasoning:  "algo: filling nearest empty grid level",
+		})
+		availableMargin -= marginNeeded
+	}
+	decisions = append(decisions, staleOrderCancels...)
 
 	if len(decisions) == 0 {
 		reason := "algo: nothing to do this cycle"
