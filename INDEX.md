@@ -180,6 +180,7 @@
 | `market/kline_quality.go` | 统一 K 线质量清洗：排序去重、过滤未收盘 bar、校验 OHLCV，并拒绝最新已收盘零成交量数据 |
 | `web/src/components/strategy/CoinSourceEditor.tsx` | 所有候选源模式都可查看和编辑自定义币种；static 直接使用，AI500 失败时回退，mixed 作为静态来源 |
 | `web/src/components/strategy/TrendGateEditor.tsx` | Strategy Studio 的单币 K 线+成交量趋势门控配置编辑器 |
+| `web/src/components/strategy/GridConfigEditor.tsx` | 网格策略配置编辑器，含 AI 减仓开关及其 T 字仓位阈值配置 |
 | `manager/handoff_manager.go` | 网格异常波动接替编排：每秒采样源网格标的价格，三分钟绝对涨跌幅达到阈值后暂停网格、按涨跌方向撤销对侧普通挂单（保留减仓单）并启动目标 AI 交易员，不平仓或停止源交易员 |
 | `store/handoff.go` | 网格到 AI 的显式接替绑定与执行状态持久化，含原子触发抢占与阶段错误记录 |
 | `api/handoff.go` | 接替绑定 CRUD API，校验源为网格、目标为 AI 且使用相同交易所账户 |
