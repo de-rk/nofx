@@ -1567,6 +1567,12 @@ func (at *AutoTrader) executeGridDecision(d *kernel.Decision, ctx *kernel.GridCo
 			d.Action = canonical
 		}
 	}
+	if !at.config.StrategyConfig.GridConfig.AIPositionReductionEnabled() {
+		switch d.Action {
+		case "reduce_long", "reduce_short", "close_long", "close_short":
+			return fmt.Errorf("AI position reduction is disabled")
+		}
+	}
 	logger.Infof("[Grid] %s action: %s | qty=%.4f price=%.2f | reason: %s",
 		source, d.Action, d.Quantity, d.Price, d.Reasoning)
 	symbol := at.config.StrategyConfig.GridConfig.Symbol

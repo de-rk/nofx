@@ -361,6 +361,8 @@ export interface GridStrategyConfig {
   use_maker_only: boolean;
   // Auto-close small positions (value < 100 USDT) when profit exceeds step*1.2 (default true)
   enable_small_position_close?: boolean;
+  // Allow grid AI to partially or fully close positions
+  enable_ai_position_reduction?: boolean;
   // Profit drawdown threshold for auto close (default 50%)
   profit_drawdown_threshold?: number;
   // Enable AI batch position reduction when trapped (被套时分批减仓)

@@ -125,6 +125,15 @@ type GridStrategyConfig struct {
 	// of an LLM call — see AutoTrader.buildAlgoGridDecision — either as a fallback when
 	// the AI call errors or fails to parse, or unconditionally every cycle.
 	DecisionMode string `json:"decision_mode"`
+	// EnableAIPositionReduction allows the grid AI to partially or fully close positions.
+	// A nil value preserves the previous default (enabled) for existing strategies.
+	EnableAIPositionReduction *bool `json:"enable_ai_position_reduction,omitempty"`
+}
+
+// AIPositionReductionEnabled reports whether the grid AI may close positions.
+// Missing values keep the historical behavior for strategies saved before this option existed.
+func (c *GridStrategyConfig) AIPositionReductionEnabled() bool {
+	return c == nil || c.EnableAIPositionReduction == nil || *c.EnableAIPositionReduction
 }
 
 // PromptSectionsConfig editable sections of System Prompt

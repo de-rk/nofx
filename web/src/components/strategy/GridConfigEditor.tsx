@@ -21,6 +21,7 @@ export const defaultGridConfig: GridStrategyConfig = {
   distribution: 'gaussian',
   use_maker_only: true,
   profit_drawdown_threshold: 50,
+  enable_ai_position_reduction: true,
   enable_trapped_reduce: false,
   trapped_reduce_threshold_pct: 3.0,
   enable_small_position_close: true,
@@ -97,6 +98,11 @@ export function GridConfigEditor({
       useMakerOnlyDesc: { zh: '使用限价单以降低手续费', en: 'Use limit orders for lower fees' },
       enableSmallPositionClose: { zh: '小仓位自动平仓', en: 'Auto-close Small Positions' },
       enableSmallPositionCloseDesc: { zh: '仓位市值<100U且盈利超过步长×2时，自动全部平仓锁定利润', en: 'Close entire position when value < 100 USDT and profit exceeds step×2' },
+      enableAIPositionReduction: { zh: '允许 AI 主动减仓', en: 'Allow AI Position Reduction' },
+      enableAIPositionReductionDesc: {
+        zh: '开启后，网格 AI 可使用 reduce_long / reduce_short 部分减仓及 close_long / close_short 全平仓；关闭后提示词不提供这些动作，系统也会拒绝执行。',
+        en: 'When enabled, grid AI can partially reduce or fully close positions. When disabled, these actions are omitted from its prompt and rejected by the executor.',
+      },
 
       // T-trade section (combines profit reduce + trapped reduce)
       tTradeSection: { zh: 'T字操作', en: 'T-Trade Operations' },
@@ -498,6 +504,26 @@ export function GridConfigEditor({
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F0B90B]"></div>
+            </label>
+          </div>
+        </div>
+
+        {/* AI Position Reduction Toggle */}
+        <div className="p-4 rounded-lg mt-4" style={sectionStyle}>
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="block text-sm" style={{ color: '#EAECEF' }}>{t('enableAIPositionReduction')}</label>
+              <p className="text-xs" style={{ color: '#848E9C' }}>{t('enableAIPositionReductionDesc')}</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.enable_ai_position_reduction ?? true}
+                onChange={(e) => updateField('enable_ai_position_reduction', e.target.checked)}
+                disabled={disabled}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#F6465D]"></div>
             </label>
           </div>
         </div>
