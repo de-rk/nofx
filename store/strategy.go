@@ -99,7 +99,7 @@ type GridStrategyConfig struct {
 	EnableSmallPositionClose bool `json:"enable_small_position_close"`
 	// Profit drawdown threshold for auto close (default 50%)
 	ProfitDrawdownThreshold float64 `json:"profit_drawdown_threshold"`
-	// Enable AI batch position reduction when trapped (被套时分批减仓)
+	// Enable T-trade reduction for trapped positions (T字被套减仓)
 	EnableTrappedReduce bool `json:"enable_trapped_reduce"`
 	// Unrealized loss percentage to trigger batch reduction (default 3.0%)
 	TrappedReduceThresholdPct float64 `json:"trapped_reduce_threshold_pct"`

@@ -118,9 +118,12 @@ export function GridConfigEditor({
       profitReduceMultiplierDesc: { zh: '每档减仓比例的倍率，1x=N%减N%，0.5x减半，2x加倍', en: 'Scales the reduce % per step: 1x = N% at step N, 0.5x halves, 2x doubles' },
 
       // Trapped reduce
-      trappedReduce: { zh: 'AI减仓', en: 'AI Position Reduction' },
-      enableTrappedReduce: { zh: '启用AI减仓', en: 'Enable AI Position Reduction' },
-      enableTrappedReduceDesc: { zh: '启用后，AI 可针对被套仓位生成 T 字标记与减仓操作；关闭后不运行该减仓策略', en: 'When enabled, AI can run T-trade tagging and position reductions for trapped positions. Disable to turn off this reduction strategy.' },
+      trappedReduce: { zh: 'T字被套减仓', en: 'T-Trade Trapped Reduction' },
+      enableTrappedReduce: { zh: '启用 T 字减仓', en: 'Enable T-Trade Reduction' },
+      enableTrappedReduceDesc: {
+        zh: '启用后，系统会为达到触发条件的被套仓位运行 T 字标记与保护减仓流程；关闭后停止 T 字减仓。',
+        en: 'Runs T-trade tagging and protected reductions for trapped positions that meet the trigger. Disable to turn off T-trade reductions.',
+      },
       tTradePositionThreshold: { zh: 'T字触发仓位 (%)', en: 'T-Trade Position Threshold (%)' },
       tTradePositionThresholdDesc: { zh: '任一方向仓位占总资金超过此比例时启用T字操作（默认30%）', en: 'Enable T-trade when either side position exceeds this % of total investment (default 30%)' },
       trappedReduceExplain: { zh: '💡 T字操作原理：仓位超阈值时，等待最近网格挂单成交，再在更优价格减仓，利用价差降低持仓成本', en: '💡 T-Trade: when position exceeds threshold, wait for nearest grid order to fill, then reduce at a better price to capture the spread' },

@@ -45,6 +45,7 @@ export function StrategyStudioPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
+  const selectedStrategyIdRef = useRef<string | null>(null)
 
   // Accordion states for left panel
   const [expandedSections, setExpandedSections] = useState({
@@ -74,16 +75,21 @@ export function StrategyStudioPage() {
       })
       if (!response.ok) throw new Error('Failed to fetch strategies')
       const data = await response.json()
-      setStrategies(data.strategies || [])
+      const fetchedStrategies: Strategy[] = data.strategies || []
+      setStrategies(fetchedStrategies)
 
-      // Select active or first strategy
-      const active = data.strategies?.find((s: Strategy) => s.is_active)
-      if (active) {
-        setSelectedStrategy(active)
-        setEditingConfig(active.config)
-      } else if (data.strategies?.length > 0) {
-        setSelectedStrategy(data.strategies[0])
-        setEditingConfig(data.strategies[0].config)
+      // Keep the current selection when refreshing after save; otherwise the editor
+      // can silently switch to another strategy and display that strategy's toggles.
+      const selected = fetchedStrategies.find((s) => s.id === selectedStrategyIdRef.current)
+      const nextStrategy = selected || fetchedStrategies.find((s) => s.is_active) || fetchedStrategies[0]
+      if (nextStrategy) {
+        selectedStrategyIdRef.current = nextStrategy.id
+        setSelectedStrategy(nextStrategy)
+        setEditingConfig(nextStrategy.config)
+      } else {
+        selectedStrategyIdRef.current = null
+        setSelectedStrategy(null)
+        setEditingConfig(null)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -176,6 +182,7 @@ export function StrategyStudioPage() {
           updated_at: now,
         }
         setSelectedStrategy(newStrategy)
+        selectedStrategyIdRef.current = newStrategy.id
         setEditingConfig(defaultConfig)
         setHasChanges(false)
       }
@@ -208,6 +215,7 @@ export function StrategyStudioPage() {
       // Clear selection if deleted strategy was selected
       if (selectedStrategy?.id === id) {
         setSelectedStrategy(null)
+        selectedStrategyIdRef.current = null
         setEditingConfig(null)
         setHasChanges(false)
       }
@@ -630,6 +638,7 @@ export function StrategyStudioPage() {
                   key={strategy.id}
                   onClick={() => {
                     setSelectedStrategy(strategy)
+                    selectedStrategyIdRef.current = strategy.id
                     setEditingConfig(strategy.config)
                     setHasChanges(false)
                   }}

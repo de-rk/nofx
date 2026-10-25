@@ -180,7 +180,7 @@
 | `market/kline_quality.go` | 统一 K 线质量清洗：排序去重、过滤未收盘 bar、校验 OHLCV，并拒绝最新已收盘零成交量数据 |
 | `web/src/components/strategy/CoinSourceEditor.tsx` | 所有候选源模式都可查看和编辑自定义币种；static 直接使用，AI500 失败时回退，mixed 作为静态来源 |
 | `web/src/components/strategy/TrendGateEditor.tsx` | Strategy Studio 的单币 K 线+成交量趋势门控配置编辑器 |
-| `web/src/components/strategy/GridConfigEditor.tsx` | 网格策略配置编辑器，含 AI 主动减仓开关、T 字减仓开关及其阈值配置 |
+| `web/src/components/strategy/GridConfigEditor.tsx` | 网格策略配置编辑器，分别配置 AI 主动减仓/全平开关与 T 字被套减仓开关及阈值 |
 | `manager/handoff_manager.go` | 网格异常波动接替编排：每秒采样源网格标的价格，三分钟绝对涨跌幅达到阈值后暂停网格、按涨跌方向撤销对侧普通挂单（保留减仓单）并启动目标 AI 交易员，不平仓或停止源交易员 |
 | `store/handoff.go` | 网格到 AI 的显式接替绑定与执行状态持久化，含原子触发抢占与阶段错误记录 |
 | `api/handoff.go` | 接替绑定 CRUD API，校验源为网格、目标为 AI 且使用相同交易所账户 |
@@ -214,7 +214,7 @@
 | 文件 | 说明 |
 |------|------|
 | `pages/TraderDashboardPage.tsx` | Trader 主看板（持仓、决策历史、图表）；统一使用页面纵向滚动，避免嵌套滚动容器导致返回顶部失效；移动端关闭高开销背景模糊/动画、使用动态视口高度，并按动画帧合并行情刷新，提升触摸滚动流畅度；向 T-trade 面板传递永久统计 |
-| `pages/StrategyStudioPage.tsx` | 策略配置编辑页 |
+| `pages/StrategyStudioPage.tsx` | 策略配置编辑页；保存后刷新策略列表时保留当前选中项，避免编辑器切换到其他策略并显示其开关状态 |
 | `pages/StrategyMarketPage.tsx` | 策略市场页 |
 | `pages/LandingPage.tsx` | 落地页 |
 | `pages/PromptTestPage.tsx` | Prompt 调试页 |
@@ -230,14 +230,14 @@
 | `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏（策略市场、Traders、Dashboard、Strategy、Prompt测试） |
 | `components/LoginPage.tsx` / `RegisterPage.tsx` | 登录/注册页 |
 | `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip；订单数量标签统一格式化，避免显示浮点误差尾数 |
-| `components/TTradePanel.tsx` / `types.ts` | T-trade 生命周期看板：按每个 T-trade 周期显示单次已实现收益，并显示永久累计收益与已完成次数；`GridTradeLog` 暴露已实现收益及关联订单字段，`TTradeStats` 暴露独立持久化统计，`GridStrategyConfig` 包含 AI 主动减仓开关字段 |
+| `components/TTradePanel.tsx` / `types.ts` | T-trade 生命周期看板：按每个 T-trade 周期显示单次已实现收益，并显示永久累计收益与已完成次数；`GridTradeLog` 暴露已实现收益及关联订单字段，`TTradeStats` 暴露独立持久化统计，`GridStrategyConfig` 包含 AI 主动减仓和 T 字被套减仓开关字段 |
 | `App.tsx` / `lib/api.ts` | 获取并缓存 T-trade 永久统计，在交易事件到达时刷新，与看板生命周期明细并行展示 |
 
 ### 策略组件 (`components/strategy/`)
 
 | 文件 | 说明 |
 |------|------|
-| `GridConfigEditor.tsx` | 网格策略配置编辑器（层数、投资额、AI 主动减仓开关、T-trade 阈值、决策模式等） |
+| `GridConfigEditor.tsx` | 网格策略配置编辑器（层数、投资额、AI 主动减仓开关、T 字被套减仓开关、决策模式等） |
 | `RiskControlEditor.tsx` | AI 交易风险控制编辑器，含原生移动止盈止损开关 |
 
 ---
