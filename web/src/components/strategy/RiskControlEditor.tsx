@@ -33,8 +33,6 @@ export function RiskControlEditor({
       altcoinPositionValueRatio: { zh: '山寨币仓位价值比例', en: 'Altcoin Position Value Ratio' },
       altcoinPositionValueRatioDesc: { zh: '单仓最大名义价值 = 净值 × 此值（代码强制）', en: 'Max position value = equity × this ratio (CODE ENFORCED)' },
       riskParameters: { zh: '风险参数', en: 'Risk Parameters' },
-      minRiskReward: { zh: '最小风险回报比', en: 'Min Risk/Reward Ratio' },
-      minRiskRewardDesc: { zh: '开仓要求的最低盈亏比', en: 'Minimum profit ratio for opening' },
       maxMarginUsage: { zh: '最大保证金使用率（代码强制）', en: 'Max Margin Usage (CODE ENFORCED)' },
       maxMarginUsageDesc: { zh: '保证金使用率上限，由代码强制执行', en: 'Maximum margin utilization, enforced by code' },
       entryRequirements: { zh: '开仓要求', en: 'Entry Requirements' },
@@ -46,8 +44,11 @@ export function RiskControlEditor({
       profitDrawdownDesc: { zh: '盈利回撤超过此值时自动平仓', en: 'Auto close when profit drawdown exceeds this' },
       profitThreshold: { zh: '利润触发阈值 (%)', en: 'Profit Threshold (%)' },
       profitThresholdDesc: { zh: '利润超过此值后才启用回撤保护', en: 'Enable drawdown protection when profit exceeds this' },
-      trailingStop: { zh: '允许 AI 设置移动止盈止损', en: 'Allow AI Trailing Stop' },
-      trailingStopDesc: { zh: '开启后，AI 可在支持的交易所设置原生移动止盈止损；关闭后仅使用固定止盈止损', en: 'When enabled, AI may set native trailing stops on supported exchanges; when disabled, fixed TP/SL are used only' },
+      trailingStop: { zh: 'AI 移动止盈止损', en: 'AI Trailing Stop' },
+      trailingStopDesc: {
+        zh: 'AI 开仓仅使用原生移动止盈止损，固定止盈止损和固定盈亏比不参与决策。交易所不支持移动止损时将拒绝开仓。',
+        en: 'AI entries use native trailing stops only. Fixed TP/SL prices and a fixed risk/reward ratio are not required. Entries are rejected on exchanges without native trailing-stop support.',
+      },
     }
     return translations[key]?.[language] || key
   }
@@ -67,7 +68,8 @@ export function RiskControlEditor({
         className="p-4 rounded-lg"
         style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
       >
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <Shield className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: '#0ECB81' }} />
           <div>
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {t('trailingStop')}
@@ -76,21 +78,6 @@ export function RiskControlEditor({
               {t('trailingStopDesc')}
             </p>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={config.enable_trailing_stop ?? true}
-            aria-label={t('trailingStop')}
-            onClick={() => updateField('enable_trailing_stop', !(config.enable_trailing_stop ?? true))}
-            disabled={disabled}
-            className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-50"
-            style={{ background: (config.enable_trailing_stop ?? true) ? '#0ECB81' : '#474D57' }}
-          >
-            <span
-              className="absolute top-1 w-4 h-4 rounded-full bg-white transition-transform"
-              style={{ left: (config.enable_trailing_stop ?? true) ? '24px' : '4px' }}
-            />
-          </button>
         </div>
       </div>
 
@@ -288,39 +275,7 @@ export function RiskControlEditor({
           </h3>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div
-            className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
-          >
-            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-              {t('minRiskReward')}
-            </label>
-            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-              {t('minRiskRewardDesc')}
-            </p>
-            <div className="flex items-center">
-              <span style={{ color: '#848E9C' }}>1:</span>
-              <input
-                type="number"
-                value={config.min_risk_reward_ratio ?? 3}
-                onChange={(e) =>
-                  updateField('min_risk_reward_ratio', parseFloat(e.target.value) || 3)
-                }
-                disabled={disabled}
-                min={1}
-                max={10}
-                step={0.5}
-                className="w-20 px-3 py-2 rounded ml-2"
-                style={{
-                  background: '#1E2329',
-                  border: '1px solid #2B3139',
-                  color: '#EAECEF',
-                }}
-              />
-            </div>
-          </div>
-
+        <div className="grid grid-cols-1 gap-4">
           <div
             className="p-4 rounded-lg"
             style={{ background: '#0B0E11', border: '1px solid #0ECB81' }}

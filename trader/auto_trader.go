@@ -1263,6 +1263,9 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 // executeOpenLongWithRecord executes open long position and records detailed information
 func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  📈 Open long: %s", decision.Symbol)
+	if err := at.validateNativeTrailingStop(decision); err != nil {
+		return err
+	}
 
 	// ⚠️ Get current positions for multiple checks
 	positions, err := at.trader.GetPositions()
@@ -1344,6 +1347,9 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	if err := at.enforceMaxMarginUsage(positions, equity, actualPositionSize, decision.Leverage); err != nil {
 		return err
 	}
+	if err := at.clearProtectionForSide(decision.Symbol, "LONG"); err != nil {
+		return fmt.Errorf("failed to clear existing long protection orders before entry: %w", err)
+	}
 
 	// Calculate quantity with adjusted position size
 	quantity := actualPositionSize / marketData.CurrentPrice
@@ -1369,26 +1375,17 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 
 	logger.Infof("  ✓ Position opened successfully, order ID: %v, quantity: %.4f", order["orderId"], quantity)
 
-	// Record order to database and poll for confirmation
+	if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
+		return at.rollbackUnprotectedEntry(decision, order, quantity, marketData.CurrentPrice, err)
+	}
+
+	// Submit protection before order confirmation polling so the new position
+	// is protected as soon as possible after the market entry.
 	at.recordAndConfirmOrder(order, decision.Symbol, "open_long", quantity, marketData.CurrentPrice, decision.Leverage, 0)
 
-	// Record position opening time
+	// Record position opening time only after native protection is active.
 	posKey := decision.Symbol + "_long"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
-
-	// A native trailing stop is the single protection order when configured.
-	// Fixed TP/SL are only a fallback if the trailing order cannot be created.
-	if at.trailingStopEnabled() && decision.TrailingStopCallbackPct > 0 {
-		if err := at.clearProtectionForSide(decision.Symbol, "LONG"); err != nil {
-			logger.Infof("  ⚠ Failed to clear previous protection orders: %v", err)
-		}
-		if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
-			logger.Infof("  ⚠ Failed to set trailing stop, falling back to fixed TP/SL: %v", err)
-			at.setFixedProtection(decision, quantity)
-		}
-	} else {
-		at.setFixedProtection(decision, quantity)
-	}
 
 	return nil
 }
@@ -1396,6 +1393,9 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 // executeOpenShortWithRecord executes open short position and records detailed information
 func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  📉 Open short: %s", decision.Symbol)
+	if err := at.validateNativeTrailingStop(decision); err != nil {
+		return err
+	}
 
 	// ⚠️ Get current positions for multiple checks
 	positions, err := at.trader.GetPositions()
@@ -1477,6 +1477,9 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	if err := at.enforceMaxMarginUsage(positions, equity, actualPositionSize, decision.Leverage); err != nil {
 		return err
 	}
+	if err := at.clearProtectionForSide(decision.Symbol, "SHORT"); err != nil {
+		return fmt.Errorf("failed to clear existing short protection orders before entry: %w", err)
+	}
 
 	// Calculate quantity with adjusted position size
 	quantity := actualPositionSize / marketData.CurrentPrice
@@ -1502,60 +1505,34 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 
 	logger.Infof("  ✓ Position opened successfully, order ID: %v, quantity: %.4f", order["orderId"], quantity)
 
-	// Record order to database and poll for confirmation
+	if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
+		return at.rollbackUnprotectedEntry(decision, order, quantity, marketData.CurrentPrice, err)
+	}
+
+	// Submit protection before order confirmation polling so the new position
+	// is protected as soon as possible after the market entry.
 	at.recordAndConfirmOrder(order, decision.Symbol, "open_short", quantity, marketData.CurrentPrice, decision.Leverage, 0)
 
-	// Record position opening time
+	// Record position opening time only after native protection is active.
 	posKey := decision.Symbol + "_short"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
-
-	// A native trailing stop is the single protection order when configured.
-	// Fixed TP/SL are only a fallback if the trailing order cannot be created.
-	if at.trailingStopEnabled() && decision.TrailingStopCallbackPct > 0 {
-		if err := at.clearProtectionForSide(decision.Symbol, "SHORT"); err != nil {
-			logger.Infof("  ⚠ Failed to clear previous protection orders: %v", err)
-		}
-		if err := at.setTrailingStop(decision, quantity, marketData.CurrentPrice); err != nil {
-			logger.Infof("  ⚠ Failed to set trailing stop, falling back to fixed TP/SL: %v", err)
-			at.setFixedProtection(decision, quantity)
-		}
-	} else {
-		at.setFixedProtection(decision, quantity)
-	}
 
 	return nil
 }
 
-// setFixedProtection prefers OKX's single OCO order carrying both
-// trigger legs. Other exchanges retain their existing two-order interface.
-func (at *AutoTrader) setFixedProtection(decision *kernel.Decision, quantity float64) {
-	positionSide := "LONG"
-	if decision.Action == "open_short" {
-		positionSide = "SHORT"
+func (at *AutoTrader) validateNativeTrailingStop(decision *kernel.Decision) error {
+	if decision.TrailingStopActivationPct < 0 {
+		return fmt.Errorf("trailing_stop_activation_pct cannot be negative")
 	}
-	if combined, ok := at.trader.(interface {
-		SetTakeProfitAndStopLoss(symbol, positionSide string, quantity, stopPrice, takeProfitPrice float64) error
-	}); ok {
-		if err := combined.SetTakeProfitAndStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss, decision.TakeProfit); err != nil {
-			logger.Infof("  ⚠ Failed to set OCO TP/SL, falling back to separate orders: %v", err)
-		} else {
-			return
-		}
+	if decision.TrailingStopCallbackPct < 0.1 || decision.TrailingStopCallbackPct > 5.0 {
+		return fmt.Errorf("trailing_stop_callback_pct must be between 0.1 and 5.0")
 	}
-	if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
+	if _, ok := at.trader.(interface {
+		SetTrailingStop(symbol string, positionSide string, quantity, activationPrice, callbackPct float64) error
+	}); !ok {
+		return fmt.Errorf("exchange %s does not support required native trailing stops", at.exchange)
 	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
-	}
-}
-
-func (at *AutoTrader) trailingStopEnabled() bool {
-	if at.strategyEngine == nil {
-		return false
-	}
-	config := at.strategyEngine.GetConfig()
-	return config != nil && config.RiskControl.EnableTrailingStop
+	return nil
 }
 
 func (at *AutoTrader) clearProtectionForSide(symbol, positionSide string) error {
@@ -1567,20 +1544,17 @@ func (at *AutoTrader) clearProtectionForSide(symbol, positionSide string) error 
 	return at.trader.CancelStopOrders(symbol)
 }
 
-// setTrailingStop submits the optional native trailing stop after an entry.
+// setTrailingStop submits the required native trailing stop after an entry.
 // The AI supplies percentages; OKX requires an absolute activation price.
 func (at *AutoTrader) setTrailingStop(decision *kernel.Decision, quantity, entryPrice float64) error {
 	callbackPct := decision.TrailingStopCallbackPct
 	activationPct := decision.TrailingStopActivationPct
-	if callbackPct <= 0 {
-		return nil
-	}
 
 	trailingTrader, ok := at.trader.(interface {
 		SetTrailingStop(symbol string, positionSide string, quantity, activationPrice, callbackPct float64) error
 	})
 	if !ok {
-		return fmt.Errorf("exchange %s does not support native trailing stops", at.exchange)
+		return fmt.Errorf("exchange %s does not support required native trailing stops", at.exchange)
 	}
 
 	activationPrice := 0.0
@@ -1597,6 +1571,41 @@ func (at *AutoTrader) setTrailingStop(decision *kernel.Decision, quantity, entry
 		positionSide = "SHORT"
 	}
 	return trailingTrader.SetTrailingStop(decision.Symbol, positionSide, quantity, activationPrice, callbackPct)
+}
+
+func (at *AutoTrader) rollbackUnprotectedEntry(decision *kernel.Decision, openOrder map[string]interface{}, quantity, entryPrice float64, trailingErr error) error {
+	positionSide := "LONG"
+	closeAction := "close_long"
+	if decision.Action == "open_short" {
+		positionSide = "SHORT"
+		closeAction = "close_short"
+	}
+
+	if err := at.clearProtectionForSide(decision.Symbol, positionSide); err != nil {
+		logger.Errorf("  ⚠ Failed to clear possibly-created trailing protection after placement failure: %v", err)
+	}
+
+	var closeOrder map[string]interface{}
+	var closeErr error
+	if decision.Action == "open_short" {
+		closeOrder, closeErr = at.trader.CloseShort(decision.Symbol, 0)
+	} else {
+		closeOrder, closeErr = at.trader.CloseLong(decision.Symbol, 0)
+	}
+	openAction := "open_long"
+	if decision.Action == "open_short" {
+		openAction = "open_short"
+	}
+	at.recordAndConfirmOrder(openOrder, decision.Symbol, openAction, quantity, entryPrice, decision.Leverage, 0)
+	if closeErr != nil {
+		return fmt.Errorf("failed to place required native trailing stop: %v; emergency close of the unprotected position also failed: %w", trailingErr, closeErr)
+	}
+
+	at.recordAndConfirmOrder(closeOrder, decision.Symbol, closeAction, quantity, entryPrice, 0, entryPrice)
+	if err := at.clearProtectionForSide(decision.Symbol, positionSide); err != nil {
+		logger.Errorf("  ⚠ Failed to clear trailing protection after emergency close: %v", err)
+	}
+	return fmt.Errorf("failed to place required native trailing stop; the new position was immediately closed: %w", trailingErr)
 }
 
 // executeCloseLongWithRecord executes close long position and records detailed information

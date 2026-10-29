@@ -33,8 +33,9 @@
 
 | 文件 | 说明 |
 |------|------|
-| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；system prompt 明确 AI 可在 OKX 开仓时成对设置原生移动止盈止损的激活/回撤百分比（含多空方向、取值范围及保护优先级：仅移动单禁用、创建失败或失效时才使用固定止盈止损），并以对称规则要求确认看多时 `open_long`、确认看空时 `open_short`，不得因下跌而默认 `wait`；并要求 `confidence` 使用 JSON 数字；解析器兼容置信度偶发输出英文数字词；AI user prompt 不再注入历史交易统计；风险收益比校验含显示精度容差；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
-| `engine_prompt_test.go` | `StrategyEngine.BuildSystemPrompt` 的 OKX 原生移动止盈止损和多空对称开仓规则的 prompt 回归测试，以及英文置信度数字归一化解析测试 |
+| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；system prompt 要求所有新开仓仅设置原生移动止盈止损，不输出固定止盈/止损价格或强制固定盈亏比，并要求不支持原生移动止损的交易所拒绝开仓；开仓决策校验要求移动止损激活/回调参数，不校验固定价格或盈亏比；同时以对称规则要求确认看多时 `open_long`、确认看空时 `open_short`，不得因下跌而默认 `wait`；并要求 `confidence` 使用 JSON 数字；解析器兼容置信度偶发输出英文数字词；AI user prompt 不再注入历史交易统计；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
+| `engine_prompt_test.go` | `StrategyEngine.BuildSystemPrompt` 的原生移动止盈止损必需、固定止盈止损与盈亏比非必需、多空对称开仓规则的 prompt 回归测试，以及英文置信度数字归一化解析测试 |
+| `validate_test.go` | AI 开仓校验测试，覆盖移动止损必需及固定止盈止损/盈亏比不再参与校验 |
 | `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；AI 主动减仓/全平动作及规则由 `enable_ai_position_reduction` 配置控制；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
 | `grid_engine_prompt_test.go` | 网格 system prompt 中普通多空部分减仓动作与规则的回归测试 |
 | `prompt_builder.go` | 根据市场状态动态调整 prompt 的逻辑（识别趋势/震荡、计算技术指标、生成实时风险提示） |
@@ -47,7 +48,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；开仓后按 AI 参数调用交易所原生移动止盈止损，移动单成功时只保留单一移动保护单，失败时回退单一合并固定止盈/止损委托；利润回撤按每个多空仓位独立跟踪峰值，读取 AI 风险控制的利润触发/回撤阈值，且当前收益跌破触发收益时保留仓位；AI 不再使用旧的账户级全部平仓检查；平空与利润回撤全平均按标准化后的持仓方向执行，避免依赖仓位数量正负；支持接替时按方向撤销对侧网格普通挂单并保留减仓单；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
+| `auto_trader.go` | 通用自动交易主循环（非网格）：AI 周期、止盈减仓、持仓管理；AI 新开仓前要求交易所支持原生移动止盈止损并清理同方向旧保护单，开仓后只设置移动保护单，设置失败则尝试紧急平掉新仓，不回退固定止盈/止损；利润回撤按每个多空仓位独立跟踪峰值，读取 AI 风险控制的利润触发/回撤阈值，且当前收益跌破触发收益时保留仓位；AI 不再使用旧的账户级全部平仓检查；平空与利润回撤全平均按标准化后的持仓方向执行，避免依赖仓位数量正负；支持接替时按方向撤销对侧网格普通挂单并保留减仓单；启动 WS 连接、设置回调（position push、order update、kline close），wired 到 Grid Cycle 和浮盈减仓触发 |
 | `profit_drawdown_test.go` | AI/网格单仓位利润回撤保护触发条件测试：峰值达到激活收益、回撤达到阈值且当前收益仍保留激活收益 |
 | `algo_grid_priority_test.go` | 算法网格决策优先补充现价上下两侧最近空层的排序测试 |
 | `ttrade_profit_test.go` | T-trade 多空方向收益计算测试，覆盖盈利、亏损和无效成交数据 |
@@ -64,7 +65,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；AI 下单前强制确认/切换账户双向持仓模式，所有开平仓、限价和保护单显式发送 `posSide=long/short`；开仓和平仓后只撤同方向普通挂单及保护单，移动保护单严格校验、创建与撤销同一方向，避免同币双向仓互相撤单；固定止盈止损使用单一 OCO algo 订单并兼容 OCO 查询/撤销 |
+| `trader.go` | OKX 交易所适配器（下单、查询、持仓）；AI 下单前强制确认/切换账户双向持仓模式，所有开平仓、限价和保护单显式发送 `posSide=long/short`；开仓和平仓后只撤同方向普通挂单及保护单，移动保护单严格校验、创建与撤销同一方向，避免同币双向仓互相撤单；保护单查询或撤销不完整时返回错误，阻止 AI 在残留保护单状态不明时开仓；固定止盈止损使用单一 OCO algo 订单并兼容 OCO 查询/撤销 |
 | `ws.go` | OKX WebSocket 推送（公共 ticker、business K线、私有持仓/订单事件；`net` 持仓按正负数量识别多空；含独立重连与心跳） |
 | `trader_test.go` | OKX 持仓方向解析、双向模式 `posSide` 与多空移动/固定保护单方向回归测试 |
 | `order_sync.go` | OKX 订单状态同步 |
@@ -113,7 +114,7 @@
 | `store.go` | Store 接口与工厂 |
 | `gorm.go` | GORM 连接初始化与迁移 |
 | `driver.go` | 数据库驱动选择（SQLite/PostgreSQL） |
-| `strategy.go` | 策略配置表（`StrategyConfig`）；风险控制含 AI 原生移动止盈止损开关 `enable_trailing_stop` 以及利润触发 `profit_threshold_pct`、利润回撤 `profit_drawdown_pct` |
+| `strategy.go` | 策略配置表（`StrategyConfig`）；保留兼容旧配置的 `enable_trailing_stop` 和 `min_risk_reward_ratio` 字段（AI 新开仓始终要求原生移动止盈止损，固定盈亏比不再强制），另含利润触发 `profit_threshold_pct`、利润回撤 `profit_drawdown_pct` |
 | `grid.go` | 网格配置表（`GridStrategyConfig`），含 T-trade、投资额刷新等字段；T-trade 减仓成交日志保存 `realized_pl`（按多空方向和实际成交价/数量计算的毛收益），并通过 `grid_ttrade_stats` 持久化永久累计收益/次数（事务原子累加，首次建表回填保留日志） |
 | `decision.go` | AI 决策记录表，保存移动止盈止损参数 |
 | `trader.go` | Trader 实例配置表 |
@@ -230,7 +231,7 @@
 | `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏（策略市场、Traders、Dashboard、Strategy、Prompt测试） |
 | `components/LoginPage.tsx` / `RegisterPage.tsx` | 登录/注册页 |
 | `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip；订单数量标签统一格式化，避免显示浮点误差尾数 |
-| `components/TTradePanel.tsx` / `types.ts` | T-trade 生命周期看板：按每个 T-trade 周期显示单次已实现收益，并显示永久累计收益与已完成次数；`GridTradeLog` 暴露已实现收益及关联订单字段，`TTradeStats` 暴露独立持久化统计，`GridStrategyConfig` 包含 AI 主动减仓和 T 字被套减仓开关字段 |
+| `components/TTradePanel.tsx` / `types.ts` | T-trade 生命周期看板：按每个 T-trade 周期显示单次已实现收益，并显示永久累计收益与已完成次数；`GridTradeLog` 暴露已实现收益及关联订单字段，`TTradeStats` 暴露独立持久化统计，`GridStrategyConfig` 包含 AI 主动减仓和 T 字被套减仓开关字段，`RiskControlConfig` 的旧移动止损开关和固定盈亏比字段仅为兼容保留 |
 | `App.tsx` / `lib/api.ts` | 获取并缓存 T-trade 永久统计，在交易事件到达时刷新，与看板生命周期明细并行展示 |
 
 ### 策略组件 (`components/strategy/`)
@@ -238,7 +239,7 @@
 | 文件 | 说明 |
 |------|------|
 | `GridConfigEditor.tsx` | 网格策略配置编辑器（层数、投资额、AI 主动减仓开关、T 字被套减仓开关、决策模式等） |
-| `RiskControlEditor.tsx` | AI 交易风险控制编辑器，含原生移动止盈止损开关 |
+| `RiskControlEditor.tsx` | AI 交易风险控制编辑器，说明 AI 新开仓只使用原生移动止盈止损，不设置固定止盈止损或强制盈亏比 |
 
 ---
 

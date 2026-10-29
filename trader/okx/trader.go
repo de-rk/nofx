@@ -1408,6 +1408,7 @@ func (t *OKXTrader) cancelAlgoOrders(symbol string, orderType string) error {
 // An empty positionSide preserves the emergency "cancel everything" behavior.
 func (t *OKXTrader) cancelAlgoOrdersForSide(symbol string, orderType, positionSide string) error {
 	instId := t.convertSymbol(symbol)
+	var failures []string
 
 	// Get pending conditional algo orders. A blank orderType means callers are
 	// cancelling all protective algos, including native trailing stops.
@@ -1435,7 +1436,7 @@ func (t *OKXTrader) cancelAlgoOrdersForSide(symbol string, orderType, positionSi
 			InstId  string `json:"instId"`
 			PosSide string `json:"posSide"`
 		}
-		if json.Unmarshal(ocoData, &ocoOrders) == nil {
+		if unmarshalErr := json.Unmarshal(ocoData, &ocoOrders); unmarshalErr == nil {
 			for _, order := range ocoOrders {
 				orders = append(orders, struct {
 					AlgoId  string `json:"algoId"`
@@ -1443,15 +1444,19 @@ func (t *OKXTrader) cancelAlgoOrdersForSide(symbol string, orderType, positionSi
 					PosSide string `json:"posSide"`
 				}{AlgoId: order.AlgoId, InstId: order.InstId, PosSide: order.PosSide})
 			}
+		} else {
+			failures = append(failures, fmt.Sprintf("failed to parse OCO protection orders: %v", unmarshalErr))
 		}
 	} else {
 		logger.Infof("  ⚠️ Failed to get OCO algo orders: %v", ocoErr)
+		failures = append(failures, fmt.Sprintf("failed to get OCO protection orders: %v", ocoErr))
 	}
 	if orderType == "" {
 		trailingPath := fmt.Sprintf("%s?instType=SWAP&instId=%s&ordType=move_order_stop", okxAlgoPendingPath, instId)
 		trailingData, trailingErr := t.doRequest("GET", trailingPath, nil)
 		if trailingErr != nil {
 			logger.Infof("  ⚠️ Failed to get trailing-stop orders: %v", trailingErr)
+			failures = append(failures, fmt.Sprintf("failed to get trailing-stop orders: %v", trailingErr))
 		} else {
 			var trailingOrders []struct {
 				AlgoId  string `json:"algoId"`
@@ -1466,6 +1471,8 @@ func (t *OKXTrader) cancelAlgoOrdersForSide(symbol string, orderType, positionSi
 						PosSide string `json:"posSide"`
 					}{AlgoId: order.AlgoId, InstId: order.InstId, PosSide: order.PosSide})
 				}
+			} else {
+				failures = append(failures, fmt.Sprintf("failed to parse trailing-stop orders: %v", err))
 			}
 		}
 	}
@@ -1485,6 +1492,7 @@ func (t *OKXTrader) cancelAlgoOrdersForSide(symbol string, orderType, positionSi
 		_, err := t.doRequest("POST", okxCancelAlgoPath, body)
 		if err != nil {
 			logger.Infof("  ⚠️ Failed to cancel algo order: %v", err)
+			failures = append(failures, fmt.Sprintf("failed to cancel algo order %s: %v", order.AlgoId, err))
 			continue
 		}
 		canceledCount++
@@ -1492,6 +1500,9 @@ func (t *OKXTrader) cancelAlgoOrdersForSide(symbol string, orderType, positionSi
 
 	if canceledCount > 0 {
 		logger.Infof("  ✓ Canceled %d algo orders for %s", canceledCount, symbol)
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("incomplete protection-order cleanup: %s", strings.Join(failures, "; "))
 	}
 
 	return nil

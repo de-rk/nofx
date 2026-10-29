@@ -344,10 +344,6 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	}
 
 	// 5. Parse AI response
-	marketPrices := make(map[string]float64, len(ctx.MarketDataMap))
-	for sym, md := range ctx.MarketDataMap {
-		marketPrices[sym] = md.CurrentPrice
-	}
 	decision, err := parseFullDecisionResponse(
 		aiResponse,
 		ctx.Account.TotalEquity,
@@ -355,8 +351,6 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		riskConfig.AltcoinMaxLeverage,
 		riskConfig.BTCETHMaxPositionValueRatio,
 		riskConfig.AltcoinMaxPositionValueRatio,
-		marketPrices,
-		riskConfig.MinRiskRewardRatio,
 	)
 
 	if decision != nil {
@@ -1117,7 +1111,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	// 2. Trading mode variant
 	switch strings.ToLower(strings.TrimSpace(variant)) {
 	case "aggressive":
-		sb.WriteString("## Mode: Aggressive\n- Prioritize capturing trend breakouts, can build positions in batches when confidence ≥ 70\n- Allow higher positions, but must strictly set stop-loss and explain risk-reward ratio\n\n")
+		sb.WriteString("## Mode: Aggressive\n- Prioritize capturing trend breakouts, can build positions in batches when confidence ≥ 70\n- Allow higher positions, but every new position must have native trailing-stop protection\n\n")
 	case "conservative":
 		sb.WriteString("## Mode: Conservative\n- Only open positions when multiple signals resonate\n- Prioritize cash preservation, must pause for multiple periods after consecutive losses\n\n")
 	case "scalping":
@@ -1154,7 +1148,6 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
 		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
-	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: ≥1:%.1f (take_profit / stop_loss)\n", riskControl.MinRiskRewardRatio))
 	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
 
 	// Position sizing guidance
@@ -1194,10 +1187,10 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 
 	// Direction selection remains mandatory even when editable entry standards are configured.
 	sb.WriteString("# Direction Selection: Long and Short Are Symmetric\n\n")
-	sb.WriteString("- Open a long with `open_long` only after sufficient bullish confirmation. Long stop_loss must be below entry and take_profit above entry.\n")
-	sb.WriteString("- Open a short with `open_short` only after sufficient bearish confirmation. Short stop_loss must be above entry and take_profit below entry.\n")
-	sb.WriteString("- Do not default to `wait` merely because price is falling. When bearish trend, momentum, and entry timing meet the same quality, confidence, and risk/reward standards required for a long, use `open_short`.\n")
-	sb.WriteString("- Use `wait` only when the setup is unconfirmed, signals conflict, price is extended/near support or resistance without a safe entry, or the required stop_loss and risk/reward cannot be defined.\n")
+	sb.WriteString("- Open a long with `open_long` only after sufficient bullish confirmation.\n")
+	sb.WriteString("- Open a short with `open_short` only after sufficient bearish confirmation.\n")
+	sb.WriteString("- Do not default to `wait` merely because price is falling. When bearish trend, momentum, and entry timing meet the same quality and confidence standards as a long, use `open_short`.\n")
+	sb.WriteString("- Use `wait` only when the setup is unconfirmed, signals conflict, or price is extended/near support or resistance without a safe entry.\n")
 	sb.WriteString("- Treat candidate-source tags as discovery signals, not a directional restriction. Evaluate bullish and bearish setups independently for every candidate.\n\n")
 
 	// 6. Decision process (editable)
@@ -1206,28 +1199,17 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("\n\n")
 	} else {
 		sb.WriteString("# 📋 Decision Process\n\n")
-		sb.WriteString("1. Check positions → Should we take profit/stop-loss\n")
+		sb.WriteString("1. Check positions and their trailing-stop protection\n")
 		sb.WriteString("2. Scan candidate coins + multi-timeframe → Are there strong signals\n")
 		sb.WriteString("3. Write chain of thought first, then output structured JSON\n\n")
 	}
 
 	// 7. Output format
-	sb.WriteString("# OKX Native Trailing Stop\n\n")
-	if riskControl.EnableTrailingStop {
-		sb.WriteString("For a new open_long or open_short decision, you may configure an OKX native trailing stop with both fields below when you want to protect a trend's profits:\n")
-	} else {
-		sb.WriteString("Native trailing stops are disabled in this strategy. Do not set trailing-stop fields; use fixed stop_loss and take_profit only.\n")
-	}
-	sb.WriteString(fmt.Sprintf("- Risk/reward is validated against the live entry reference. Keep a buffer above the configured minimum %.1f:1 (target at least %.1f:1) rather than relying on rounded display values.\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio+0.1))
-	sb.WriteString("- `trailing_stop_activation_pct`: favorable price move from entry before the trailing stop activates. Use 0 for immediate activation; otherwise use a non-negative percentage. For a long, activation is above entry; for a short, activation is below entry.\n")
-	sb.WriteString("- `trailing_stop_callback_pct`: permitted pullback from the best price after activation. Must be 0.1-5.0. A smaller value protects profit sooner; a larger value gives the trend more room.\n")
-	sb.WriteString("- Set both fields together when using the trailing stop. Omit both fields when it is not appropriate. The backend submits it after the market entry for the full opened quantity.\n")
-	if riskControl.EnableTrailingStop {
-		sb.WriteString("- `stop_loss` and `take_profit` remain required numeric fallback fields. When trailing-stop fields are set successfully, the backend prioritizes one native trailing protection order for that exact long/short position and does not create fixed TP/SL orders; fixed TP/SL are used only if the trailing order fails.\n")
-		sb.WriteString("- **Protection priority (mandatory):** use fixed stop_loss/take_profit only when the trailing stop is disabled, cannot be created, is rejected, or otherwise becomes invalid. Never create or request separate fixed TP/SL alongside a successfully active trailing stop.\n\n")
-	} else {
-		sb.WriteString("- `stop_loss` and `take_profit` are the only protection fields used while this switch is off.\n\n")
-	}
+	sb.WriteString("# Native Trailing Stop (Required for New Positions)\n\n")
+	sb.WriteString("Every `open_long` or `open_short` decision must configure native trailing-stop protection. Fixed `stop_loss` and `take_profit` prices are not used, and no fixed risk/reward ratio is required.\n")
+	sb.WriteString("- `trailing_stop_activation_pct`: favorable price move from entry before trailing begins. Use 0 for immediate activation; otherwise use a non-negative percentage. For a long, activation is above entry; for a short, activation is below entry.\n")
+	sb.WriteString("- `trailing_stop_callback_pct`: permitted pullback from the best price after activation. Required range: 0.1-5.0. A smaller value protects sooner; a larger value gives the trend more room.\n")
+	sb.WriteString("- Include both trailing-stop fields on every opening decision. The backend submits one native trailing protection order for the full opened quantity. If the exchange does not support native trailing stops, the opening is rejected; if protection placement fails after entry, the backend immediately attempts to close the new position and reports an execution error.\n\n")
 
 	sb.WriteString("# Output Format (Strictly Follow)\n\n")
 	sb.WriteString("**Must use XML tags <reasoning> and <decision> to separate chain of thought and decision JSON, avoiding parsing errors**\n\n")
@@ -1241,7 +1223,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("```json\n[\n")
 	// Use the actual configured position value ratio for BTC/ETH in the example
 	examplePositionSize := accountEquity * btcEthPosValueRatio
-	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"trailing_stop_activation_pct\": 3, \"trailing_stop_callback_pct\": 1.5, \"confidence\": 85, \"risk_usd\": 300},\n",
+	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"trailing_stop_activation_pct\": 3, \"trailing_stop_callback_pct\": 1.5, \"confidence\": 85, \"risk_usd\": 300},\n",
 		riskControl.BTCETHMaxLeverage, examplePositionSize))
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\"}\n")
 	sb.WriteString("]\n```\n")
@@ -1249,8 +1231,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("## Field Description\n\n")
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 	sb.WriteString(fmt.Sprintf("- `confidence`: JSON number 0-100 (opening recommended ≥ %d); write numeric values only, never English number words or quoted strings\n", riskControl.MinConfidence))
-	sb.WriteString("- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd\n")
-	sb.WriteString("- For OKX native trailing-stop settings, follow the `trailing_stop_activation_pct` and `trailing_stop_callback_pct` rules above.\n")
+	sb.WriteString("- Required when opening: leverage, position_size_usd, trailing_stop_activation_pct, trailing_stop_callback_pct, confidence, risk_usd\n")
+	sb.WriteString("- Do not output fixed `stop_loss` or `take_profit` prices.\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be JSON numbers, NOT words, quoted strings, formulas, or expressions (e.g., use `27.76` not an English number word, `\"60\"`, or `3000 * 0.01`)\n\n")
 
 	// 8. Custom Prompt
@@ -1835,7 +1817,7 @@ func formatFloatSlice(values []float64) string {
 // AI Response Parsing
 // ============================================================================
 
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, marketPrices map[string]float64, minRiskRewardRatio float64) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) (*FullDecision, error) {
 	cotTrace := extractCoTTrace(aiResponse)
 
 	decisions, err := extractDecisions(aiResponse)
@@ -1846,7 +1828,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
-	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, marketPrices, minRiskRewardRatio); err != nil {
+	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio); err != nil {
 		return &FullDecision{
 			CoTTrace:  cotTrace,
 			Decisions: decisions,
@@ -2038,16 +2020,16 @@ func compactArrayOpen(s string) string {
 // Decision Validation
 // ============================================================================
 
-func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, marketPrices map[string]float64, minRiskRewardRatio float64) error {
+func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) error {
 	for i := range decisions {
-		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, marketPrices, minRiskRewardRatio); err != nil {
+		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio); err != nil {
 			return fmt.Errorf("decision #%d validation failed: %w", i+1, err)
 		}
 	}
 	return nil
 }
 
-func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, marketPrices map[string]float64, minRiskRewardRatio float64) error {
+func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) error {
 	validActions := map[string]bool{
 		"open_long":   true,
 		"open_short":  true,
@@ -2104,62 +2086,16 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 				return fmt.Errorf("altcoin single coin position value cannot exceed %.0f USDT (%.1fx account equity), actual: %.0f", maxPositionValue, posRatio, d.PositionSizeUSD)
 			}
 		}
-		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
-			return fmt.Errorf("stop loss and take profit must be greater than 0")
+		if d.TrailingStopActivationPct < 0 {
+			return fmt.Errorf("trailing_stop_activation_pct cannot be negative")
 		}
-		if d.TrailingStopActivationPct < 0 || d.TrailingStopCallbackPct < 0 {
-			return fmt.Errorf("trailing stop percentages cannot be negative")
-		}
-		if d.TrailingStopActivationPct > 0 && d.TrailingStopCallbackPct <= 0 {
-			return fmt.Errorf("trailing_stop_callback_pct is required when trailing_stop_activation_pct is set")
-		}
-		if d.TrailingStopCallbackPct > 0 && (d.TrailingStopCallbackPct < 0.1 || d.TrailingStopCallbackPct > 5.0) {
+		if d.TrailingStopCallbackPct < 0.1 || d.TrailingStopCallbackPct > 5.0 {
 			return fmt.Errorf("trailing_stop_callback_pct must be between 0.1 and 5.0")
 		}
-
-		if d.Action == "open_long" {
-			if d.StopLoss >= d.TakeProfit {
-				return fmt.Errorf("for long positions, stop loss price must be less than take profit price")
-			}
-		} else {
-			if d.StopLoss <= d.TakeProfit {
-				return fmt.Errorf("for short positions, stop loss price must be greater than take profit price")
-			}
-		}
-
-		var entryPrice float64
-		if currentPrice, ok := marketPrices[d.Symbol]; ok && currentPrice > 0 {
-			entryPrice = currentPrice
-		} else if d.Action == "open_long" {
-			entryPrice = d.StopLoss + (d.TakeProfit-d.StopLoss)*0.2
-		} else {
-			entryPrice = d.StopLoss - (d.StopLoss-d.TakeProfit)*0.2
-		}
-
-		var riskPercent, rewardPercent, riskRewardRatio float64
-		if d.Action == "open_long" {
-			riskPercent = (entryPrice - d.StopLoss) / entryPrice * 100
-			rewardPercent = (d.TakeProfit - entryPrice) / entryPrice * 100
-			if riskPercent > 0 {
-				riskRewardRatio = rewardPercent / riskPercent
-			}
-		} else {
-			riskPercent = (d.StopLoss - entryPrice) / entryPrice * 100
-			rewardPercent = (entryPrice - d.TakeProfit) / entryPrice * 100
-			if riskPercent > 0 {
-				riskRewardRatio = rewardPercent / riskPercent
-			}
-		}
-
-		// The ratio is derived from decimal prices and can land a few ulps
-		// below an exact boundary (for example 3.000000 -> 2.9999999998).
-		// Keep a half-cent of the displayed two-decimal ratio as tolerance so a
-		// decision shown as 3.00:1 is not rejected due to binary float noise.
-		const riskRewardDisplayTolerance = 0.005
-		if riskRewardRatio+riskRewardDisplayTolerance < minRiskRewardRatio {
-			return fmt.Errorf("risk/reward ratio too low (%.4f:1), must be ≥%.1f:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
-				riskRewardRatio, minRiskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
-		}
+		// Fixed price fields are retained in Decision for API compatibility but
+		// are intentionally ignored for AI trades, which use native trailing stops.
+		d.StopLoss = 0
+		d.TakeProfit = 0
 	}
 
 	return nil

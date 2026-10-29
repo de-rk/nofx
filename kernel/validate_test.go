@@ -18,12 +18,11 @@ func TestLeverageFallback(t *testing.T) {
 		{
 			name: "Altcoin leverage exceeded - auto-correct to limit",
 			decision: Decision{
-				Symbol:          "SOLUSDT",
-				Action:          "open_long",
-				Leverage:        20, // Exceeds limit
-				PositionSizeUSD: 100,
-				StopLoss:        50,
-				TakeProfit:      200,
+				Symbol:                  "SOLUSDT",
+				Action:                  "open_long",
+				Leverage:                20, // Exceeds limit
+				PositionSizeUSD:         100,
+				TrailingStopCallbackPct: 1.0,
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10,
@@ -34,12 +33,11 @@ func TestLeverageFallback(t *testing.T) {
 		{
 			name: "BTC leverage exceeded - auto-correct to limit",
 			decision: Decision{
-				Symbol:          "BTCUSDT",
-				Action:          "open_long",
-				Leverage:        20, // Exceeds limit
-				PositionSizeUSD: 1000,
-				StopLoss:        90000,
-				TakeProfit:      110000,
+				Symbol:                  "BTCUSDT",
+				Action:                  "open_long",
+				Leverage:                20, // Exceeds limit
+				PositionSizeUSD:         1000,
+				TrailingStopCallbackPct: 1.0,
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10, // Limit 10x
@@ -50,12 +48,11 @@ func TestLeverageFallback(t *testing.T) {
 		{
 			name: "Leverage within limit - no correction",
 			decision: Decision{
-				Symbol:          "ETHUSDT",
-				Action:          "open_short",
-				Leverage:        5, // Not exceeded
-				PositionSizeUSD: 500,
-				StopLoss:        4000,
-				TakeProfit:      3000,
+				Symbol:                  "ETHUSDT",
+				Action:                  "open_short",
+				Leverage:                5, // Not exceeded
+				PositionSizeUSD:         500,
+				TrailingStopCallbackPct: 1.0,
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10,
@@ -66,12 +63,11 @@ func TestLeverageFallback(t *testing.T) {
 		{
 			name: "Leverage is 0 - should error",
 			decision: Decision{
-				Symbol:          "SOLUSDT",
-				Action:          "open_long",
-				Leverage:        0, // Invalid
-				PositionSizeUSD: 100,
-				StopLoss:        50,
-				TakeProfit:      200,
+				Symbol:                  "SOLUSDT",
+				Action:                  "open_long",
+				Leverage:                0, // Invalid
+				PositionSizeUSD:         100,
+				TrailingStopCallbackPct: 1.0,
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10,
@@ -84,7 +80,7 @@ func TestLeverageFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use default position value ratios for testing (10x for BTC/ETH, 1.5x for altcoins)
-			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, 10.0, 1.5, map[string]float64{}, 3.0)
+			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, 10.0, 1.5)
 
 			// Check error status
 			if (err != nil) != tt.wantError {
@@ -100,29 +96,29 @@ func TestLeverageFallback(t *testing.T) {
 	}
 }
 
-func TestRiskRewardBoundaryTolerance(t *testing.T) {
+func TestTrailingStopEntryDoesNotRequireRiskRewardRatio(t *testing.T) {
 	tests := []struct {
-		name       string
-		takeProfit float64
-		wantError  bool
+		name string
 	}{
-		{name: "exact boundary survives float noise", takeProfit: 2675.0, wantError: false},
-		{name: "clearly below boundary is rejected", takeProfit: 2674.0, wantError: true},
+		{name: "trailing-only position opens without fixed prices"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			decision := Decision{
-				Symbol:          "ETHUSDT",
-				Action:          "open_long",
-				Leverage:        3,
-				PositionSizeUSD: 100,
-				StopLoss:        2380,
-				TakeProfit:      tt.takeProfit,
+				Symbol:                    "ETHUSDT",
+				Action:                    "open_long",
+				Leverage:                  3,
+				PositionSizeUSD:           100,
+				TrailingStopActivationPct: 0,
+				TrailingStopCallbackPct:   1.5,
 			}
-			err := validateDecision(&decision, 1000, 10, 5, 10, 1.5, map[string]float64{"ETHUSDT": 2453.75}, 3.0)
-			if (err != nil) != tt.wantError {
-				t.Fatalf("validateDecision() error = %v, wantError %v", err, tt.wantError)
+			err := validateDecision(&decision, 1000, 10, 5, 10, 1.5)
+			if err != nil {
+				t.Fatalf("validateDecision() error = %v, want no error", err)
+			}
+			if decision.StopLoss != 0 || decision.TakeProfit != 0 {
+				t.Fatalf("fixed prices should be ignored, got stop loss %.2f and take profit %.2f", decision.StopLoss, decision.TakeProfit)
 			}
 		})
 	}

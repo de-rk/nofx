@@ -7,24 +7,27 @@ import (
 	"nofx/store"
 )
 
-func TestStrategyEngineSystemPromptIncludesOKXTrailingStop(t *testing.T) {
+func TestStrategyEngineSystemPromptRequiresTrailingStopOnly(t *testing.T) {
 	engine := NewStrategyEngine(&store.StrategyConfig{Language: "en"})
 	prompt := engine.BuildSystemPrompt(1000, "")
 
 	for _, expected := range []string{
-		"# OKX Native Trailing Stop",
+		"# Native Trailing Stop (Required for New Positions)",
 		"`trailing_stop_activation_pct`",
 		"`trailing_stop_callback_pct`",
-		"Must be 0.1-5.0",
+		"Required range: 0.1-5.0",
 		"For a long, activation is above entry; for a short, activation is below entry.",
-		"`stop_loss` and `take_profit` remain required numeric fallback fields.",
-		"Protection priority (mandatory):** use fixed stop_loss/take_profit only when the trailing stop is disabled, cannot be created, is rejected, or otherwise becomes invalid.",
+		"no fixed risk/reward ratio is required",
+		"Do not output fixed `stop_loss` or `take_profit` prices.",
 		"# Direction Selection: Long and Short Are Symmetric",
-		"When bearish trend, momentum, and entry timing meet the same quality, confidence, and risk/reward standards required for a long, use `open_short`.",
+		"When bearish trend, momentum, and entry timing meet the same quality and confidence standards as a long, use `open_short`.",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Errorf("system prompt should contain %q", expected)
 		}
+	}
+	if strings.Contains(prompt, "Risk-Reward Ratio:") {
+		t.Error("system prompt should not require a fixed risk/reward ratio")
 	}
 }
 

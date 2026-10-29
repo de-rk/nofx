@@ -257,7 +257,7 @@ type ExternalDataSource struct {
 
 // RiskControlConfig risk control configuration
 type RiskControlConfig struct {
-	// Enable native exchange trailing stop when AI supplies trailing parameters.
+	// Deprecated: retained for compatibility with existing strategy JSON. AI trades always require native trailing-stop protection.
 	EnableTrailingStop bool `json:"enable_trailing_stop"`
 	// Max number of coins held simultaneously (CODE ENFORCED)
 	MaxPositions int `json:"max_positions"`
@@ -277,7 +277,7 @@ type RiskControlConfig struct {
 	// Min position size in USDT (CODE ENFORCED)
 	MinPositionSize float64 `json:"min_position_size"`
 
-	// Min take_profit / stop_loss ratio (AI guided)
+	// Deprecated: retained for compatibility with existing strategy JSON; AI trade entries do not enforce a fixed risk/reward ratio.
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"`
 	// Min AI confidence to open position (AI guided)
 	MinConfidence int `json:"min_confidence"`
@@ -371,7 +371,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinVolumeRatio:    1.2,
 		},
 		RiskControl: RiskControlConfig{
-			EnableTrailingStop:           true, // Preserve existing AI trailing-stop behavior
+			EnableTrailingStop:           true, // Legacy field; native trailing stops are always required for AI entries
 			MaxPositions:                 3,    // Max 3 coins simultaneously (CODE ENFORCED)
 			BTCETHMaxLeverage:            5,    // BTC/ETH exchange leverage (AI guided)
 			AltcoinMaxLeverage:           5,    // Altcoin exchange leverage (AI guided)
@@ -379,7 +379,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			AltcoinMaxPositionValueRatio: 1.0,  // Altcoin: max position = 1x equity (CODE ENFORCED)
 			MaxMarginUsage:               0.9,  // Max 90% margin usage (CODE ENFORCED)
 			MinPositionSize:              12,   // Min 12 USDT per position (CODE ENFORCED)
-			MinRiskRewardRatio:           3.0,  // Min 3:1 profit/loss ratio (AI guided)
+			MinRiskRewardRatio:           3.0,  // Legacy field; fixed risk/reward ratio is not enforced for AI entries
 			MinConfidence:                75,   // Min 75% confidence (AI guided)
 		},
 	}

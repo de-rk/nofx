@@ -475,7 +475,7 @@ export interface TrendGateConfig {
 }
 
 export interface RiskControlConfig {
-  // Allow AI to configure a native exchange trailing stop when supported
+  // Deprecated compatibility field; AI entries always require native trailing stops.
   enable_trailing_stop?: boolean;
   // Max number of coins held simultaneously (CODE ENFORCED)
   max_positions: number;
@@ -492,7 +492,7 @@ export interface RiskControlConfig {
   // Risk Parameters
   max_margin_usage: number;        // Max margin utilization, e.g. 0.9 = 90% (CODE ENFORCED)
   min_position_size: number;       // Min position size in USDT (CODE ENFORCED)
-  min_risk_reward_ratio: number;   // Min take_profit / stop_loss ratio (AI guided)
+  min_risk_reward_ratio?: number;  // Deprecated compatibility field; not enforced for AI entries.
   min_confidence: number;          // Min AI confidence to open position (AI guided)
 
   // Profit Drawdown Protection
