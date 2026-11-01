@@ -230,6 +230,15 @@ type OIDeltaData struct {
 type StrategyEngine struct {
 	config       *store.StrategyConfig
 	nofxosClient *nofxos.Client
+	// exchange is the venue the prompt is being built for. It drives the
+	// exchange-specific parts of the system prompt (position mode, order
+	// semantics) so a Hyperliquid account is not told how OKX behaves.
+	exchange string
+}
+
+// SetExchange records the execution venue used by the next prompt build.
+func (e *StrategyEngine) SetExchange(exchange string) {
+	e.exchange = strings.ToLower(strings.TrimSpace(exchange))
 }
 
 // UpdateConfig replaces the strategy configuration used by future cycles.
@@ -330,6 +339,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	// 2. Build System Prompt using strategy engine
 	riskConfig := engine.GetRiskControlConfig()
+	engine.SetExchange(ctx.Exchange)
 	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant)
 
 	// 3. Build User Prompt using strategy engine
@@ -1086,6 +1096,31 @@ func (e *StrategyEngine) FetchPriceRankingData() *nofxos.PriceRankingData {
 // Prompt Building - System Prompt
 // ============================================================================
 
+// writePositionModeSection documents how the execution venue models positions.
+// OKX runs dual-side (hedge) mode while Hyperliquid is one-way net, so telling
+// every model about posSide produces orders the venue cannot express.
+func (e *StrategyEngine) writePositionModeSection(sb *strings.Builder) {
+	switch e.exchange {
+	case "okx":
+		sb.WriteString("## OKX Contract Position Mode (Mandatory)\n")
+		sb.WriteString("- OKX perpetual orders use dual-side (hedge) position mode: `long_short_mode`.\n")
+		sb.WriteString("- Use `action: open_long` to open a long and `action: open_short` to open a short; the backend sends `posSide: long` or `posSide: short` respectively.\n")
+		sb.WriteString("- Close and protection orders use the matching position side: long for long positions, short for short positions.\n")
+		sb.WriteString("- Never use `posSide: net`; do not output a `posSide` field yourself because the backend derives it from `action`.\n")
+		sb.WriteString("- If the OKX account cannot be switched to dual-side mode (for example, because existing positions or orders block the switch), the order is rejected and is not downgraded to one-way mode.\n\n")
+	case "hyperliquid":
+		sb.WriteString("## Hyperliquid Position Mode (Mandatory)\n")
+		sb.WriteString("- Hyperliquid perpetuals are one-way net positions: a coin has a single signed size, positive for long and negative for short.\n")
+		sb.WriteString("- Use `action: open_long` to go long and `action: open_short` to go short; flipping direction closes or reduces the existing side first.\n")
+		sb.WriteString("- There is no `posSide` concept on Hyperliquid. Never output a `posSide` field; the backend derives everything from `action`.\n")
+		sb.WriteString("- Protection is a single native trailing stop attached to the net position, submitted as a reduce-only order.\n\n")
+	default:
+		sb.WriteString("## Position Mode\n")
+		sb.WriteString("- Use `action: open_long` to open a long and `action: open_short` to open a short.\n")
+		sb.WriteString("- Do not output a `posSide` field yourself; the backend maps the action to the position mode configured on the exchange.\n\n")
+	}
+}
+
 // BuildSystemPrompt builds System Prompt according to strategy configuration
 func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string) string {
 	var sb strings.Builder
@@ -1138,12 +1173,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
 	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
 
-	sb.WriteString("## OKX Contract Position Mode (Mandatory)\n")
-	sb.WriteString("- OKX perpetual orders use dual-side (hedge) position mode: `long_short_mode`.\n")
-	sb.WriteString("- Use `action: open_long` to open a long and `action: open_short` to open a short; the backend sends `posSide: long` or `posSide: short` respectively.\n")
-	sb.WriteString("- Close and protection orders use the matching position side: long for long positions, short for short positions.\n")
-	sb.WriteString("- Never use `posSide: net`; do not output a `posSide` field yourself because the backend derives it from `action`.\n")
-	sb.WriteString("- If the OKX account cannot be switched to dual-side mode (for example, because existing positions or orders block the switch), the order is rejected and is not downgraded to one-way mode.\n\n")
+	e.writePositionModeSection(&sb)
 
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",

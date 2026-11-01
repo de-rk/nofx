@@ -686,8 +686,9 @@ export function AdvancedChart({
     loadDataRef.current = loadData
     loadData(false) // 首次加载
 
-    // 实时自动刷新：OKX 使用 WebSocket 推送，其他交易所每 15 秒轮询
-    const refreshInterval = exchange !== 'okx'
+    // 实时自动刷新：OKX / Hyperliquid 使用 WebSocket 推送，其他交易所每 15 秒轮询
+    const usesWS = exchange === 'okx' || exchange === 'hyperliquid'
+    const refreshInterval = !usesWS
       ? setInterval(() => loadData(true), 15000)
       : null
     return () => { if (refreshInterval) clearInterval(refreshInterval) }
@@ -846,6 +847,129 @@ export function AdvancedChart({
     }
   }, [exchange, symbol, interval, chartReady])
 
+  // Hyperliquid WebSocket — real-time candle + mid updates via public channel (no auth required)
+  useEffect(() => {
+    if (exchange !== 'hyperliquid' || !chartReady) return
+
+    // Hyperliquid identifies markets by bare coin ("BTC", "HYPE"), not by pair.
+    const toCoin = (sym: string) =>
+      sym.replace(/^xyz:/i, '').replace(/(-?USDT|USD|-USDC)$/i, '')
+    const coin = toCoin(symbol)
+
+    let destroyed = false
+    let ws: WebSocket | null = null
+    let pingTimer: ReturnType<typeof setInterval>
+    let reconnectTimer: ReturnType<typeof setTimeout>
+    let backoff = 1000
+    let failCount = 0
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null
+
+    const startFallback = () => {
+      if (!fallbackInterval) {
+        fallbackInterval = setInterval(() => loadDataRef.current?.(true), 15000)
+      }
+    }
+    const stopFallback = () => {
+      if (fallbackInterval) { clearInterval(fallbackInterval); fallbackInterval = null }
+    }
+
+    const connect = () => {
+      if (destroyed) return
+      ws = new WebSocket('wss://api.hyperliquid.xyz/ws')
+
+      ws.onopen = () => {
+        backoff = 1000
+        failCount = 0
+        stopFallback()
+        ws!.send(JSON.stringify({
+          method: 'subscribe',
+          subscription: { type: 'candle', coin, interval },
+        }))
+        // allMids supplies the live price between candle updates
+        ws!.send(JSON.stringify({
+          method: 'subscribe',
+          subscription: { type: 'allMids' },
+        }))
+        // Hyperliquid drops idle connections, so ping periodically.
+        pingTimer = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ method: 'ping' }))
+          }
+        }, 30000)
+      }
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data)
+          if (msg.channel === 'pong') return
+
+          // allMids: real-time price — update marketStats AND chart price line
+          if (msg.channel === 'allMids') {
+            const price = +(msg.data?.mids?.[coin])
+            if (!price) return
+            setMarketStats(prev => prev ? { ...prev, price } : null)
+            onPriceUpdate?.(symbol, price)
+            if (lastCandleTimeRef.current > 0 && currentCandleRef.current && candlestickSeriesRef.current) {
+              const c = currentCandleRef.current
+              const updatedCandle = {
+                time: lastCandleTimeRef.current as UTCTimestamp,
+                open: c.open,
+                high: Math.max(c.high, price),
+                low: Math.min(c.low, price),
+                close: price,
+              }
+              candlestickSeriesRef.current.update(updatedCandle)
+              currentCandleRef.current = { open: c.open, high: updatedCandle.high, low: updatedCandle.low, close: price }
+            }
+            return
+          }
+
+          // candle channel: full OHLCV update
+          if (msg.channel !== 'candle') return
+          const row = msg.data
+          if (!row || row.s !== coin) return
+          const ts = Math.floor(Number(row.t) / 1000) as UTCTimestamp
+          const candle = { time: ts, open: +row.o, high: +row.h, low: +row.l, close: +row.c }
+          const vol = +row.v
+          candlestickSeriesRef.current?.update(candle)
+          volumeSeriesRef.current?.update({ time: ts, value: vol })
+          if (ts > lastCandleTimeRef.current) lastCandleTimeRef.current = ts
+          currentCandleRef.current = { open: candle.open, high: candle.high, low: candle.low, close: candle.close }
+          setMarketStats(prev => prev ? {
+            ...prev,
+            price: candle.close,
+            high: Math.max(prev.high, candle.high),
+            low: Math.min(prev.low, candle.low),
+            volume: vol,
+          } : null)
+        } catch { /* ignore malformed messages */ }
+      }
+
+      ws.onclose = () => {
+        clearInterval(pingTimer)
+        if (!destroyed) {
+          failCount++
+          if (failCount >= 3) startFallback() // 连续失败 3 次后降级轮询
+          reconnectTimer = setTimeout(() => {
+            backoff = Math.min(backoff * 2, 30000)
+            connect()
+          }, backoff)
+        }
+      }
+      ws.onerror = () => ws?.close()
+    }
+
+    connect()
+
+    return () => {
+      destroyed = true
+      clearInterval(pingTimer)
+      clearTimeout(reconnectTimer)
+      stopFallback()
+      ws?.close()
+    }
+  }, [exchange, symbol, interval, chartReady])
+
   // 单独刷新挂单价格线 (60秒刷新一次，避免频繁调用交易所API)
   useEffect(() => {
     if (!traderID || !candlestickSeriesRef.current) return
@@ -984,9 +1108,10 @@ export function AdvancedChart({
     }
   }, [symbol, traderID])
 
-  // SSE: subscribe to order events for OKX traders — triggers order marker + price line refresh
+  // SSE: subscribe to order events for venues with live feeds (OKX, Hyperliquid)
+  // — triggers order marker + price line refresh
   useEffect(() => {
-    if (!traderID || exchange !== 'okx') return
+    if (!traderID || (exchange !== 'okx' && exchange !== 'hyperliquid')) return
 
     let aborted = false
     const ctrl = new AbortController()

@@ -190,7 +190,9 @@ func (at *AutoTrader) InitializeGrid() error {
 	// Calculate grid bounds
 	if gridConfig.UseATRBounds {
 		// Get ATR for bound calculation
-		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
+		// Pass the execution exchange through: the grid trades on this venue, so
+		// its AI context must be built from that venue's own candles.
+		mktData, err := market.GetWithTimeframesAndExchange(gridConfig.Symbol, []string{"4h"}, "4h", 20, at.exchange)
 		if err != nil {
 			logger.Warnf("Failed to get market data for ATR: %v, using default bounds", err)
 			at.calculateDefaultBounds(price, gridConfig)
@@ -463,9 +465,9 @@ func (at *AutoTrader) InitializeGrid() error {
 	}
 	if starter, ok := at.trader.(wsStarter); ok {
 		if err := starter.StartWS(gridConfig.Symbol, triggerTf); err != nil {
-			logger.Warnf("[Grid] OKX WS start failed (falling back to REST): %v", err)
+			logger.Warnf("[Grid] %s WS start failed (falling back to REST): %v", at.exchange, err)
 		} else {
-			logger.Infof("[Grid] OKX WS started for %s", gridConfig.Symbol)
+			logger.Infof("[Grid] %s WS started for %s", at.exchange, gridConfig.Symbol)
 
 			// Wire WS push events to the appropriate channels
 			if setter, ok := at.trader.(wsCallbackSetter); ok {
@@ -1308,7 +1310,7 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		}
 	}
 	if mktData == nil {
-		mktData, err = market.GetWithTimeframes(gridConfig.Symbol, []string{primaryTf, "4h"}, primaryTf, 50)
+		mktData, err = market.GetWithTimeframesAndExchange(gridConfig.Symbol, []string{primaryTf, "4h"}, primaryTf, 50, at.exchange)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get market data: %w", err)
@@ -2287,7 +2289,7 @@ func (at *AutoTrader) adjustGrid(d *kernel.Decision) error {
 	at.gridState.mu.Lock()
 	defer at.gridState.mu.Unlock()
 	if gridConfig.UseATRBounds {
-		mktData, err := market.GetWithTimeframes(gridConfig.Symbol, []string{"4h"}, "4h", 20)
+		mktData, err := market.GetWithTimeframesAndExchange(gridConfig.Symbol, []string{"4h"}, "4h", 20, at.exchange)
 		if err != nil {
 			logger.Warnf("[Grid] Failed to get ATR for adjust_grid, using default bounds: %v", err)
 			at.calculateDefaultBoundsLocked(price, gridConfig)

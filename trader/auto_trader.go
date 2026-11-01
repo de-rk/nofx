@@ -239,6 +239,13 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	var trader Trader
 	var err error
 
+	// trailingStopProber is implemented by traders that can verify native
+	// trailing stop support up front. The probe costs a real order, so it is
+	// opt-in and only runs on traders that will actually place AI orders.
+	type trailingStopProber interface {
+		ProbeTrailingStopSupportIfEnabled() bool
+	}
+
 	// Record position mode (general)
 	marginModeStr := "Cross Margin"
 	if !config.IsCrossMargin {
@@ -270,6 +277,12 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		trader, err = hyperliquid.NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet, config.HyperliquidUnifiedAcct)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Hyperliquid trader: %w", err)
+		}
+		// Capability probe submits a real order, so it belongs only on the
+		// trader that will actually trade — never on the throwaway traders the
+		// API builds merely to read a balance.
+		if prober, ok := trader.(trailingStopProber); ok {
+			prober.ProbeTrailingStopSupportIfEnabled()
 		}
 	case "aster":
 		logger.Infof("🏦 [%s] Using Aster trading", config.Name)
@@ -527,7 +540,7 @@ func (at *AutoTrader) Run() error {
 						}
 					}
 				case positions := <-at.wsPosUpdateCh:
-					// WS position push (event + OKX 2s periodic) — run profit-reduce and drawdown checks
+					// WS position push (event + venue periodic refresh) — run profit-reduce and drawdown checks
 					if at.gridState == nil || !at.gridState.IsInitialized {
 						continue
 					}

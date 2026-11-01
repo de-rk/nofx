@@ -148,9 +148,37 @@ func NewHyperliquidTestSuite(t *testing.T) *HyperliquidTestSuite {
 				"ETH": "3000.00",
 			}
 
-		// Mock OpenOrders - Get open orders list
-		case "openOrders":
-			respBody = []interface{}{}
+	// Mock OpenOrders - Get open orders list
+	case "openOrders":
+		respBody = []interface{}{}
+
+	// Mock FrontendOpenOrders - the only source that exposes trigger metadata,
+	// used to tell protective orders apart from resting grid legs.
+	// Mark price is mocked at 50000, so:
+	//   - "Stop Market"   @ 45000 sell -> stop loss
+	//   - "Take Profit Market" @ 55000 sell -> take profit
+	//   - "Limit" @ 49000, not a trigger -> grid leg, must never be cancelled
+	case "frontendOpenOrders":
+		respBody = []interface{}{
+			map[string]interface{}{
+				"coin": "BTC", "isPositionTpsl": false, "isTrigger": true,
+				"limitPx": "45000.00", "oid": 1001, "orderType": "Stop Market",
+				"origSz": "0.5", "reduceOnly": true, "side": "A", "sz": "0.5",
+				"timestamp": 1700000000000, "triggerCondition": "tp", "triggerPx": "45000.00",
+			},
+			map[string]interface{}{
+				"coin": "BTC", "isPositionTpsl": false, "isTrigger": true,
+				"limitPx": "55000.00", "oid": 1002, "orderType": "Take Profit Market",
+				"origSz": "0.5", "reduceOnly": true, "side": "A", "sz": "0.5",
+				"timestamp": 1700000000001, "triggerCondition": "tp", "triggerPx": "55000.00",
+			},
+			map[string]interface{}{
+				"coin": "BTC", "isPositionTpsl": false, "isTrigger": false,
+				"limitPx": "49000.00", "oid": 1003, "orderType": "Limit",
+				"origSz": "0.1", "reduceOnly": false, "side": "B", "sz": "0.1",
+				"timestamp": 1700000000002, "triggerCondition": "", "triggerPx": "0.0",
+			},
+		}
 
 		// Mock Order - Create order (open, close, stop-loss, take-profit)
 		case "order":

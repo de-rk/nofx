@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"nofx/logger"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +35,33 @@ type HyperliquidTrader struct {
 	xyzMetaMutex sync.RWMutex
 	privateKey   *ecdsa.PrivateKey // For xyz dex signing
 	isTestnet    bool
+
+	// nonceMu/lastNonce coordinate manually signed L1 actions (native trailing
+	// stops) with the nonce sequence the SDK keeps internally. Without this the
+	// manual action can reuse a nonce the SDK just spent and get rejected.
+	nonceMu   sync.Mutex
+	lastNonce int64
+
+	// ws is the live Hyperliquid feed (candles / positions / orders / mids).
+	// Nil until StartWS succeeds.
+	ws   *hlWS
+	wsMu sync.Mutex
+
+	// trailingProbe caches the result of the optional native trailing-stop
+	// capability probe. Nil means "never probed", which is NOT the same as
+	// "unsupported" — SetTrailingStop must still try in that case.
+	trailingProbe     *trailingProbeResult
+	trailingProbeOnce sync.Once
+}
+
+// trailingProbeResult is the outcome of a trailing-stop capability probe.
+type trailingProbeResult struct {
+	Supported bool
+	// Inconclusive means the probe could not run at all (e.g. no open
+	// position to anchor a reduce-only order). That is NOT evidence of the
+	// exchange lacking support, so SetTrailingStop must still attempt it.
+	Inconclusive bool
+	Detail       string
 }
 
 // xyzDexMeta represents metadata for xyz dex assets
@@ -181,7 +210,7 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool,
 		logger.Infof("✓ Unified Account mode enabled: Spot USDC will be used as collateral for Perp trading")
 	}
 
-	return &HyperliquidTrader{
+	trader := &HyperliquidTrader{
 		exchange:         exchange,
 		ctx:              ctx,
 		walletAddr:       walletAddr,
@@ -190,7 +219,9 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool,
 		isUnifiedAccount: unifiedAccount, // Unified Account: Spot as Perp collateral
 		privateKey:       privateKey,
 		isTestnet:        testnet,
-	}, nil
+	}
+
+	return trader, nil
 }
 
 // GetBalance gets account balance
@@ -1032,20 +1063,117 @@ func (t *HyperliquidTrader) CloseShort(symbol string, quantity float64) (map[str
 	return result, nil
 }
 
-// CancelStopLossOrders only cancels stop loss orders (Hyperliquid cannot distinguish stop loss and take profit, cancel all)
-func (t *HyperliquidTrader) CancelStopLossOrders(symbol string) error {
-	// Hyperliquid SDK's OpenOrder structure does not expose trigger field
-	// Cannot distinguish stop loss and take profit orders, so cancel all pending orders for this coin
-	logger.Infof("  ⚠️ Hyperliquid cannot distinguish stop loss/take profit orders, will cancel all pending orders")
-	return t.CancelStopOrders(symbol)
+// protectionOrderKind reports what kind of protective order a pending order is:
+// "tp" (take profit), "sl" (stop loss, including native trailing stops), or ""
+// when the order is not protective at all (e.g. a resting grid limit order).
+//
+// The plain OpenOrder payload has no trigger metadata, so this reads the richer
+// frontendOpenOrders view. Labels vary between API revisions, so the order type
+// string is only the first signal; when it is unrecognised the trigger price is
+// compared against the mark price instead.
+func protectionOrderKind(o hyperliquid.FrontendOpenOrder, markPrice float64) string {
+	// Grid legs and other resting orders are never triggers.
+	if !o.IsTrigger || !o.ReduceOnly {
+		return ""
+	}
+
+	label := strings.ToLower(o.OrderType)
+	switch {
+	case strings.Contains(label, "take profit"),
+		strings.Contains(label, "take market"),
+		strings.Contains(label, "take limit"):
+		return "tp"
+	case strings.Contains(label, "trailing"), strings.Contains(label, "stop"):
+		return "sl"
+	}
+
+	if markPrice <= 0 || o.TriggerPx <= 0 {
+		// Unclassifiable: treat as protection so it can never survive a reset.
+		return "sl"
+	}
+
+	// Side "A" is a sell (closing a long), "B" is a buy (closing a short).
+	if o.Side == hyperliquid.OrderSideAsk {
+		if o.TriggerPx < markPrice {
+			return "sl"
+		}
+		return "tp"
+	}
+	if o.TriggerPx > markPrice {
+		return "sl"
+	}
+	return "tp"
 }
 
-// CancelTakeProfitOrders only cancels take profit orders (Hyperliquid cannot distinguish stop loss and take profit, cancel all)
+// cancelProtectionOrders cancels pending protective orders for a coin.
+// kind selects which ones: "tp", "sl", or "" for any protective order.
+// Resting grid limit orders are deliberately left untouched — cancelling them
+// would tear down the grid while only the protection should be replaced.
+func (t *HyperliquidTrader) cancelProtectionOrders(symbol, kind string) error {
+	coin := convertSymbolToHyperliquid(symbol)
+
+	// The xyz dex does not expose frontend order metadata, so classification is
+	// impossible there; keep the previous bulk behaviour.
+	if strings.HasPrefix(coin, "xyz:") {
+		return t.cancelXyzOrders(coin)
+	}
+
+	orders, err := t.exchange.Info().FrontendOpenOrders(t.ctx, t.walletAddr)
+	if err != nil {
+		return fmt.Errorf("failed to get open orders: %w", err)
+	}
+
+	markPrice := 0.0
+	if price, err := t.GetMarketPrice(symbol); err == nil {
+		markPrice = price
+	} else {
+		logger.Infof("  ⚠ Could not read mark price for %s, classifying protection orders by label only: %v", symbol, err)
+	}
+
+	canceled := 0
+	for _, order := range orders {
+		if order.Coin != coin {
+			continue
+		}
+		orderKind := protectionOrderKind(order, markPrice)
+		if orderKind == "" {
+			continue
+		}
+		if kind != "" && orderKind != kind {
+			continue
+		}
+		if _, err := t.exchange.Cancel(t.ctx, coin, order.Oid); err != nil {
+			logger.Infof("  ⚠ Failed to cancel %s order (oid=%d): %v", orderKind, order.Oid, err)
+			continue
+		}
+		canceled++
+	}
+
+	if canceled == 0 {
+		logger.Infof("  ℹ No pending %s orders to cancel for %s", kindLabel(kind), symbol)
+	} else {
+		logger.Infof("  ✓ Cancelled %d %s order(s) for %s", canceled, kindLabel(kind), symbol)
+	}
+	return nil
+}
+
+func kindLabel(kind string) string {
+	if kind == "" {
+		return "protection"
+	}
+	return kind
+}
+
+// CancelStopLossOrders cancels only stop-loss orders (including native trailing
+// stops). Take-profit orders and resting grid limit orders are preserved.
+func (t *HyperliquidTrader) CancelStopLossOrders(symbol string) error {
+	return t.cancelProtectionOrders(symbol, "sl")
+}
+
+// CancelTakeProfitOrders cancels only take-profit orders. Stop-loss orders and
+// resting grid limit orders are preserved.
 func (t *HyperliquidTrader) CancelTakeProfitOrders(symbol string) error {
-	// Hyperliquid SDK's OpenOrder structure does not expose trigger field
-	// Cannot distinguish stop loss and take profit orders, so cancel all pending orders for this coin
-	logger.Infof("  ⚠️ Hyperliquid cannot distinguish stop loss/take profit orders, will cancel all pending orders")
-	return t.CancelStopOrders(symbol)
+	return t.cancelProtectionOrders(symbol, "tp")
 }
 
 // CancelAllOrders cancels all pending orders for this coin
@@ -1080,46 +1208,10 @@ func (t *HyperliquidTrader) CancelAllOrders(symbol string) error {
 	return nil
 }
 
-// CancelStopOrders cancels take profit/stop loss orders for this coin (used to adjust TP/SL positions)
+// CancelStopOrders cancels all protective orders (take profit, stop loss and
+// native trailing stops) for this coin. Resting grid limit orders are preserved.
 func (t *HyperliquidTrader) CancelStopOrders(symbol string) error {
-	coin := convertSymbolToHyperliquid(symbol)
-
-	// Check if this is an xyz dex asset
-	isXyz := strings.HasPrefix(coin, "xyz:")
-
-	if isXyz {
-		// xyz dex orders - use direct API call
-		return t.cancelXyzOrders(coin)
-	}
-
-	// Get all pending orders for standard crypto
-	openOrders, err := t.exchange.Info().OpenOrders(t.ctx, t.walletAddr)
-	if err != nil {
-		return fmt.Errorf("failed to get pending orders: %w", err)
-	}
-
-	// Note: Hyperliquid SDK's OpenOrder structure does not expose trigger field
-	// Therefore temporarily cancel all pending orders for this coin (including TP/SL orders)
-	// This is safe because all old orders should be cleaned up before setting new TP/SL
-	canceledCount := 0
-	for _, order := range openOrders {
-		if order.Coin == coin {
-			_, err := t.exchange.Cancel(t.ctx, coin, order.Oid)
-			if err != nil {
-				logger.Infof("  ⚠ Failed to cancel order (oid=%d): %v", order.Oid, err)
-				continue
-			}
-			canceledCount++
-		}
-	}
-
-	if canceledCount == 0 {
-		logger.Infof("  ℹ No pending orders to cancel for %s", symbol)
-	} else {
-		logger.Infof("  ✓ Cancelled %d pending orders for %s (including TP/SL orders)", canceledCount, symbol)
-	}
-
-	return nil
+	return t.cancelProtectionOrders(symbol, "")
 }
 
 // cancelXyzOrders cancels all pending orders for xyz dex assets (stocks, forex, commodities)
@@ -1271,6 +1363,12 @@ func (t *HyperliquidTrader) GetMarketPrice(symbol string) (float64, error) {
 	// Check if this is an xyz dex asset
 	if strings.HasPrefix(coin, "xyz:") {
 		return t.getXyzMarketPrice(coin)
+	}
+
+	// Prefer the websocket cache: grid cycles ask for prices constantly and a
+	// REST round trip per call burns the address rate limit.
+	if price, ok := t.wsCachedPrice(symbol); ok {
+		return price, nil
 	}
 
 	// Get all market prices for crypto
@@ -1800,6 +1898,380 @@ func (t *HyperliquidTrader) SetTakeProfit(symbol string, positionSide string, qu
 	return nil
 }
 
+// xyzPerpDexIndexBase is the L1 asset index base of the xyz (HIP-3) perp dex:
+// 100000 + perp_dex_index(1) * 10000.
+const xyzPerpDexIndexBase = 110000
+
+// trailingStopRetracementWire is the retracement spec of a native trailing stop.
+// Exactly one of Pct / Px is populated, matching the Hyperliquid API contract.
+type trailingStopRetracementWire struct {
+	Pct *string `msgpack:"pct,omitempty" json:"pct,omitempty"`
+	Px  *string `msgpack:"px,omitempty"  json:"px,omitempty"`
+}
+
+// trailingStopActionWire is the raw L1 action for POST /exchange.
+// Field order is significant: L1 action hashing serialises msgpack in
+// declaration order, so this must mirror the documented schema exactly:
+//
+//	{"type":"trailingStop","asset":Number,"isBuy":Boolean,"sz":String,
+//	 "reduceOnly":Boolean,"retracement":{"pct":"1.234%"}|{"px":String},
+//	 "activationPx":String|null}
+//
+// ActivationPx deliberately carries no `omitempty`: the documented type is
+// "String | null", where null means "activate immediately". Always emitting the
+// key keeps the wire form closest to the schema — a strict deserialiser that
+// lacks a default would reject a missing field, whereas null is explicitly
+// allowed. Verified in TestTrailingStopActionMsgpackShape.
+type trailingStopActionWire struct {
+	Type         string                      `msgpack:"type" json:"type"`
+	Asset        int                         `msgpack:"asset" json:"asset"`
+	IsBuy        bool                        `msgpack:"isBuy" json:"isBuy"`
+	Sz           string                      `msgpack:"sz" json:"sz"`
+	ReduceOnly   bool                        `msgpack:"reduceOnly" json:"reduceOnly"`
+	Retracement  trailingStopRetracementWire `msgpack:"retracement" json:"retracement"`
+	ActivationPx *string                     `msgpack:"activationPx" json:"activationPx"`
+}
+
+// assetIndexForCoin resolves the L1 asset index of a coin for both the main
+// perp dex and the xyz (HIP-3 builder-deployed) dex.
+func (t *HyperliquidTrader) assetIndexForCoin(coin string) (int, error) {
+	if strings.HasPrefix(coin, "xyz:") {
+		t.xyzMetaMutex.RLock()
+		hasMeta := t.xyzMeta != nil
+		t.xyzMetaMutex.RUnlock()
+
+		if !hasMeta {
+			if err := t.fetchXyzMeta(); err != nil {
+				return 0, fmt.Errorf("failed to fetch xyz meta: %w", err)
+			}
+		}
+
+		metaIndex := t.getXyzAssetIndex(coin)
+		if metaIndex < 0 {
+			return 0, fmt.Errorf("xyz asset %s not found in meta", coin)
+		}
+		return xyzPerpDexIndexBase + metaIndex, nil
+	}
+
+	t.metaMutex.RLock()
+	defer t.metaMutex.RUnlock()
+
+	if t.meta == nil {
+		return 0, fmt.Errorf("hyperliquid meta is not initialised")
+	}
+	for i, asset := range t.meta.Universe {
+		if asset.Name == coin {
+			return i, nil
+		}
+	}
+	return 0, fmt.Errorf("asset %s not found in hyperliquid meta (is it listed on perps?)", coin)
+}
+
+// reserveNonce returns a nonce for a manually signed L1 action.
+//
+// The SDK draws nonces from time.Now().UnixMilli() and only increments on
+// collision, so a manually signed action can otherwise be handed a nonce the
+// SDK is about to spend (trailing stops are submitted right after an entry
+// order). Advancing the SDK's own counter past ours keeps the two sequences
+// disjoint: subsequent SDK actions can only take strictly larger values.
+// Nonces stay valid within (T - 2 days, T + 1 day).
+func (t *HyperliquidTrader) reserveNonce() int64 {
+	t.nonceMu.Lock()
+	defer t.nonceMu.Unlock()
+
+	nonce := time.Now().UnixMilli()
+	if nonce <= t.lastNonce {
+		nonce = t.lastNonce + 1
+	}
+	t.lastNonce = nonce
+
+	if t.exchange != nil {
+		t.exchange.SetLastNonce(nonce)
+	}
+	return nonce
+}
+
+// SetTrailingStop places a native Hyperliquid trailing stop.
+//
+// Hyperliquid shipped native trailing stops for perp markets on 2026-09-21. They
+// are a standalone `trailingStop` action rather than an order type variant, and
+// the Go SDK does not wrap it, so the action is signed and posted directly.
+//
+// Semantics: the trigger follows the best mark price seen since activation
+// (highest for a closing long, lowest for a closing short) and never moves
+// backwards. Firing produces a market order. Because it lives on the exchange,
+// protection survives a process restart — unlike a software-simulated trail.
+func (t *HyperliquidTrader) SetTrailingStop(symbol string, positionSide string, quantity, activationPrice, callbackPct float64) error {
+	if callbackPct <= 0 {
+		return fmt.Errorf("hyperliquid trailing stop requires a positive callback pct, got %.4f", callbackPct)
+	}
+
+	// Only short-circuit on a probe that actually ran and failed. Inconclusive
+	// (usually "no position to anchor the probe") must still attempt the order.
+	if probe := t.trailingProbe; probe != nil && !probe.Supported && !probe.Inconclusive {
+		return fmt.Errorf("hyperliquid native trailing stop unavailable (startup probe failed): %s", probe.Detail)
+	}
+
+	coin := convertSymbolToHyperliquid(symbol)
+
+	assetIndex, err := t.assetIndexForCoin(coin)
+	if err != nil {
+		return err
+	}
+
+	// Closing a long is a sell; closing a short is a buy.
+	isBuy := positionSide == "SHORT"
+
+	roundedQuantity := t.roundToSzDecimals(coin, quantity)
+	if roundedQuantity <= 0 {
+		return fmt.Errorf("trailing stop quantity for %s rounds to zero (raw=%.8f)", symbol, quantity)
+	}
+
+	// Retracement is a percent string, e.g. "1.500%".
+	pct := fmt.Sprintf("%.3f%%", callbackPct)
+	action := trailingStopActionWire{
+		Type:        "trailingStop",
+		Asset:       assetIndex,
+		IsBuy:       isBuy,
+		Sz:          floatToWireStr(roundedQuantity),
+		ReduceOnly:  true,
+		Retracement: trailingStopRetracementWire{Pct: &pct},
+	}
+	if activationPrice > 0 {
+		px := floatToWireStr(t.roundPriceToSigfigs(activationPrice))
+		action.ActivationPx = &px
+	}
+
+	logger.Infof("📝 [Hyperliquid] native trailing stop: %s %s qty=%.8f callback=%.3f%% activation=%s (asset=%d)",
+		coin, map[bool]string{true: "BUY", false: "SELL"}[isBuy], roundedQuantity, callbackPct,
+		map[bool]string{true: fmt.Sprintf("%.5f", activationPrice), false: "none"}[activationPrice > 0], assetIndex)
+
+	oid, rawBody, err := t.postTrailingStopAction(action)
+	if err != nil {
+		return fmt.Errorf("trailing stop rejected: %w (body=%s)", err, rawBody)
+	}
+
+	logger.Infof("✓ [Hyperliquid] native trailing stop active for %s (oid=%d)", symbol, oid)
+	return nil
+}
+
+// postTrailingStopAction signs and posts a trailingStop action to /exchange.
+// It returns the new order id on success, or an error plus the raw response
+// body so callers can tell "action understood but rejected" (e.g. reduce-only
+// with no position) apart from "action not recognised at all".
+func (t *HyperliquidTrader) postTrailingStopAction(action trailingStopActionWire) (oid int64, rawBody string, err error) {
+	apiURL := hyperliquid.MainnetAPIURL
+	if t.isTestnet {
+		apiURL = hyperliquid.TestnetAPIURL
+	}
+
+	nonce := t.reserveNonce()
+	sig, err := hyperliquid.SignL1Action(t.privateKey, action, "", nonce, nil, !t.isTestnet)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to sign trailing stop action: %w", err)
+	}
+
+	payload := map[string]any{
+		"action":    action,
+		"nonce":     nonce,
+		"signature": sig,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to marshal trailing stop payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, apiURL+"/exchange", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to create trailing stop request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", fmt.Errorf("trailing stop request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to read trailing stop response: %w", err)
+	}
+	rawBody = string(body)
+
+	var result struct {
+		Status   string `json:"status"`
+		Response struct {
+			Type string `json:"type"`
+			Data struct {
+				Oid int64 `json:"oid"`
+			} `json:"data"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, rawBody, fmt.Errorf("undecodable response (http=%d): %w", resp.StatusCode, err)
+	}
+	if result.Status != "ok" {
+		return 0, rawBody, fmt.Errorf("status=%s", result.Status)
+	}
+	return result.Response.Data.Oid, rawBody, nil
+}
+
+// ProbeTrailingStopSupport checks that the connected Hyperliquid endpoint really
+// accepts the native trailingStop action, by placing one and cancelling it.
+//
+// This exists because the action is undocumented in every Go SDK version and the
+// only other way to find out is a real AI entry order. The probe order is built
+// to be inert:
+//   - reduceOnly, so it can never flip or grow exposure;
+//   - activationPx sits 50% on the wrong side of mark, so it cannot arm;
+//   - a wide retracement as a second line of defence;
+//   - cancelled within the same call, so it lives for a few hundred ms.
+//
+// It needs an open perp position: a reduce-only order with no position is
+// rejected before the action type is ever evaluated, which would read as a
+// false negative. With no position the result is Inconclusive, not Unsupported.
+// The result is cached; repeated calls are free.
+func (t *HyperliquidTrader) ProbeTrailingStopSupport() (bool, string) {
+	t.trailingProbeOnce.Do(func() {
+		t.trailingProbe = t.runTrailingStopProbe()
+	})
+	return t.trailingProbe.Supported, t.trailingProbe.Detail
+}
+
+// ProbeTrailingStopSupportIfEnabled runs the capability probe when it is
+// enabled, and does nothing otherwise. Returns whether it actually ran.
+//
+// Call this only on traders that will place real AI orders. The probe submits a
+// real (if inert) order, so it must NOT run for throwaway traders such as the
+// ones the API builds just to read an account balance.
+func (t *HyperliquidTrader) ProbeTrailingStopSupportIfEnabled() bool {
+	if !shouldProbeTrailingStop(t.isTestnet) {
+		logger.Infof("ℹ️ [Hyperliquid] trailing stop probe disabled (set HYPERLIQUID_PROBE_TRAILING_STOP=1 to verify native support at startup)")
+		return false
+	}
+
+	supported, detail := t.ProbeTrailingStopSupport()
+	if supported {
+		logger.Infof("✓ [Hyperliquid] native trailing stop supported: %s", detail)
+	} else {
+		logger.Infof("⚠️ [Hyperliquid] native trailing stop UNCONFIRMED: %s", detail)
+		logger.Infof("   AI entries on Hyperliquid require a trailing stop; they will fail if the action is truly unsupported.")
+	}
+	return true
+}
+
+func (t *HyperliquidTrader) runTrailingStopProbe() *trailingProbeResult {
+	positions, err := t.GetPositions()
+	if err != nil {
+		return &trailingProbeResult{Inconclusive: true, Detail: "could not read positions: " + err.Error()}
+	}
+
+	for _, p := range positions {
+		symbol, _ := p["symbol"].(string)
+		if strings.HasPrefix(symbol, "xyz:") {
+			continue // trailing stops are perp-dex only
+		}
+		side, _ := p["side"].(string)
+		amt, _ := p["positionAmt"].(float64)
+		mark, _ := p["markPrice"].(float64)
+		if amt <= 0 || mark <= 0 {
+			continue
+		}
+		assetIndex, err := t.assetIndexForCoin(convertSymbolToHyperliquid(symbol))
+		if err != nil {
+			continue
+		}
+
+		// Smallest notional Hyperliquid accepts (~10 USDC), never more than
+		// the position itself.
+		size := 10.0 / mark
+		if size > amt {
+			size = amt
+		}
+		size = t.roundToSzDecimals(convertSymbolToHyperliquid(symbol), size)
+		if size <= 0 {
+			continue
+		}
+
+		// Arming direction: closing a long trails the price upward, so put
+		// activation well above mark; closing a short trails downward, so put
+		// it well below. Either way it cannot trigger while it exists.
+		isBuy := side == "short"
+		activation := mark * 1.5
+		if isBuy {
+			activation = mark * 0.5
+		}
+
+		coin := convertSymbolToHyperliquid(symbol)
+		pct := "20.000%"
+		px := floatToWireStr(t.roundPriceToSigfigs(activation))
+		action := trailingStopActionWire{
+			Type:         "trailingStop",
+			Asset:        assetIndex,
+			IsBuy:        isBuy,
+			Sz:           floatToWireStr(size),
+			ReduceOnly:   true,
+			Retracement:  trailingStopRetracementWire{Pct: &pct},
+			ActivationPx: &px,
+		}
+
+		logger.Infof("🔍 [Hyperliquid] probing native trailing stop support on %s (mark=%.5f, activation=%.5f, sz=%.8f, side=%s)",
+			coin, mark, activation, size, side)
+
+		oid, rawBody, err := t.postTrailingStopAction(action)
+		if err != nil {
+			return &trailingProbeResult{
+				Supported: false,
+				Detail:    fmt.Sprintf("probe order on %s rejected: %v (body=%s)", coin, err, truncateForLog(rawBody, 300)),
+			}
+		}
+
+		// Accepted — remove it immediately.
+		if _, cerr := t.exchange.Cancel(t.ctx, coin, oid); cerr != nil {
+			logger.Infof("⚠️ [Hyperliquid] trailing stop probe oid=%d placed but cancel failed: %v — CANCEL IT MANUALLY", oid, cerr)
+			return &trailingProbeResult{
+				Supported: true,
+				Detail:    fmt.Sprintf("supported (oid=%d placed) BUT cancel failed, cancel it manually: %v", oid, cerr),
+			}
+		}
+		return &trailingProbeResult{
+			Supported: true,
+			Detail:    fmt.Sprintf("supported: probe oid=%d placed and cancelled on %s", oid, coin),
+		}
+	}
+
+	return &trailingProbeResult{
+		Inconclusive: true,
+		Detail:       "no open perp position to anchor a reduce-only probe; support unconfirmed",
+	}
+}
+
+// shouldProbeTrailingStop decides whether the startup probe runs. It is on by
+// default only for testnet: on mainnet it places a real (if inert) order, so it
+// must be opted into with HYPERLIQUID_PROBE_TRAILING_STOP=1.
+func shouldProbeTrailingStop(testnet bool) bool {
+	v, ok := os.LookupEnv("HYPERLIQUID_PROBE_TRAILING_STOP")
+	if !ok {
+		return testnet
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func truncateForLog(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
+}
+
 // FormatQuantity formats quantity to correct precision
 func (t *HyperliquidTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
 	coin := convertSymbolToHyperliquid(symbol)
@@ -2156,6 +2628,13 @@ func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*type
 
 	logger.Infof("[Hyperliquid] PlaceLimitOrder: %s %s @ %.4f, qty=%.4f", coin, req.Side, roundedPrice, roundedQuantity)
 
+	// Post-only maps to Hyperliquid's "Alo" (add liquidity only) time in force.
+	// Without it a grid leg can cross the spread and take liquidity.
+	tif := hyperliquid.TifGtc
+	if req.PostOnly {
+		tif = hyperliquid.TifAlo
+	}
+
 	order := hyperliquid.CreateOrderRequest{
 		Coin:  coin,
 		IsBuy: isBuy,
@@ -2163,24 +2642,36 @@ func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*type
 		Price: roundedPrice,
 		OrderType: hyperliquid.OrderType{
 			Limit: &hyperliquid.LimitOrderType{
-				Tif: hyperliquid.TifGtc, // Good Till Cancel for grid orders
+				Tif: tif,
 			},
 		},
 		ReduceOnly: req.ReduceOnly,
 	}
 
-	_, err := t.exchange.Order(t.ctx, order, defaultBuilder)
+	status, err := t.exchange.Order(t.ctx, order, defaultBuilder)
 	if err != nil {
 		return nil, fmt.Errorf("failed to place limit order: %w", err)
 	}
 
-	// Note: Hyperliquid's Order response doesn't return the order ID directly
-	// We would need to query open orders to get it, but for grid trading
-	// we can track orders by price level instead
-	orderID := fmt.Sprintf("%d", time.Now().UnixNano())
+	// The order id is what CancelOrder needs later. Hyperliquid returns it in
+	// the status payload: resting orders under Resting.Oid, immediately filled
+	// ones under Filled.Oid. Previously this fabricated an id from the wall
+	// clock, which made every subsequent cancel fail.
+	orderID := ""
+	orderStatus := "NEW"
+	switch {
+	case status.Resting != nil:
+		orderID = strconv.FormatInt(status.Resting.Oid, 10)
+	case status.Filled != nil:
+		orderID = strconv.FormatInt(int64(status.Filled.Oid), 10)
+		orderStatus = "FILLED"
+	}
+	if orderID == "" {
+		return nil, fmt.Errorf("hyperliquid did not return an order id for %s %s @ %.4f", coin, req.Side, roundedPrice)
+	}
 
-	logger.Infof("✓ [Hyperliquid] Limit order placed: %s %s @ %.4f",
-		coin, req.Side, roundedPrice)
+	logger.Infof("✓ [Hyperliquid] Limit order placed: %s %s @ %.4f (oid=%s)",
+		coin, req.Side, roundedPrice, orderID)
 
 	return &types.LimitOrderResult{
 		OrderID:      orderID,
@@ -2190,8 +2681,90 @@ func (t *HyperliquidTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*type
 		PositionSide: req.PositionSide,
 		Price:        roundedPrice,
 		Quantity:     roundedQuantity,
-		Status:       "NEW",
+		Status:       orderStatus,
 	}, nil
+}
+
+// CancelOrdersBatch cancels several orders in one request and returns how many
+// were cancelled. Grid teardown can touch dozens of legs at once, and per-order
+// cancels burn through the address rate limit quickly.
+func (t *HyperliquidTrader) CancelOrdersBatch(symbol string, orderIDs []string) int {
+	coin := convertSymbolToHyperliquid(symbol)
+
+	// The xyz dex needs the raw REST path the SDK does not cover.
+	if strings.HasPrefix(coin, "xyz:") {
+		canceled := 0
+		for _, id := range orderIDs {
+			oid, err := strconv.ParseInt(id, 10, 64)
+			if err != nil {
+				continue
+			}
+			if err := t.cancelXyzOrder(oid); err != nil {
+				logger.Infof("  ⚠ Failed to cancel xyz order (oid=%d): %v", oid, err)
+				continue
+			}
+			canceled++
+		}
+		return canceled
+	}
+
+	requests := make([]hyperliquid.CancelOrderRequest, 0, len(orderIDs))
+	for _, id := range orderIDs {
+		oid, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			logger.Infof("  ⚠ Skipping non-numeric order id %q", id)
+			continue
+		}
+		requests = append(requests, hyperliquid.CancelOrderRequest{Coin: coin, OrderID: oid})
+	}
+	if len(requests) == 0 {
+		return 0
+	}
+
+	if _, err := t.exchange.BulkCancel(t.ctx, requests); err != nil {
+		logger.Infof("  ⚠ Batch cancel failed for %s, falling back to per-order cancels: %v", symbol, err)
+		canceled := 0
+		for _, req := range requests {
+			if _, err := t.exchange.Cancel(t.ctx, req.Coin, req.OrderID); err != nil {
+				logger.Infof("  ⚠ Failed to cancel order (oid=%d): %v", req.OrderID, err)
+				continue
+			}
+			canceled++
+		}
+		return canceled
+	}
+
+	return len(requests)
+}
+
+// hyperliquidMinNotionalUSDC is the smallest order value Hyperliquid accepts for
+// perpetuals. Sizes are expressed in coins, so the minimum size depends on price.
+const hyperliquidMinNotionalUSDC = 10.0
+
+// GetMinOrderSize returns the minimum order size in coin units for a symbol.
+// The grid uses it to reject reduce legs the exchange would refuse anyway.
+func (t *HyperliquidTrader) GetMinOrderSize(symbol string) (float64, error) {
+	coin := convertSymbolToHyperliquid(symbol)
+
+	price, err := t.GetMarketPrice(symbol)
+	if err != nil || price <= 0 {
+		return 0, fmt.Errorf("cannot derive minimum order size for %s without a price: %w", symbol, err)
+	}
+
+	szDecimals := t.getSzDecimals(coin)
+	step := 1.0
+	for i := 0; i < szDecimals; i++ {
+		step /= 10.0
+	}
+
+	minimum := hyperliquidMinNotionalUSDC / price
+
+	// Round up to the next size the exchange can actually represent.
+	minimum = math.Ceil(minimum/step) * step
+	if minimum < step {
+		minimum = step
+	}
+	return minimum, nil
 }
 
 // CancelOrder cancels a specific order by ID

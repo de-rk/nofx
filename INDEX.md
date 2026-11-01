@@ -33,7 +33,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；system prompt 要求所有新开仓仅设置原生移动止盈止损，不输出固定止盈/止损价格或强制固定盈亏比，并要求不支持原生移动止损的交易所拒绝开仓；开仓决策校验要求移动止损激活/回调参数，不校验固定价格或盈亏比；同时以对称规则要求确认看多时 `open_long`、确认看空时 `open_short`，不得因下跌而默认 `wait`；并要求 `confidence` 使用 JSON 数字；解析器兼容置信度偶发输出英文数字词；AI user prompt 不再注入历史交易统计；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
+| `engine.go` | 通用 AI 决策引擎（调用 LLM，解析 JSON 输出）；system prompt 要求所有新开仓仅设置原生移动止盈止损，不输出固定止盈/止损价格或强制固定盈亏比，并要求不支持原生移动止损的交易所拒绝开仓；开仓决策校验要求移动止损激活/回调参数，不校验固定价格或盈亏比；同时以对称规则要求确认看多时 `open_long`、确认看空时 `open_short`，不得因下跌而默认 `wait`；并要求 `confidence` 使用 JSON 数字；`SetExchange` 记录执行交易所后，system prompt 的持仓模式段落按交易所分支输出（OKX 双向持仓 hedge 模式 / Hyperliquid 单向净仓、无 `posSide` / 其他交易所中性描述），不再对所有账户都下发 OKX 规则；解析器兼容置信度偶发输出英文数字词；AI user prompt 不再注入历史交易统计；`FullDecision.ParseFailed` 标记"AI 调用成功但解析失败、被兜底成 hold"这种情况，供调用方区分"AI 真的决定 hold"与"AI 响应不可用" |
 | `engine_prompt_test.go` | `StrategyEngine.BuildSystemPrompt` 的原生移动止盈止损必需、固定止盈止损与盈亏比非必需、多空对称开仓规则的 prompt 回归测试，以及英文置信度数字归一化解析测试 |
 | `validate_test.go` | AI 开仓校验测试，覆盖移动止损必需及固定止盈止损/盈亏比不再参与校验 |
 | `grid_engine.go` | 网格专用引擎：构建 system/user prompt（中英双语），解析网格决策；AI 主动减仓/全平动作及规则由 `enable_ai_position_reduction` 配置控制；含 `BuildGridSystemPrompt`、`BuildGridUserPrompt`、`SuggestedQuantity`（层级建议下单量公式，AI prompt 表格与算法决策模式共用同一份实现）；`parseGridDecisions` 解析出的每条决策先经 `normalizeGridAction`（大小写归一化 + `gridActionSynonyms` 同义词表）再校验，兼容不严格遵循 prompt 动作词表的 AI 模型 |
@@ -81,7 +81,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `trader.go` | Hyperliquid 适配器 |
+| `trader.go` | Hyperliquid 适配器（下单、查询、持仓、xyz/HIP-3 dex 资产）；实现原生移动止损 `SetTrailingStop`——Hyperliquid 于 2026-09-21 上线 perp 原生 trailing stop（独立 `trailingStop` action，非 order type 变体，Go SDK 各版本均未封装），故自行用 `SignL1Action` 签名并直发 `/exchange`，配 `retracement.pct` 与可选 `activationPx`；手工 action 取 `time.Now().UnixMilli()` 后调用 SDK 的 `SetLastNonce` 把 SDK 计数器顶到本方之上，使两条 nonce 序列彻底不相交；另提供启动期一次性能力探测 `ProbeTrailingStopSupport()`（下 reduceOnly + 远离市价激活价 + 宽回撤的探针单并立即撤销，需有持仓；无持仓时结果为 inconclusive 而非 unsupported，不会误判），通过 `ProbeTrailingStopSupportIfEnabled()` 在 `auto_trader.go` 创建真实交易 trader 后触发（**不在 `NewHyperliquidTrader` 内触发**——API 为查余额也会建临时 trader，探测会下真单）；开关 `HYPERLIQUID_PROBE_TRAILING_STOP`（testnet 默认开、主网默认关，配在 `.env`）；探测确认不支持时 `SetTrailingStop` 快速失败，避免浪费一次 AI 决策；`PlaceLimitOrder` 从 `OrderStatus.Resting/Filled.Oid` 取真实订单号（此前用时间戳伪造导致网格撤单必失败），并按 `PostOnly` 切换 `Alo`/`Gtc`；`CancelStopLossOrders`/`CancelTakeProfitOrders`/`CancelStopOrders` 经 `FrontendOpenOrders` 的 `IsTrigger`/`ReduceOnly`/`OrderType` 精确区分保护单与网格挂单，不再误撤全部挂单；另提供 `GetMinOrderSize`（10 USDC 最小名义额换算为币数量）与 `CancelOrdersBatch`（`BulkCancel`，失败逐个降级） |
+| `ws.go` | Hyperliquid WebSocket（candle 推送驱动网格 AI 周期、clearinghouseState 推送持仓、orderUpdates 驱动 T-trade 扫描、allMids 缓存最新中间价供 `GetMarketPrice` 优先使用）；对齐 OKX `StartWS`/`StopWS`/`SetWSCallbacks`/`GetWSKlines`/`SubscribeSymbol`/`SetPrimaryKlineTf` 契约；REST `candleSnapshot` 回填缓冲区，且首条 WS bar 不误判为 K 线收盘 |
 | `order_sync.go` | Hyperliquid 订单状态同步 |
 
 ---
@@ -132,7 +133,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `data.go` | 行情数据结构与聚合（K线、指标）；CoinAnk 交易所数据和其 Binance 回退均不可用时，继续使用 Binance Futures REST 并校验 K 线质量 |
+| `data.go` | 行情数据结构与聚合（K线、指标）；CoinAnk 交易所数据和其 Binance 回退均不可用时，继续使用 Binance Futures REST 并校验 K 线质量；`getWithTimeframesAndExchange` 对 `hyperliquid` 走 Hyperliquid 原生 K 线（与 xyz/HIP-3 资产同源），OI/资金费率/最新价经 `metaAndAssetCtxs` 取 Hyperliquid 原生值（30s 缓存），不再落到 Binance（Binance 无 HYPE 等 HL 原生符号，此前恒为 0）；`strictOKX` 泛化为 `strictNative`，OKX 与 Hyperliquid 均属原生数据源 |
 | `api_client.go` | 行情 REST 拉取 |
 | `historical.go` | 历史 K 线查询 |
 | `timeframe.go` | 时间周期定义与转换 |
@@ -230,7 +231,7 @@
 | `components/PositionHistory.tsx` | 历史持仓列表 |
 | `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏（策略市场、Traders、Dashboard、Strategy、Prompt测试） |
 | `components/LoginPage.tsx` / `RegisterPage.tsx` | 登录/注册页 |
-| `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip；订单数量标签统一格式化，避免显示浮点误差尾数 |
+| `components/AdvancedChart.tsx` | K线图表组件（lightweight-charts）：OKX WS 与 Hyperliquid WS（candle + allMids 订阅，30s ping）实时推送 + 失败降级轮询、订单标记、挂单价格线、OHLC tooltip；Hyperliquid 按裸币名（如 `BTC`/`HYPE`）订阅而非交易对；SSE 订单事件对 OKX 与 Hyperliquid 均生效；订单数量标签统一格式化，避免显示浮点误差尾数 |
 | `components/TTradePanel.tsx` / `types.ts` | T-trade 生命周期看板：按每个 T-trade 周期显示单次已实现收益，并显示永久累计收益与已完成次数；`GridTradeLog` 暴露已实现收益及关联订单字段，`TTradeStats` 暴露独立持久化统计，`GridStrategyConfig` 包含 AI 主动减仓和 T 字被套减仓开关字段，`RiskControlConfig` 的旧移动止损开关和固定盈亏比字段仅为兼容保留 |
 | `App.tsx` / `lib/api.ts` | 获取并缓存 T-trade 永久统计，在交易事件到达时刷新，与看板生命周期明细并行展示 |
 

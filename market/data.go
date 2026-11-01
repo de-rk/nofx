@@ -1,6 +1,7 @@
 package market
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -292,6 +293,200 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 	return cleanKlines(klines, interval, time.Now())
 }
 
+// isNativeDataExchange reports whether a venue exposes first-party candles and
+// derivatives metrics. Everything else falls back to CoinAnk/Binance.
+func isNativeDataExchange(exchange string) bool {
+	return strings.EqualFold(exchange, "okx") || strings.EqualFold(exchange, "hyperliquid")
+}
+
+// hyperliquidCoin strips the trading-pair suffix to get the Hyperliquid coin
+// name while keeping the xyz: prefix used by HIP-3 builder-deployed markets.
+func hyperliquidCoin(symbol string) string {
+	normalized := Normalize(symbol)
+	if strings.HasPrefix(normalized, "xyz:") {
+		return normalized
+	}
+	return strings.TrimSuffix(normalized, "USDT")
+}
+
+// hlAssetCtx is the part of Hyperliquid's asset context this package consumes.
+type hlAssetCtx struct {
+	Funding      string `json:"funding"`
+	OpenInterest string `json:"openInterest"`
+	MarkPx       string `json:"markPx"`
+	MidPx        string `json:"midPx"`
+	PrevDayPx    string `json:"prevDayPx"`
+	DayNtlVlm    string `json:"dayNtlVlm"`
+}
+
+// hlAssetCtxTTL keeps the (fairly large) metaAndAssetCtxs payload from being
+// refetched on every AI cycle.
+const hlAssetCtxTTL = 30 * time.Second
+
+type hlAssetCtxEntry struct {
+	fetchedAt time.Time
+	byCoin    map[string]*hlAssetCtx
+}
+
+var (
+	hlAssetCtxMu    sync.Mutex
+	hlAssetCtxCache = map[string]hlAssetCtxEntry{}
+)
+
+// fetchHyperliquidAssetCtxs loads metaAndAssetCtxs and indexes contexts by coin.
+// The response is [meta, contexts] where the two arrays are positionally aligned.
+func fetchHyperliquidAssetCtxs(dex string) (map[string]*hlAssetCtx, error) {
+	now := time.Now()
+
+	hlAssetCtxMu.Lock()
+	if entry, ok := hlAssetCtxCache[dex]; ok && now.Sub(entry.fetchedAt) < hlAssetCtxTTL {
+		cached := entry.byCoin
+		hlAssetCtxMu.Unlock()
+		return cached, nil
+	}
+	hlAssetCtxMu.Unlock()
+
+	reqBody := map[string]string{"type": "metaAndAssetCtxs"}
+	if dex != "" {
+		reqBody["dex"] = dex
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal metaAndAssetCtxs request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		hyperliquid.MainnetAPIURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metaAndAssetCtxs request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw []json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil || len(raw) < 2 {
+		return nil, fmt.Errorf("unexpected metaAndAssetCtxs payload: %s", string(body))
+	}
+
+	var meta struct {
+		Universe []struct {
+			Name string `json:"name"`
+		} `json:"universe"`
+	}
+	if err := json.Unmarshal(raw[0], &meta); err != nil {
+		return nil, fmt.Errorf("failed to parse hyperliquid meta: %w", err)
+	}
+
+	var ctxs []hlAssetCtx
+	if err := json.Unmarshal(raw[1], &ctxs); err != nil {
+		return nil, fmt.Errorf("failed to parse hyperliquid asset contexts: %w", err)
+	}
+
+	byCoin := make(map[string]*hlAssetCtx, len(meta.Universe))
+	for i, asset := range meta.Universe {
+		if i >= len(ctxs) {
+			break
+		}
+		ctx := ctxs[i]
+		byCoin[asset.Name] = &ctx
+		// Index the bare name too so callers can match either spelling.
+		if trimmed := strings.TrimPrefix(asset.Name, "xyz:"); trimmed != asset.Name {
+			byCoin[trimmed] = &ctx
+		}
+	}
+
+	hlAssetCtxMu.Lock()
+	hlAssetCtxCache[dex] = hlAssetCtxEntry{fetchedAt: now, byCoin: byCoin}
+	hlAssetCtxMu.Unlock()
+
+	return byCoin, nil
+}
+
+// lookupHyperliquidAssetCtx resolves the live asset context for a symbol.
+func lookupHyperliquidAssetCtx(symbol string) (*hlAssetCtx, error) {
+	coin := hyperliquidCoin(symbol)
+
+	dex := ""
+	if strings.HasPrefix(coin, "xyz:") {
+		dex = hyperliquid.XYZDex
+	}
+
+	ctxs, err := fetchHyperliquidAssetCtxs(dex)
+	if err != nil {
+		return nil, err
+	}
+	if ctx, ok := ctxs[coin]; ok {
+		return ctx, nil
+	}
+	if ctx, ok := ctxs[strings.TrimPrefix(coin, "xyz:")]; ok {
+		return ctx, nil
+	}
+	return nil, fmt.Errorf("no hyperliquid asset context for %s", symbol)
+}
+
+// getOpenInterestDataFromHyperliquid reads open interest from Hyperliquid.
+// Binance has no data for Hyperliquid-native symbols, so this replaces the
+// Binance fallback that silently reported zero interest.
+func getOpenInterestDataFromHyperliquid(symbol string) (*OIData, error) {
+	ctx, err := lookupHyperliquidAssetCtx(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	oi, err := strconv.ParseFloat(ctx.OpenInterest, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse open interest for %s: %w", symbol, err)
+	}
+
+	return &OIData{
+		Latest:  oi,
+		Average: oi * 0.999, // Approximate average
+	}, nil
+}
+
+// getFundingRateFromHyperliquid reads the current funding rate from Hyperliquid.
+func getFundingRateFromHyperliquid(symbol string) (float64, error) {
+	ctx, err := lookupHyperliquidAssetCtx(symbol)
+	if err != nil {
+		return 0, err
+	}
+
+	rate, err := strconv.ParseFloat(ctx.Funding, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse funding rate for %s: %w", symbol, err)
+	}
+	return rate, nil
+}
+
+// getCurrentPriceFromHyperliquid reads the live mid price from Hyperliquid.
+func getCurrentPriceFromHyperliquid(symbol string) (float64, error) {
+	ctx, err := lookupHyperliquidAssetCtx(symbol)
+	if err != nil {
+		return 0, err
+	}
+
+	if price, err := strconv.ParseFloat(ctx.MidPx, 64); err == nil && price > 0 {
+		return price, nil
+	}
+	price, err := strconv.ParseFloat(ctx.MarkPx, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse price for %s: %w", symbol, err)
+	}
+	return price, nil
+}
+
 // Get retrieves market data for the specified token (uses Binance data by default)
 func Get(symbol string) (*Data, error) {
 	return GetWithExchange(symbol, "binance")
@@ -454,7 +649,11 @@ func getWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 	if strings.TrimSpace(exchange) == "" {
 		exchange = "binance"
 	}
+	// strictNative means "this consumer must only see data from the execution
+	// venue". It used to be OKX-only; Hyperliquid is now a first-class venue.
+	strictNative := strict && isNativeDataExchange(exchange)
 	strictOKX := strict && strings.EqualFold(exchange, "okx")
+	isHyperliquid := strings.EqualFold(exchange, "hyperliquid")
 
 	if len(timeframes) == 0 {
 		return nil, fmt.Errorf("at least one timeframe is required")
@@ -489,11 +688,15 @@ func getWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 		var klines []Kline
 		var err error
 
-		if isXyzAsset && !strictOKX {
-			// Use Hyperliquid API for xyz dex assets
+		if (isXyzAsset || isHyperliquid) && !strictOKX {
+			// Hyperliquid serves both its own perps and the xyz (HIP-3) dex, so
+			// an account executing there must analyse its own candles.
 			klines, err = getKlinesFromHyperliquid(symbol, tf, 200)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from Hyperliquid: %v", symbol, tf, err)
+				if strictNative {
+					return nil, fmt.Errorf("%s %s data unavailable from %s: %w", symbol, tf, exchange, err)
+				}
 				continue
 			}
 		} else if strings.EqualFold(exchange, "okx") {
@@ -510,7 +713,7 @@ func getWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 				continue
 			}
 		}
-		if err != nil && strictOKX {
+		if err != nil && strictNative {
 			return nil, fmt.Errorf("%s %s data unavailable from %s: %w", symbol, tf, exchange, err)
 		}
 
@@ -550,12 +753,15 @@ func getWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60)  // 1 hour
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
 
-	// Get OI/funding data from the execution venue. Strict OKX consumers must
-	// not accidentally mix Binance derivatives metrics into OKX analysis.
+	// Get OI/funding data from the execution venue. Consumers tied to a venue
+	// must not see another venue's derivatives metrics — and Binance simply has
+	// no data for Hyperliquid-native symbols such as HYPE.
 	var oiData *OIData
 	var err error
 	if strictOKX {
 		oiData, err = getOpenInterestDataFromOKX(symbol)
+	} else if isHyperliquid {
+		oiData, err = getOpenInterestDataFromHyperliquid(symbol)
 	} else {
 		oiData, err = getOpenInterestData(symbol)
 	}
@@ -566,6 +772,8 @@ func getWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 	var fundingRate float64
 	if strictOKX {
 		fundingRate, _ = getFundingRateFromOKX(symbol)
+	} else if isHyperliquid {
+		fundingRate, _ = getFundingRateFromHyperliquid(symbol)
 	} else {
 		fundingRate, _ = getFundingRate(symbol)
 	}
@@ -575,6 +783,12 @@ func getWithTimeframesAndExchange(symbol string, timeframes []string, primaryTim
 			currentPrice = tickerPrice
 		} else {
 			logger.Warnf("⚠️ OKX ticker unavailable for %s, using latest OKX candle close: %v", symbol, tickerErr)
+		}
+	} else if isHyperliquid {
+		if tickerPrice, tickerErr := getCurrentPriceFromHyperliquid(symbol); tickerErr == nil {
+			currentPrice = tickerPrice
+		} else {
+			logger.Warnf("⚠️ Hyperliquid mid unavailable for %s, using latest candle close: %v", symbol, tickerErr)
 		}
 	}
 
