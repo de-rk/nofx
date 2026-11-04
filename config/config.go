@@ -1,8 +1,6 @@
 package config
 
 import (
-	"nofx/experience"
-	"nofx/mcp"
 	"os"
 	"strconv"
 	"strings"
@@ -35,11 +33,6 @@ type Config struct {
 	// Requires HTTPS or localhost. Set to false for HTTP access via IP.
 	TransportEncryption bool
 
-	// Experience improvement (anonymous usage statistics)
-	// Helps us understand product usage and improve the experience
-	// Set EXPERIENCE_IMPROVEMENT=false to disable
-	ExperienceImprovement bool
-
 	// Market data provider API keys
 	AlpacaAPIKey    string // Alpaca API key for US stocks
 	AlpacaSecretKey string // Alpaca secret key
@@ -49,10 +42,9 @@ type Config struct {
 // Init initializes global configuration (from .env)
 func Init() {
 	cfg := &Config{
-		APIServerPort:         8080,
-		RegistrationEnabled:   true,
-		MaxUsers:              10,   // Default: 10 users allowed
-		ExperienceImprovement: true, // Default: enabled to help improve the product
+		APIServerPort:       8080,
+		RegistrationEnabled: true,
+		MaxUsers:            10, // Default: 10 users allowed
 		// Database defaults
 		DBType:    "sqlite",
 		DBPath:    "data/data.db",
@@ -93,12 +85,6 @@ func Init() {
 		cfg.TransportEncryption = strings.ToLower(v) == "true"
 	}
 
-	// Experience improvement: anonymous usage statistics
-	// Default enabled, set EXPERIENCE_IMPROVEMENT=false to disable
-	if v := os.Getenv("EXPERIENCE_IMPROVEMENT"); v != "" {
-		cfg.ExperienceImprovement = strings.ToLower(v) != "false"
-	}
-
 	// Market data provider API keys
 	cfg.AlpacaAPIKey = os.Getenv("ALPACA_API_KEY")
 	cfg.AlpacaSecretKey = os.Getenv("ALPACA_SECRET_KEY")
@@ -133,19 +119,6 @@ func Init() {
 	}
 
 	global = cfg
-
-	// Initialize experience improvement (installation ID will be set after database init)
-	experience.Init(cfg.ExperienceImprovement, "")
-
-	// Set up AI token usage tracking callback
-	mcp.TokenUsageCallback = func(usage mcp.TokenUsage) {
-		experience.TrackAIUsage(experience.AIUsageEvent{
-			ModelProvider: usage.Provider,
-			ModelName:     usage.Model,
-			InputTokens:   usage.PromptTokens,
-			OutputTokens:  usage.CompletionTokens,
-		})
-	}
 }
 
 // Get returns the global configuration

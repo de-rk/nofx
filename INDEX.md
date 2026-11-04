@@ -186,7 +186,6 @@
 | `manager/handoff_manager.go` | 网格异常波动接替编排：每秒采样源网格标的价格，三分钟绝对涨跌幅达到阈值后暂停网格、按涨跌方向撤销对侧普通挂单（保留减仓单）并启动目标 AI 交易员，不平仓或停止源交易员 |
 | `store/handoff.go` | 网格到 AI 的显式接替绑定与执行状态持久化，含原子触发抢占与阶段错误记录 |
 | `api/handoff.go` | 接替绑定 CRUD API，校验源为网格、目标为 AI 且使用相同交易所账户 |
-| `experience/experience.go` | AI 经验积累（历史决策反馈） |
 | `llm/qwen_agent.go` | 千问 Agent 独立封装 |
 
 ## backtest/ — 网格策略离线回测 + 模拟退火参数搜索（不接触实盘交易路径）
