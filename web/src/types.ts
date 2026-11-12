@@ -131,6 +131,8 @@ export interface Exchange {
   testnet?: boolean
   // Hyperliquid specific
   hyperliquidWalletAddr?: string
+  // Hyperliquid Unified Account: spot USDC counts as perp collateral
+  hyperliquid_unified_account?: boolean
   // Aster specific
   asterUser?: string
   asterSigner?: string
@@ -151,6 +153,7 @@ export interface CreateExchangeRequest {
   passphrase?: string
   testnet?: boolean
   hyperliquid_wallet_addr?: string
+  hyperliquid_unified_account?: boolean
   aster_user?: string
   aster_signer?: string
   aster_private_key?: string
@@ -223,6 +226,7 @@ export interface UpdateExchangeConfigRequest {
       testnet?: boolean
       // Hyperliquid 特定字段
       hyperliquid_wallet_addr?: string
+      hyperliquid_unified_account?: boolean
       // Aster 特定字段
       aster_user?: string
       aster_signer?: string

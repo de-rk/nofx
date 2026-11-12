@@ -50,7 +50,8 @@ interface ExchangeConfigModalProps {
     lighterWalletAddr?: string,
     lighterPrivateKey?: string,
     lighterApiKeyPrivateKey?: string,
-    lighterApiKeyIndex?: number
+    lighterApiKeyIndex?: number,
+    hyperliquidUnifiedAccount?: boolean
   ) => Promise<void>
   onDelete: (exchangeId: string) => void
   onClose: () => void
@@ -171,6 +172,9 @@ export function ExchangeConfigModal({
 
   // Hyperliquid fields
   const [hyperliquidWalletAddr, setHyperliquidWalletAddr] = useState('')
+  // Unified account: spot USDC counts as perp collateral. Defaults to on,
+  // matching the exchange default and the stored column default.
+  const [hyperliquidUnifiedAccount, setHyperliquidUnifiedAccount] = useState(true)
 
   // Lighter fields
   const [lighterWalletAddr, setLighterWalletAddr] = useState('')
@@ -218,9 +222,14 @@ export function ExchangeConfigModal({
       setAsterSigner(selectedExchange.asterSigner || '')
       setAsterPrivateKey('')
       setHyperliquidWalletAddr(selectedExchange.hyperliquidWalletAddr || '')
+      setHyperliquidUnifiedAccount(selectedExchange.hyperliquid_unified_account ?? true)
       setLighterWalletAddr(selectedExchange.lighterWalletAddr || '')
       setLighterApiKeyPrivateKey('')
       setLighterApiKeyIndex(selectedExchange.lighterApiKeyIndex || 0)
+    } else if (!editingExchangeId) {
+      // Fresh account: start from the exchange default rather than whatever the
+      // previous modal session left behind.
+      setHyperliquidUnifiedAccount(true)
     }
   }, [editingExchangeId, selectedExchange])
 
@@ -320,7 +329,7 @@ export function ExchangeConfigModal({
         await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet)
       } else if (currentExchangeType === 'hyperliquid') {
         if (!apiKey.trim() || !hyperliquidWalletAddr.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), '', '', testnet, hyperliquidWalletAddr.trim())
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), '', '', testnet, hyperliquidWalletAddr.trim(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, hyperliquidUnifiedAccount)
       } else if (currentExchangeType === 'aster') {
         if (!asterUser.trim() || !asterSigner.trim() || !asterPrivateKey.trim()) return
         await onSave(exchangeId, exchangeType, trimmedAccountName, '', '', '', testnet, undefined, asterUser.trim(), asterSigner.trim(), asterPrivateKey.trim())
@@ -682,6 +691,27 @@ export function ExchangeConfigModal({
                   <div className="space-y-2">
                     <label className="text-sm font-semibold" style={{ color: '#EAECEF' }}>{t('hyperliquidMainWalletAddress', language)}</label>
                     <input type="text" value={hyperliquidWalletAddr} onChange={(e) => setHyperliquidWalletAddr(e.target.value)} placeholder={t('enterHyperliquidMainWalletAddress', language)} className="w-full px-4 py-3 rounded-xl" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }} required />
+                  </div>
+                  <div className="p-4 rounded-xl" style={{ background: 'rgba(127, 231, 204, 0.06)', border: '1px solid rgba(127, 231, 204, 0.25)' }}>
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hyperliquidUnifiedAccount}
+                        onChange={(e) => setHyperliquidUnifiedAccount(e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded"
+                        style={{ accentColor: '#7FE7CC' }}
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold" style={{ color: '#EAECEF' }}>
+                          {language === 'zh' ? '统一账户（现货 USDC 作为合约保证金）' : 'Unified Account (spot USDC as perp collateral)'}
+                        </span>
+                        <span className="block text-xs mt-1" style={{ color: '#848E9C' }}>
+                          {language === 'zh'
+                            ? '与 Hyperliquid 上的账户模式保持一致。开启后会额外统计现货 USDC 的可用额度；若交易所返回的模式与此处不一致，以交易所为准。'
+                            : 'Match the account mode set on Hyperliquid. Enabling counts spot USDC towards available margin; if the exchange reports a different mode, the exchange wins.'}
+                        </span>
+                      </span>
+                    </label>
                   </div>
                 </>
               )}

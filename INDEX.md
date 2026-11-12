@@ -81,7 +81,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `trader.go` | Hyperliquid 适配器（下单、查询、持仓、xyz/HIP-3 dex 资产）；实现原生移动止损 `SetTrailingStop`——Hyperliquid 于 2026-09-21 上线 perp 原生 trailing stop（独立 `trailingStop` action，非 order type 变体，Go SDK 各版本均未封装），故自行用 `SignL1Action` 签名并直发 `/exchange`，配 `retracement.pct` 与可选 `activationPx`；手工 action 取 `time.Now().UnixMilli()` 后调用 SDK 的 `SetLastNonce` 把 SDK 计数器顶到本方之上，使两条 nonce 序列彻底不相交；另提供启动期一次性能力探测 `ProbeTrailingStopSupport()`（下 reduceOnly + 远离市价激活价 + 宽回撤的探针单并立即撤销，需有持仓；无持仓时结果为 inconclusive 而非 unsupported，不会误判），通过 `ProbeTrailingStopSupportIfEnabled()` 在 `auto_trader.go` 创建真实交易 trader 后触发（**不在 `NewHyperliquidTrader` 内触发**——API 为查余额也会建临时 trader，探测会下真单）；开关 `HYPERLIQUID_PROBE_TRAILING_STOP`（testnet 默认开、主网默认关，配在 `.env`）；探测确认不支持时 `SetTrailingStop` 快速失败，避免浪费一次 AI 决策；`PlaceLimitOrder` 从 `OrderStatus.Resting/Filled.Oid` 取真实订单号（此前用时间戳伪造导致网格撤单必失败），并按 `PostOnly` 切换 `Alo`/`Gtc`；`CancelStopLossOrders`/`CancelTakeProfitOrders`/`CancelStopOrders` 经 `FrontendOpenOrders` 的 `IsTrigger`/`ReduceOnly`/`OrderType` 精确区分保护单与网格挂单，不再误撤全部挂单；另提供 `GetMinOrderSize`（10 USDC 最小名义额换算为币数量）与 `CancelOrdersBatch`（`BulkCancel`，失败逐个降级） |
+| `trader.go` | Hyperliquid 适配器（下单、查询、持仓、xyz/HIP-3 dex 资产）；实现原生移动止损 `SetTrailingStop`——Hyperliquid 于 2026-09-21 上线 perp 原生 trailing stop（独立 `trailingStop` action，非 order type 变体，Go SDK 各版本均未封装），故自行用 `SignL1Action` 签名并直发 `/exchange`，配 `retracement.pct` 与可选 `activationPx`；手工 action 取 `time.Now().UnixMilli()` 后调用 SDK 的 `SetLastNonce` 把 SDK 计数器顶到本方之上，使两条 nonce 序列彻底不相交；另提供启动期一次性能力探测 `ProbeTrailingStopSupport()`（下 reduceOnly + 远离市价激活价 + 宽回撤的探针单并立即撤销，需有持仓；无持仓时结果为 inconclusive 而非 unsupported，不会误判），通过 `ProbeTrailingStopSupportIfEnabled()` 在 `auto_trader.go` 创建真实交易 trader 后触发（**不在 `NewHyperliquidTrader` 内触发**——API 为查余额也会建临时 trader，探测会下真单）；开关 `HYPERLIQUID_PROBE_TRAILING_STOP`（testnet 默认开、主网默认关，配在 `.env`）；探测确认不支持时 `SetTrailingStop` 快速失败，避免浪费一次 AI 决策；`PlaceLimitOrder` 从 `OrderStatus.Resting/Filled.Oid` 取真实订单号（此前用时间戳伪造导致网格撤单必失败），并按 `PostOnly` 切换 `Alo`/`Gtc`；`CancelStopLossOrders`/`CancelTakeProfitOrders`/`CancelStopOrders` 经 `FrontendOpenOrders` 的 `IsTrigger`/`ReduceOnly`/`OrderType` 精确区分保护单与网格挂单，不再误撤全部挂单；另提供 `GetMinOrderSize`（10 USDC 最小名义额换算为币数量）与 `CancelOrdersBatch`（`BulkCancel`，失败逐个降级）；`GetBalance` 的账户模式以交易所 `userAbstraction` 为准（SDK v0.26.0 无此封装，走裸 `/info` 只读请求），统一账户/组合保证金下现货 USDC 已是合约抵押品，现货与合约数字取 `math.Max` 而非相加（此前相加导致权益与可用余额近乎翻倍，AI 据此报单会被交易所以保证金不足拒绝），默认模式下仍按现货/合约独立相加；聚合逻辑抽成纯函数 `computeBalanceTotals` 便于单测 |
 | `ws.go` | Hyperliquid WebSocket（candle 推送驱动网格 AI 周期、clearinghouseState 推送持仓、orderUpdates 驱动 T-trade 扫描、allMids 缓存最新中间价供 `GetMarketPrice` 优先使用）；对齐 OKX `StartWS`/`StopWS`/`SetWSCallbacks`/`GetWSKlines`/`SubscribeSymbol`/`SetPrimaryKlineTf` 契约；REST `candleSnapshot` 回填缓冲区，且首条 WS bar 不误判为 K 线收盘 |
 | `order_sync.go` | Hyperliquid 订单状态同步 |
 
@@ -123,7 +123,7 @@
 | `position.go` | 持仓记录表 |
 | `position_builder.go` | 持仓记录构建工具 |
 | `equity.go` | 权益快照表 |
-| `exchange.go` | 交易所配置表 |
+| `exchange.go` | 交易所配置表；`hyperliquid_unified_account`（统一账户，列默认 true）在 `Update` 中改为 `*bool`：只有调用方显式传值才写入，避免老客户端/其他交易所的保存动作把它静默关掉；`Create` 收到 nil 时按默认 true 落库 |
 | `ai_model.go` | AI 模型配置表 |
 | `user.go` | 用户表 |
 
@@ -226,6 +226,7 @@
 |------|------|
 | `components/DecisionCard.tsx` | 单条 AI 决策展示卡片 |
 | `components/TraderConfigModal.tsx` | Trader 创建/编辑弹窗 |
+| `components/traders/ExchangeConfigModal.tsx` / `components/AITradersPage.tsx` | 交易所账户新增/编辑弹窗与保存链路；Hyperliquid 区含「统一账户（现货 USDC 作为合约保证金）」勾选框，默认开启，仅对 `hyperliquid` 账户发送 `hyperliquid_unified_account`（其他交易所不带该字段，服务端因此保留原值）；`types.ts` 的 `Exchange`/`CreateExchangeRequest`/`UpdateExchangeConfigRequest` 同步该字段 |
 | `components/EquityChart.tsx` | 权益曲线图表 |
 | `components/PositionHistory.tsx` | 历史持仓列表 |
 | `components/Header.tsx` / `HeaderBar.tsx` | 顶部导航栏（策略市场、Traders、Dashboard、Strategy、Prompt测试） |

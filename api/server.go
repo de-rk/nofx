@@ -442,9 +442,12 @@ type SafeExchangeConfig struct {
 	Enabled               bool   `json:"enabled"`
 	Testnet               bool   `json:"testnet,omitempty"`
 	HyperliquidWalletAddr string `json:"hyperliquidWalletAddr"` // Hyperliquid wallet address (not sensitive)
-	AsterUser             string `json:"asterUser"`             // Aster username (not sensitive)
-	AsterSigner           string `json:"asterSigner"`           // Aster signer (not sensitive)
-	LighterWalletAddr     string `json:"lighterWalletAddr"`     // LIGHTER wallet address (not sensitive)
+	// HyperliquidUnifiedAccount reports whether spot USDC counts as perp
+	// collateral for this account. Only meaningful for hyperliquid.
+	HyperliquidUnifiedAccount bool   `json:"hyperliquid_unified_account"`
+	AsterUser                 string `json:"asterUser"`         // Aster username (not sensitive)
+	AsterSigner               string `json:"asterSigner"`       // Aster signer (not sensitive)
+	LighterWalletAddr         string `json:"lighterWalletAddr"` // LIGHTER wallet address (not sensitive)
 }
 
 type UpdateModelConfigRequest struct {
@@ -458,13 +461,15 @@ type UpdateModelConfigRequest struct {
 
 type UpdateExchangeConfigRequest struct {
 	Exchanges map[string]struct {
-		Enabled                 bool   `json:"enabled"`
-		APIKey                  string `json:"api_key"`
-		SecretKey               string `json:"secret_key"`
-		Passphrase              string `json:"passphrase"` // OKX specific
-		Testnet                 bool   `json:"testnet"`
-		HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
-		HyperliquidUnifiedAcct  bool   `json:"hyperliquid_unified_account"` // Unified Account mode
+		Enabled               bool   `json:"enabled"`
+		APIKey                string `json:"api_key"`
+		SecretKey             string `json:"secret_key"`
+		Passphrase            string `json:"passphrase"` // OKX specific
+		Testnet               bool   `json:"testnet"`
+		HyperliquidWalletAddr string `json:"hyperliquid_wallet_addr"`
+		// Pointer so an omitted field means "leave it alone" rather than
+		// "switch it off".
+		HyperliquidUnifiedAcct  *bool  `json:"hyperliquid_unified_account"` // Unified Account mode
 		AsterUser               string `json:"aster_user"`
 		AsterSigner             string `json:"aster_signer"`
 		AsterPrivateKey         string `json:"aster_private_key"`
@@ -1847,17 +1852,18 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
 	for i, exchange := range exchanges {
 		safeExchanges[i] = SafeExchangeConfig{
-			ID:                    exchange.ID,
-			ExchangeType:          exchange.ExchangeType,
-			AccountName:           exchange.AccountName,
-			Name:                  exchange.Name,
-			Type:                  exchange.Type,
-			Enabled:               exchange.Enabled,
-			Testnet:               exchange.Testnet,
-			HyperliquidWalletAddr: exchange.HyperliquidWalletAddr,
-			AsterUser:             exchange.AsterUser,
-			AsterSigner:           exchange.AsterSigner,
-			LighterWalletAddr:     exchange.LighterWalletAddr,
+			ID:                        exchange.ID,
+			ExchangeType:              exchange.ExchangeType,
+			AccountName:               exchange.AccountName,
+			Name:                      exchange.Name,
+			Type:                      exchange.Type,
+			Enabled:                   exchange.Enabled,
+			Testnet:                   exchange.Testnet,
+			HyperliquidWalletAddr:     exchange.HyperliquidWalletAddr,
+			HyperliquidUnifiedAccount: exchange.HyperliquidUnifiedAcct,
+			AsterUser:                 exchange.AsterUser,
+			AsterSigner:               exchange.AsterSigner,
+			LighterWalletAddr:         exchange.LighterWalletAddr,
 		}
 	}
 
@@ -1959,15 +1965,16 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 
 // CreateExchangeRequest request structure for creating a new exchange account
 type CreateExchangeRequest struct {
-	ExchangeType            string `json:"exchange_type" binding:"required"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-	AccountName             string `json:"account_name"`                     // User-defined account name
-	Enabled                 bool   `json:"enabled"`
-	APIKey                  string `json:"api_key"`
-	SecretKey               string `json:"secret_key"`
-	Passphrase              string `json:"passphrase"`
-	Testnet                 bool   `json:"testnet"`
-	HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
-	HyperliquidUnifiedAcct  bool   `json:"hyperliquid_unified_account"` // Unified Account mode: Spot as Perp collateral
+	ExchangeType          string `json:"exchange_type" binding:"required"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+	AccountName           string `json:"account_name"`                     // User-defined account name
+	Enabled               bool   `json:"enabled"`
+	APIKey                string `json:"api_key"`
+	SecretKey             string `json:"secret_key"`
+	Passphrase            string `json:"passphrase"`
+	Testnet               bool   `json:"testnet"`
+	HyperliquidWalletAddr string `json:"hyperliquid_wallet_addr"`
+	// Nil means the client did not send it; Create then keeps the default (on).
+	HyperliquidUnifiedAcct  *bool  `json:"hyperliquid_unified_account"` // Unified Account mode: Spot as Perp collateral
 	AsterUser               string `json:"aster_user"`
 	AsterSigner             string `json:"aster_signer"`
 	AsterPrivateKey         string `json:"aster_private_key"`

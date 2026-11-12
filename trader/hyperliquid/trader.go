@@ -231,13 +231,15 @@ func (t *HyperliquidTrader) GetBalance() (map[string]interface{}, error) {
 	// ✅ Step 1: Query Spot account balance
 	spotState, err := t.exchange.Info().SpotUserState(t.ctx, t.walletAddr)
 	var spotUSDCBalance float64 = 0.0
+	var spotUSDCOnHold float64 = 0.0
 	if err != nil {
 		logger.Infof("⚠️ Failed to query Spot balance (may have no spot assets): %v", err)
 	} else if spotState != nil && len(spotState.Balances) > 0 {
 		for _, balance := range spotState.Balances {
 			if balance.Coin == "USDC" {
 				spotUSDCBalance, _ = strconv.ParseFloat(balance.Total, 64)
-				logger.Infof("✓ Found Spot balance: %.2f USDC", spotUSDCBalance)
+				spotUSDCOnHold, _ = strconv.ParseFloat(balance.Hold, 64)
+				logger.Infof("✓ Found Spot balance: %.2f USDC (hold %.2f)", spotUSDCBalance, spotUSDCOnHold)
 				break
 			}
 		}
@@ -333,23 +335,40 @@ func (t *HyperliquidTrader) GetBalance() (map[string]interface{}, error) {
 	}
 	xyzWalletBalance := xyzAccountValue - xyzUnrealizedPnl
 
-	// ✅ Step 6: Correctly handle Spot + Perpetuals + xyz dex balance
-	// Important: Each account is independent, manual transfers required
-	totalWalletBalance := walletBalanceWithoutUnrealized + spotUSDCBalance + xyzWalletBalance
+	// ✅ Step 6: Account mode decides whether spot USDC is separate or already
+	// part of the perp pool.
+	//
+	// Hyperliquid is the source of truth here: the mode can be switched on the
+	// exchange without touching this app, so a stale local flag must not decide
+	// the arithmetic. Doubling spot USDC into available balance is what made the
+	// AI size entries the exchange then rejected for insufficient margin.
+	unified := t.isUnifiedAccount
+	switch abstraction := t.getAccountAbstraction(); abstraction {
+	case "unifiedAccount", "portfolioMargin":
+		unified = true
+	case "default", "disabled":
+		unified = false
+	default:
+		logger.Infof("⚠️ Could not read Hyperliquid account abstraction, falling back to stored setting (unified=%v)", unified)
+	}
+
 	totalUnrealizedPnlAll := totalUnrealizedPnl + xyzUnrealizedPnl
 
-	// Calculate total equity properly: perpAccountValue + spotUSDCBalance + xyzAccountValue
-	// Note: totalWalletBalance + totalUnrealizedPnlAll should equal this
-	totalEquityCalculated := accountValue + spotUSDCBalance + xyzAccountValue
+	totals := computeBalanceTotals(
+		accountValue, totalUnrealizedPnl,
+		availableBalance, spotUSDCBalance, spotUSDCOnHold,
+		xyzAccountValue, xyzUnrealizedPnl,
+		unified,
+	)
+	walletBalanceWithoutUnrealized = totals.WalletBalance
+	availableBalance = totals.Available
 
-	// ✅ Step 7: Unified Account mode - Spot USDC is used as collateral for Perps
-	// In this mode, available balance includes Spot USDC since it can be used for Perp margin
-	if t.isUnifiedAccount && spotUSDCBalance > 0 {
-		// Add Spot balance to available balance for trading
-		availableBalance = availableBalance + spotUSDCBalance
-		logger.Infof("✓ Unified Account: Spot %.2f USDC added to available balance (total: %.2f)",
-			spotUSDCBalance, availableBalance)
+	if unified {
+		logger.Infof("✓ Unified account: spot %.2f USDC counts as collateral (hold %.2f)", spotUSDCBalance, spotUSDCOnHold)
 	}
+
+	totalWalletBalance := totals.WalletBalance
+	totalEquityCalculated := totals.Equity
 
 	result["totalWalletBalance"] = totalWalletBalance       // Total assets (Perp + Spot + xyz) - unrealized
 	result["totalEquity"] = totalEquityCalculated           // Total equity = Perp AV + Spot + xyz AV
@@ -405,6 +424,107 @@ type xyzAssetPosition struct {
 			Value int    `json:"value"`
 		} `json:"leverage"`
 	} `json:"position"`
+}
+
+// getAccountAbstraction asks Hyperliquid which margin mode the account is in.
+//
+// Returns "default", "unifiedAccount", "portfolioMargin" or "disabled" exactly
+// as the exchange reports it, or "" when the query fails. The SDK bundled here
+// (v0.26.0) predates the userAbstraction info request, so this goes over the
+// wire directly -- it is a plain read, no signing involved.
+//
+// This matters for balance maths: the local per-account flag can drift from
+// reality the moment a user flips the mode on the exchange.
+func (t *HyperliquidTrader) getAccountAbstraction() string {
+	reqBody := map[string]string{
+		"type": "userAbstraction",
+		"user": t.walletAddr,
+	}
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return ""
+	}
+
+	apiURL := hyperliquid.MainnetAPIURL
+	if t.isTestnet {
+		apiURL = hyperliquid.TestnetAPIURL
+	}
+
+	req, err := http.NewRequestWithContext(t.ctx, http.MethodPost, apiURL+"/info", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+
+	var abstraction string
+	if err := json.Unmarshal(body, &abstraction); err != nil {
+		// Older deployments answer with an object; treat that as unknown rather
+		// than guessing a mode.
+		return ""
+	}
+	return abstraction
+}
+
+// balanceTotals is the spot/perp/xyz aggregation shared by GetBalance and its
+// unit tests.
+type balanceTotals struct {
+	WalletBalance float64 // equity minus unrealized PnL
+	Equity        float64
+	Available     float64
+}
+
+// computeBalanceTotals aggregates the perp, spot and xyz-dex balances for one
+// account mode.
+//
+// unified==true means Hyperliquid shares a single USDC balance between spot and
+// perps, with the collateral sitting in spot. The perp summary then either
+// already contains that USDC or reads zero, depending on account state, so the
+// two figures overlap: take the larger instead of adding them. Summing is what
+// previously doubled equity and available balance for unified accounts, making
+// the AI size positions the exchange rejected for insufficient margin.
+//
+// unified==false keeps the original behaviour: spot and perps are separate
+// accounts that require manual transfers, so they add up.
+func computeBalanceTotals(perpEquity, perpUnrealizedPnl, available, spotTotal, spotHold, xyzEquity, xyzUnrealizedPnl float64, unified bool) balanceTotals {
+	spotFree := spotTotal - spotHold
+	if spotFree < 0 {
+		spotFree = 0
+	}
+
+	xyzWallet := xyzEquity - xyzUnrealizedPnl
+
+	if unified {
+		pool := math.Max(perpEquity, spotTotal)
+		return balanceTotals{
+			WalletBalance: pool - perpUnrealizedPnl + xyzWallet,
+			Equity:        pool + xyzEquity,
+			// Withdrawable already nets out margin in use; usable spot is a
+			// floor for it, never an add-on.
+			Available: math.Max(available, spotFree),
+		}
+	}
+
+	return balanceTotals{
+		WalletBalance: perpEquity - perpUnrealizedPnl + spotTotal + xyzWallet,
+		Equity:        perpEquity + spotTotal + xyzEquity,
+		Available:     available,
+	}
 }
 
 // getXYZDexBalance queries the xyz dex balance (stock perps, forex, commodities)

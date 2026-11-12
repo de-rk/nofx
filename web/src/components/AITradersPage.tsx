@@ -700,9 +700,17 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     lighterWalletAddr?: string,
     lighterPrivateKey?: string,
     lighterApiKeyPrivateKey?: string,
-    lighterApiKeyIndex?: number
+    lighterApiKeyIndex?: number,
+    hyperliquidUnifiedAccount?: boolean
   ) => {
     try {
+      // Only send the Hyperliquid mode when this really is a Hyperliquid account:
+      // the field is meaningless elsewhere, and omitting it keeps other
+      // exchanges' configs untouched.
+      const isHyperliquid = exchangeType === 'hyperliquid'
+      const unifiedField = isHyperliquid
+        ? { hyperliquid_unified_account: hyperliquidUnifiedAccount ?? true }
+        : {}
       if (exchangeId) {
         // 更新现有账户配置
         const existingExchange = allExchanges?.find((e) => e.id === exchangeId)
@@ -720,6 +728,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               passphrase: passphrase || '',
               testnet: testnet || false,
               hyperliquid_wallet_addr: hyperliquidWalletAddr || '',
+              ...unifiedField,
               aster_user: asterUser || '',
               aster_signer: asterSigner || '',
               aster_private_key: asterPrivateKey || '',
@@ -747,6 +756,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           passphrase: passphrase || '',
           testnet: testnet || false,
           hyperliquid_wallet_addr: hyperliquidWalletAddr || '',
+          ...unifiedField,
           aster_user: asterUser || '',
           aster_signer: asterSigner || '',
           aster_private_key: asterPrivateKey || '',

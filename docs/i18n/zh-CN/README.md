@@ -32,10 +32,24 @@
 
 - **多 AI 支持**: 运行 DeepSeek、通义千问、GPT、Claude、Gemini、Grok、Kimi - 随时切换模型
 - **多交易所**: 在 Binance、Bybit、OKX、Bitget、KuCoin、Gate、Hyperliquid、Aster DEX、Lighter 统一交易
+- **原生移动止损**: 每个新开仓位都挂交易所侧的移动止损，即使程序进程挂掉保护依然生效（OKX 与 Hyperliquid）
 - **策略工作室**: 可视化策略构建器，配置币种来源、指标和风控参数
 - **AI 竞赛模式**: 多个 AI 交易员实时竞争，并排追踪表现
 - **Web 配置**: 无需编辑 JSON - 通过 Web 界面完成所有配置
 - **实时仪表板**: 实时持仓、盈亏追踪、AI 决策日志与思维链
+
+### 网格交易 (OKX · Hyperliquid)
+
+NOFX 内置双向网格交易引擎，全事件驱动架构:
+
+- **AI 驱动网格**: AI 每个周期决定挂单、撤单或保持不动
+- **T-Trade（解套减仓）**: 自动识别超阈值持仓并挂减仓单；支持多空双向同时减仓
+- **盈利减仓**: 可配置的分档止盈，按方向分别追踪进度
+- **WebSocket 接入**: 原生 WS 推送替代 REST 轮询获取价格、余额、持仓和 K 线 —— OKX (`ws.okx.com`) 与 Hyperliquid (`api.hyperliquid.xyz/ws`)
+- **事件驱动周期**: AI 决策由 K 线收盘事件触发（可配置 1m/3m/5m/15m/30m）；T-Trade 与盈利减仓由持仓/订单推送事件触发
+- **实时图表**: 仪表板图表通过 WS 推送实时 K 线与价格，订单标记和价格线经 SSE 推送更新
+
+> **持仓模式说明**: OKX 的网格运行在双向持仓（hedge）模式，多空两腿独立并存。Hyperliquid 没有双向持仓模式，其网格运行在单一净仓上，买卖档位互相抵消而非叠加成两侧。单向网格在两个平台表现完全一致。
 
 ### 核心团队
 
@@ -85,6 +99,8 @@
 | **Hyperliquid** | ✅ 已支持 | [注册](https://app.hyperliquid.xyz/join/AITRADING) |
 | **Aster DEX** | ✅ 已支持 | [注册](https://www.asterdex.com/en/referral/fdfc0e) |
 | **Lighter** | ✅ 已支持 | [注册](https://app.lighter.xyz/?referral=68151432) |
+
+> **原生移动止损要求**: AI 开仓强制要求交易所侧移动止损，因此**目前只有 OKX 和 Hyperliquid 能开新仓**。其他适配器仍可连接、读取余额与持仓、平仓或减仓 —— 只是不能开新仓。
 
 ---
 

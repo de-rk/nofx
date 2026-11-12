@@ -1,6 +1,7 @@
 package hyperliquid
 
 import (
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -55,14 +56,19 @@ func TestHyperliquidBalanceCalculation(t *testing.T) {
 	t.Logf("  Total Equity:           %.4f USDC", totalEquity)
 	t.Logf("  Available Balance:      %.4f USDC", availableBalance)
 
-	// Verify calculation: totalEquity should equal perpAccountValue + spotBalance + xyzDexBalance
-	expectedEquity := perpAccountValue + spotBalance + xyzDexBalance
+	// Verify calculation. Two shapes are legitimate depending on the account
+	// mode: default accounts keep spot separate (sum), unified accounts use spot
+	// as perp collateral so the figures overlap (max, never sum).
+	sumEquity := perpAccountValue + spotBalance + xyzDexBalance
+	unifiedEquity := math.Max(perpAccountValue, spotBalance) + xyzDexBalance
 	t.Logf("\n🔍 Verification:")
-	t.Logf("  Expected Equity (Perp + Spot + xyz): %.4f", expectedEquity)
-	t.Logf("  Actual Total Equity:                 %.4f", totalEquity)
+	t.Logf("  Equity if spot is separate: %.4f", sumEquity)
+	t.Logf("  Equity if unified account:  %.4f", unifiedEquity)
+	t.Logf("  Actual Total Equity:        %.4f", totalEquity)
 
-	if abs(totalEquity-expectedEquity) > 0.01 {
-		t.Errorf("❌ Equity mismatch! Expected %.4f, got %.4f", expectedEquity, totalEquity)
+	if abs(totalEquity-sumEquity) > 0.01 && abs(totalEquity-unifiedEquity) > 0.01 {
+		t.Errorf("❌ Equity mismatch! Neither %.4f (separate) nor %.4f (unified) matches %.4f",
+			sumEquity, unifiedEquity, totalEquity)
 	} else {
 		t.Logf("✅ Equity calculation correct!")
 	}

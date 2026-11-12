@@ -39,21 +39,24 @@
 
 - **Multi-AI Support**: Run DeepSeek, Qwen, GPT, Claude, Gemini, Grok, Kimi - switch models anytime
 - **Multi-Exchange**: Trade on Binance, Bybit, OKX, Bitget, KuCoin, Gate, Hyperliquid, Aster DEX, Lighter from one platform
+- **Native Trailing Stops**: Every new position gets an exchange-side trailing stop, so protection survives even if the bot process dies (OKX and Hyperliquid)
 - **Strategy Studio**: Visual strategy builder with coin sources, indicators, and risk controls
 - **AI Competition Mode**: Multiple AI traders compete in real-time, track performance side by side
 - **Web-Based Config**: No JSON editing - configure everything through the web interface
 - **Real-Time Dashboard**: Live positions, P/L tracking, AI decision logs with Chain of Thought
 
-### Grid Trading (OKX)
+### Grid Trading (OKX · Hyperliquid)
 
-NOFX includes a bidirectional grid trading engine for OKX with a full event-driven architecture:
+NOFX includes a bidirectional grid trading engine with a full event-driven architecture:
 
 - **AI-Driven Grid**: AI makes placement, cancellation, and hold decisions each cycle
 - **T-Trade (Trapped Position Reduction)**: Automatically detects over-threshold positions and places reduce orders; supports dual-side simultaneous reduction
 - **Profit-Based Reduction**: Configurable step-based profit taking with per-side progress tracking
-- **WebSocket Integration**: OKX WS replaces REST polling for price, balance, positions, and candlestick data
+- **WebSocket Integration**: Native WS feeds replace REST polling for price, balance, positions, and candlestick data — OKX (`ws.okx.com`) and Hyperliquid (`api.hyperliquid.xyz/ws`)
 - **Event-Driven Cycles**: AI decisions triggered by kline close events (configurable: 1m/3m/5m/15m/30m); T-trade and profit-reduce triggered by position/order push events
-- **Real-Time Chart**: Dashboard chart uses OKX WebSocket for live candles and price, with order markers and price lines updated via SSE push
+- **Real-Time Chart**: Dashboard chart streams live candles and price over WS, with order markers and price lines updated via SSE push
+
+> **Position mode caveat**: OKX runs the grid in dual-side hedge mode, so long and short legs coexist independently. Hyperliquid has no hedge mode — its grid runs on a single net position, where buy and sell levels offset each other instead of stacking into two sides. One-directional grids behave identically on both venues.
 
 ### Core Team
 
@@ -103,6 +106,8 @@ To use NOFX, you'll need:
 | <img src="web/public/exchange-icons/hyperliquid.png" width="20" height="20" style="vertical-align: middle;"/> **Hyperliquid** | ✅ | [Register](https://app.hyperliquid.xyz/join/AITRADING) |
 | <img src="web/public/exchange-icons/aster.svg" width="20" height="20" style="vertical-align: middle;"/> **Aster DEX** | ✅ | [Register](https://www.asterdex.com/en/referral/fdfc0e) |
 | <img src="web/public/exchange-icons/lighter.png" width="20" height="20" style="vertical-align: middle;"/> **Lighter** | ✅ | [Register](https://app.lighter.xyz/?referral=68151432) |
+
+> **Native trailing stop requirement**: AI entries require an exchange-side trailing stop, so **new positions can only be opened on OKX and Hyperliquid** today. Every other adapter still connects, reads balances and positions, and closes or reduces existing positions — it just cannot open new ones.
 
 ---
 
