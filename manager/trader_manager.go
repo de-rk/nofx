@@ -6,6 +6,7 @@ import (
 	"nofx/logger"
 	"nofx/store"
 	"nofx/trader"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -641,7 +642,21 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 }
 
 // addTraderFromStore internal method: adds trader from store configuration
-func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg *store.AIModel, exchangeCfg *store.Exchange, st *store.Store) error {
+func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg *store.AIModel, exchangeCfg *store.Exchange, st *store.Store) (err error) {
+	// Trader construction reaches third-party SDKs that panic instead of returning
+	// errors (hyperliquid's NewExchange panics when its metadata fetch fails or
+	// when the exchange changes its metadata shape). This runs on the main
+	// goroutine during startup, so an unrecovered panic restarts the process in a
+	// loop and no trader of any user can be served. One broken trader must only
+	// fail that trader.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic while loading trader %s: %v", traderCfg.Name, r)
+			logger.Errorf("❌ Panic while loading trader %s (%s): %v\n%s",
+				traderCfg.Name, traderCfg.ExchangeID, r, debug.Stack())
+		}
+	}()
+
 	if _, exists := tm.traders[traderCfg.ID]; exists {
 		return fmt.Errorf("trader ID '%s' already exists", traderCfg.ID)
 	}

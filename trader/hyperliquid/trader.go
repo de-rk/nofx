@@ -154,16 +154,15 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool,
 
 	ctx := context.Background()
 
-	// Create Exchange client (Exchange includes Info functionality)
-	exchange := hyperliquid.NewExchange(
-		ctx,
-		privateKey,
-		apiURL,
-		nil,        // Meta will be fetched automatically
-		"",         // vault address (empty for personal account)
-		walletAddr, // wallet address
-		nil,        // SpotMeta will be fetched automatically
-	)
+	// Create Exchange client (Exchange includes Info functionality).
+	// Spot metadata is normalized first: the SDK indexes its token table by token
+	// id while the exchange returns a dense array, which panics on mainnet (see
+	// newExchangeSafe). The wrapper turns any SDK panic into an error so one bad
+	// account can no longer take the whole process down at startup.
+	exchange, err := newExchangeSafe(ctx, privateKey, apiURL, walletAddr, loadSpotMeta(ctx, apiURL))
+	if err != nil {
+		return nil, err
+	}
 
 	logger.Infof("✓ Hyperliquid trader initialized successfully (testnet=%v, wallet=%s)", testnet, walletAddr)
 
