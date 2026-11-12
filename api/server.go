@@ -358,8 +358,7 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 	traderID := c.Query("trader_id")
 
 	// Ensure user's traders are loaded into memory
-	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
-	if err != nil {
+	if err := s.reloadUserTraders(userID); err != nil {
 		logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
 	}
 
@@ -380,6 +379,31 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 	}
 
 	return s.traderManager, traderID, nil
+}
+
+// reloadUserTraders loads the user's traders into memory, converting a panic
+// in the load path (bad config, exchange SDK issue, ...) into a plain error.
+// Without this, one broken trader config turns every data endpoint for the
+// user into an unexplained 500 recovered by gin.
+func (s *Server) reloadUserTraders(userID string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic while loading traders: %v", r)
+		}
+	}()
+	return s.traderManager.LoadUserTradersFromStore(s.store, userID)
+}
+
+// respondTraderMissing answers a "trader not in memory" lookup. When the
+// trader failed to load (recorded by the manager) the client gets the real
+// reason instead of a bare 404 that reads like a missing API route.
+func (s *Server) respondTraderMissing(c *gin.Context, traderID string) {
+	if loadErr := s.traderManager.GetLoadError(traderID); loadErr != nil {
+		msg := SanitizeError(loadErr, "Trader failed to load")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Trader failed to load: " + msg})
+		return
+	}
+	SafeNotFound(c, "Trader")
 }
 
 // AI trader management related structures
@@ -2119,10 +2143,22 @@ func (s *Server) handleTraderList(c *gin.Context) {
 	for _, trader := range traders {
 		// Get real-time running status
 		isRunning := trader.IsRunning
+		inMemory := true
 		if at, err := s.traderManager.GetTrader(trader.ID); err == nil {
 			status := at.GetStatus()
 			if running, ok := status["is_running"].(bool); ok {
 				isRunning = running
+			}
+		} else {
+			inMemory = false
+		}
+
+		// Surface why a trader failed to load into memory (bad key, missing
+		// strategy, ...). Without this the UI can only show unexplained 500s.
+		var loadError string
+		if !inMemory {
+			if loadErr := s.traderManager.GetLoadError(trader.ID); loadErr != nil {
+				loadError = SanitizeError(loadErr, "failed to load")
 			}
 		}
 
@@ -2152,6 +2188,7 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			"strategy_type":   strategyType,
 			"tags":            trader.Tags,
 			"created_at":      trader.CreatedAt,
+			"load_error":      loadError,
 		})
 	}
 
@@ -2240,7 +2277,7 @@ func (s *Server) handleStatus(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.respondTraderMissing(c, traderID)
 		return
 	}
 
@@ -2258,7 +2295,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.respondTraderMissing(c, traderID)
 		return
 	}
 
@@ -2288,7 +2325,7 @@ func (s *Server) handlePositions(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.respondTraderMissing(c, traderID)
 		return
 	}
 
@@ -2327,7 +2364,7 @@ func (s *Server) handlePositionHistory(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.respondTraderMissing(c, traderID)
 		return
 	}
 
@@ -3128,7 +3165,7 @@ func (s *Server) handleStatistics(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
+		s.respondTraderMissing(c, traderID)
 		return
 	}
 

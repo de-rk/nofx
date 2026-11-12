@@ -1109,6 +1109,16 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                         • {getModelDisplayName(trader.ai_model.split('_').pop() || trader.ai_model)}{' '}
                         • {getExchangeDisplayName(trader.exchange_id, allExchanges)}
                       </div>
+                      {trader.load_error && (
+                        <div
+                          className="mt-1 text-xs md:text-sm"
+                          style={{ color: '#F6465D', maxWidth: '36rem' }}
+                          title={trader.load_error}
+                        >
+                          {language === 'zh' ? '⚠️ 加载失败：' : '⚠️ Load failed: '}
+                          {trader.load_error}
+                        </div>
+                      )}
                     </div>
                   </div>
 

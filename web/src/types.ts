@@ -106,6 +106,9 @@ export interface TraderInfo {
   use_oi_top?: boolean
   system_prompt_template?: string
   created_at?: string
+  // Set when the trader failed to load into server memory (bad key, missing
+  // strategy, ...); empty when it loaded fine.
+  load_error?: string
 }
 
 export interface AIModel {
